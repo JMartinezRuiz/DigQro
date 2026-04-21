@@ -30,9 +30,10 @@ Después abre `http://localhost:8080`.
 - WhatsApp: `+52 442 600 0092`
 - Teléfono: `+52 442 600 0092`
 - Correo: `contacto@digitalizacionqueretaro.com`
+- Formspree: `https://formspree.io/f/mykldbwa`
 
 ## Seguridad
 
-La versión estática no usa claves, tokens, cookies, almacenamiento local, llamadas a APIs ni dependencias externas. El formulario solo prepara un `mailto:` local y el CTA principal abre WhatsApp con un mensaje codificado.
+La versión estática no usa claves, tokens, cookies, almacenamiento local ni librerías externas. El formulario envía los datos a Formspree mediante `POST` y el CTA principal abre WhatsApp con un mensaje codificado.
 
-Se dejó una política CSP en el HTML para limitar ejecución de scripts y carga de recursos al propio sitio.
+Se dejó una política CSP en el HTML para limitar ejecución de scripts y carga de recursos al propio sitio, permitiendo únicamente Formspree como destino externo del formulario.

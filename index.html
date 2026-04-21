@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; connect-src 'self'; upgrade-insecure-requests">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self' https://formspree.io; connect-src 'self' https://formspree.io; upgrade-insecure-requests">
     <title>Digitalización Querétaro | Soluciones digitales para negocios y condominios</title>
     <meta name="description" content="Digitalización práctica en Querétaro para negocios, restaurantes, hoteles y condominios: control de acceso, inventario, comandas, citas, WhatsApp, cámaras e IA. Demo gratuita.">
     <meta name="keywords" content="digitalización en Querétaro, control de acceso Querétaro, inventario para tiendas Querétaro, software de comandas Querétaro, soluciones digitales para negocios Querétaro, automatización para condominios Querétaro, hoteles y alojamientos turísticos Querétaro, asistentes virtuales con IA Querétaro">
@@ -385,16 +385,18 @@
             </address>
           </div>
 
-          <form class="contact-form" id="lead-form" novalidate>
+          <form class="contact-form" id="lead-form" action="https://formspree.io/f/mykldbwa" method="POST">
             <p class="eyebrow">Consulta rápida</p>
             <h3>Cuéntanos qué proceso quieres ordenar.</h3>
             <label>Nombre<input name="name" autocomplete="name" required minlength="2" placeholder="Tu nombre"></label>
-            <label>Negocio o condominio<input name="business" autocomplete="organization" placeholder="Ej. restaurante, clínica, administración"></label>
-            <label>Teléfono<input name="phone" autocomplete="tel" inputmode="tel" required placeholder="+52 442..."></label>
+            <label>Negocio o condominio<input name="business" autocomplete="organization" required minlength="2" placeholder="Ej. restaurante, clínica, administración"></label>
+            <label>Teléfono<input name="phone" autocomplete="tel" inputmode="tel" required pattern="(?:\+?52[ .()-]*)?(?:1[ .()-]*)?[2-9](?:[0-9 .()-]*[0-9]){9}" title="Usa 10 dígitos nacionales o formato +52 442 600 0092." placeholder="442 600 0092 o +52 442..."></label>
             <label>Mensaje<textarea name="message" required minlength="10" placeholder="Ej. quiero controlar visitas, ordenar comandas o automatizar citas."></textarea></label>
+            <input type="hidden" name="_subject" value="Nueva consulta desde Digitalización Querétaro">
+            <input class="honeypot" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
             <p class="form-status" aria-live="polite" data-form-status></p>
             <div class="form-actions">
-              <button class="button button-dark focus-ring" type="submit">Enviar consulta</button>
+              <button class="button button-dark focus-ring" type="submit" data-submit-button>Enviar consulta</button>
               <a class="button button-secondary focus-ring" href="https://wa.me/524426000092" target="_blank" rel="noopener noreferrer" data-whatsapp-form>Enviar por WhatsApp</a>
             </div>
           </form>
