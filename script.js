@@ -79,6 +79,23 @@
     year.textContent = String(new Date().getFullYear());
   }
 
+  var floatingWhatsApp = document.querySelector(".floating-whatsapp");
+
+  function updateFloatingWhatsApp() {
+    if (!floatingWhatsApp) {
+      return;
+    }
+
+    document.body.classList.toggle("show-floating-whatsapp", window.scrollY > 520 || window.innerWidth >= 560);
+  }
+
+  if (floatingWhatsApp) {
+    document.body.classList.add("floating-whatsapp-ready");
+    updateFloatingWhatsApp();
+    window.addEventListener("scroll", updateFloatingWhatsApp, { passive: true });
+    window.addEventListener("resize", updateFloatingWhatsApp);
+  }
+
   var form = document.getElementById("lead-form");
   var status = document.querySelector("[data-form-status]");
   var whatsappFormLink = document.querySelector("[data-whatsapp-form]");
