@@ -1234,11 +1234,18 @@ h1 {
     height: 3rem;
   }
 
-  body.floating-whatsapp-ready:not(.show-floating-whatsapp) .floating-whatsapp {
+  .floating-whatsapp {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
     transform: translateY(.6rem);
+  }
+
+  body.show-floating-whatsapp .floating-whatsapp {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
   }
 
   .floating-whatsapp .icon {

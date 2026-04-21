@@ -90,7 +90,6 @@
   }
 
   if (floatingWhatsApp) {
-    document.body.classList.add("floating-whatsapp-ready");
     updateFloatingWhatsApp();
     window.addEventListener("scroll", updateFloatingWhatsApp, { passive: true });
     window.addEventListener("resize", updateFloatingWhatsApp);
