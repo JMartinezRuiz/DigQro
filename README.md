@@ -10,7 +10,6 @@ styles.css
 script.js
 assets/
   favicon.svg
-  operations-mockup.svg
 .nojekyll
 ```
 
