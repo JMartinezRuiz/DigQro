@@ -8,8 +8,12 @@ Landing estática de una sola página para GitHub Pages.
 index.html
 styles.css
 script.js
+robots.txt
+sitemap.xml
 assets/
   favicon.svg
+  og-image.png
+  og-image.svg
 .nojekyll
 ```
 
