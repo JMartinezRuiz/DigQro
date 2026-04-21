@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 600" role="img" aria-labelledby="title desc">
+  <title id="title">Panel operativo de digitalización</title>
+  <desc id="desc">Mockup de un panel con accesos, comandas, inventario y mensajes de WhatsApp.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="28" flood-color="#14212b" flood-opacity=".14"/>
+    </filter>
+    <linearGradient id="soft" x1="92" x2="668" y1="58" y2="542" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#eef8f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="600" fill="none"/>
+  <circle cx="112" cy="94" r="62" fill="#0f9f9a" opacity=".12"/>
+  <circle cx="656" cy="486" r="86" fill="#1f6feb" opacity=".09"/>
+  <g filter="url(#shadow)">
+    <rect x="92" y="58" width="576" height="484" rx="34" fill="url(#soft)" stroke="#dbe5e1"/>
+    <rect x="92" y="58" width="576" height="78" rx="34" fill="#fff"/>
+    <path d="M92 112h576" stroke="#dbe5e1"/>
+    <circle cx="136" cy="97" r="8" fill="#ef6b5a"/>
+    <circle cx="164" cy="97" r="8" fill="#f6b85a"/>
+    <circle cx="192" cy="97" r="8" fill="#0f9f9a"/>
+    <rect x="440" y="83" width="176" height="28" rx="14" fill="#14212b"/>
+    <rect x="125" y="165" width="292" height="206" rx="26" fill="#fff" stroke="#dbe5e1"/>
+    <text x="153" y="206" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#14212b">Operación de hoy</text>
+    <rect x="153" y="232" width="68" height="86" rx="18" fill="#f7faf8"/>
+    <rect x="241" y="210" width="68" height="108" rx="18" fill="#e3f5f2"/>
+    <rect x="329" y="250" width="68" height="68" rx="18" fill="#e9f1ff"/>
+    <text x="166" y="352" font-family="Arial, sans-serif" font-size="14" fill="#667581">Accesos</text>
+    <text x="252" y="352" font-family="Arial, sans-serif" font-size="14" fill="#667581">Comandas</text>
+    <text x="338" y="352" font-family="Arial, sans-serif" font-size="14" fill="#667581">Citas</text>
+    <rect x="449" y="165" width="176" height="70" rx="22" fill="#14212b"/>
+    <text x="476" y="197" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#fff">Demo gratuita</text>
+    <text x="476" y="218" font-family="Arial, sans-serif" font-size="13" fill="#b8c8ce">Sin compromiso</text>
+    <rect x="449" y="253" width="176" height="70" rx="22" fill="#fff" stroke="#dbe5e1"/>
+    <circle cx="484" cy="288" r="17" fill="#0f9f9a" opacity=".16"/>
+    <text x="514" y="285" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#14212b">WhatsApp</text>
+    <text x="514" y="306" font-family="Arial, sans-serif" font-size="12" fill="#667581">3 mensajes listos</text>
+    <rect x="449" y="341" width="176" height="70" rx="22" fill="#fff" stroke="#dbe5e1"/>
+    <circle cx="484" cy="376" r="17" fill="#1f6feb" opacity=".14"/>
+    <text x="514" y="373" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#14212b">IA asistente</text>
+    <text x="514" y="394" font-family="Arial, sans-serif" font-size="12" fill="#667581">Reservas y dudas</text>
+    <rect x="125" y="397" width="500" height="88" rx="26" fill="#fff" stroke="#dbe5e1"/>
+    <rect x="153" y="425" width="122" height="32" rx="16" fill="#e3f5f2"/>
+    <rect x="295" y="425" width="122" height="32" rx="16" fill="#f7faf8"/>
+    <rect x="437" y="425" width="150" height="32" rx="16" fill="#e9f1ff"/>
+  </g>
+</svg>
