@@ -1301,14 +1301,14 @@ function renderLogin() {
             <p class="brand-subtitle">Acceso al punto de venta</p>
           </div>
         </div>
-        <form class="login-form" data-login-form>
+        <form class="login-form" data-login-form autocomplete="off">
           <label class="field">
             <span>Usuario</span>
-            <input name="username" autocomplete="username" value="admin" />
+            <input name="username" autocomplete="off" autocapitalize="none" spellcheck="false" />
           </label>
           <label class="field">
             <span>Contrasena</span>
-            <input name="password" type="password" autocomplete="current-password" value="admin" />
+            <input name="password" type="password" autocomplete="off" />
           </label>
           ${state.authError ? `<p class="form-error">${escapeHtml(state.authError)}</p>` : ""}
           <button class="primary-button" type="submit">${svg("check")}Entrar</button>
