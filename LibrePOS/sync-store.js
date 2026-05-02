@@ -1,9 +1,7 @@
 import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import http from "node:http";
 import https from "node:https";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -13,7 +11,6 @@ const DATA_DIR = path.join(ROOT_DIR, ".librepos");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 const TOKEN_FILE = path.join(DATA_DIR, "sync-token");
 const VERSION_FILE = path.join(DATA_DIR, "app-version.json");
-const UPDATE_SOURCE_FILE = path.join(DATA_DIR, "update-source.json");
 const BODY_LIMIT = 8 * 1024 * 1024;
 const ACCESS_COOKIE = "librepos_sync";
 const PASSWORD_ITERATIONS = 120000;
@@ -24,7 +21,6 @@ const UPDATE_REPO_NAME = "DigQro";
 const UPDATE_BRANCH = "main";
 const UPDATE_PROJECT_PREFIX = "LibrePOS/";
 const UPDATE_REPO_URL = `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`;
-const DEFAULT_UPDATE_MIRRORS = ["http://localhost:3000", "http://127.0.0.1:3000"];
 const PRESERVED_UPDATE_DIRS = new Set([".git", ".librepos", ".vite", "node_modules", "dist"]);
 const PRESERVED_UPDATE_FILES = new Set([".DS_Store", ".env", ".env.local"]);
 const GITHUB_API_HEADERS = {
@@ -227,8 +223,7 @@ function githubRawUrl(githubPath) {
 function requestUrl(url, { json = true, headers = {}, timeout = 25000 } = {}, redirects = 0) {
   return new Promise((resolve, reject) => {
     const target = url instanceof URL ? url : new URL(url);
-    const transport = target.protocol === "http:" ? http : https;
-    const req = transport.request(
+    const req = https.request(
       target,
       {
         method: "GET",
@@ -339,21 +334,7 @@ async function fetchLatestRemoteVersion() {
   };
 }
 
-async function getUpdateStatus(options = {}) {
-  if (options.source === "mirror") return getMirrorUpdateStatus();
-  try {
-    return await getGithubUpdateStatus();
-  } catch (error) {
-    try {
-      const mirrorStatus = await getMirrorUpdateStatus();
-      return { ...mirrorStatus, githubError: compactError(error) };
-    } catch (mirrorError) {
-      throw new Error(`update-source-unreachable: github=${compactError(error)} mirror=${compactError(mirrorError)}`);
-    }
-  }
-}
-
-async function getGithubUpdateStatus() {
+export async function getUpdateStatus() {
   const [storedLocal, remote] = await Promise.all([readLocalAppVersion(), fetchLatestRemoteVersion()]);
   let local = storedLocal;
   let localIncludesRemote = false;
@@ -370,7 +351,6 @@ async function getGithubUpdateStatus() {
   }
   const available = Boolean(remote?.commitSha && !localIncludesRemote && (!local.commitSha || !sameCommit(local.commitSha, remote.commitSha)));
   return {
-    source: "github",
     available,
     repoUrl: UPDATE_REPO_URL,
     branch: UPDATE_BRANCH,
@@ -397,6 +377,11 @@ function compactError(error) {
   return String(error?.message || error || "unknown").replace(/\s+/g, " ").slice(0, 280);
 }
 
+function updateLog(message, details = null) {
+  const suffix = details ? ` ${JSON.stringify(details)}` : "";
+  console.log(`[LibrePOS update ${new Date().toISOString()}] ${message}${suffix}`);
+}
+
 async function gitCommitIncludes(ancestorCommit, descendantCommit) {
   if (!ancestorCommit || !descendantCommit) return false;
   try {
@@ -416,224 +401,6 @@ function gitBlobSha(buffer) {
     .update(Buffer.from(`blob ${buffer.length}\0`))
     .update(buffer)
     .digest("hex");
-}
-
-function sha256(buffer) {
-  return createHash("sha256").update(buffer).digest("hex");
-}
-
-function normalizeMirrorUrl(value) {
-  try {
-    const url = new URL(String(value || "").trim());
-    if (!["http:", "https:"].includes(url.protocol)) return "";
-    url.pathname = url.pathname.replace(/\/+$/, "");
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return "";
-  }
-}
-
-async function readUpdateMirrorUrls() {
-  const urls = [];
-  if (process.env.LIBREPOS_UPDATE_MIRROR) {
-    urls.push(...process.env.LIBREPOS_UPDATE_MIRROR.split(","));
-  }
-  try {
-    const config = JSON.parse(await readFile(UPDATE_SOURCE_FILE, "utf8"));
-    if (Array.isArray(config.mirrorUrls)) urls.push(...config.mirrorUrls);
-    if (config.mirrorUrl) urls.push(config.mirrorUrl);
-  } catch {
-    // The built-in local mirror is used when no custom source is configured.
-  }
-  urls.push(...DEFAULT_UPDATE_MIRRORS);
-  urls.push(...localInterfaceMirrorUrls());
-  return [...new Set(urls.map(normalizeMirrorUrl).filter(Boolean))];
-}
-
-function localInterfaceMirrorUrls() {
-  const urls = [];
-  for (const addresses of Object.values(os.networkInterfaces())) {
-    for (const address of addresses || []) {
-      if (address.family !== "IPv4" || address.internal) continue;
-      urls.push(`http://${address.address}:3000`);
-    }
-  }
-  return urls;
-}
-
-function lanMirrorCandidates(knownUrls) {
-  const known = new Set(knownUrls);
-  const candidates = [];
-  for (const addresses of Object.values(os.networkInterfaces())) {
-    for (const address of addresses || []) {
-      if (address.family !== "IPv4" || address.internal) continue;
-      const parts = address.address.split(".");
-      if (parts.length !== 4) continue;
-      const prefix = parts.slice(0, 3).join(".");
-      for (let host = 1; host <= 254; host += 1) {
-        const url = `http://${prefix}.${host}:3000`;
-        if (!known.has(url)) candidates.push(url);
-      }
-    }
-  }
-  return [...new Set(candidates)];
-}
-
-function parseMirrorCommit(name) {
-  const matches = String(name || "").matchAll(/(?:^|[-_])([0-9a-f]{7,40})(?=[-_.])/gi);
-  for (const match of matches) {
-    if (/[a-f]/i.test(match[1])) return match[1].toLowerCase();
-  }
-  return null;
-}
-
-function findMirrorPackage(files) {
-  const zips = files
-    .filter((file) => /^LibrePOS-Windows-.*\.zip$/i.test(file.name || ""))
-    .filter((file) => !/\.sha256$/i.test(file.name || ""))
-    .sort((a, b) => {
-      const priority = Number(/auto-update/i.test(b.name || "")) - Number(/auto-update/i.test(a.name || ""));
-      if (priority) return priority;
-      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
-    });
-  const pack = zips[0];
-  if (!pack) return null;
-  const shaFile = files.find((file) => file.name === `${pack.name}.sha256`);
-  return {
-    name: pack.name,
-    packageUrl: pack.downloadUrl,
-    shaUrl: shaFile?.downloadUrl || "",
-    commitSha: parseMirrorCommit(pack.name),
-    date: pack.createdAt || "",
-  };
-}
-
-async function fetchMirrorPackageInfo(mirrorUrl) {
-  const apiUrl = new URL("/api/items", `${mirrorUrl}/`);
-  const payload = await requestUrl(apiUrl, { headers: { Accept: "application/json" }, timeout: 1500 });
-  const pack = findMirrorPackage(Array.isArray(payload.files) ? payload.files : []);
-  if (!pack?.packageUrl) throw new Error("mirror-package-not-found");
-  return { mirrorUrl, ...pack };
-}
-
-async function probeMirrorUrl(mirrorUrl) {
-  try {
-    const apiUrl = new URL("/api/items", `${mirrorUrl}/`);
-    const payload = await requestUrl(apiUrl, { headers: { Accept: "application/json" }, timeout: 450 });
-    return Array.isArray(payload.files);
-  } catch {
-    return false;
-  }
-}
-
-async function discoverLanMirrorUrls(knownUrls) {
-  const candidates = lanMirrorCandidates(knownUrls);
-  const found = [];
-  let cursor = 0;
-  const workerCount = Math.min(48, candidates.length);
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (cursor < candidates.length && found.length < 4) {
-        const mirrorUrl = candidates[cursor];
-        cursor += 1;
-        if (await probeMirrorUrl(mirrorUrl)) found.push(mirrorUrl);
-      }
-    }),
-  );
-  return found;
-}
-
-async function getMirrorUpdateStatus() {
-  const local = await readLocalAppVersion();
-  const errors = [];
-  const knownUrls = await readUpdateMirrorUrls();
-  for (const mirrorUrl of knownUrls) {
-    try {
-      const pack = await fetchMirrorPackageInfo(mirrorUrl);
-      const available = Boolean(!pack.commitSha || !sameCommit(local.commitSha, pack.commitSha));
-      return {
-        source: "mirror",
-        available,
-        repoUrl: UPDATE_REPO_URL,
-        mirrorUrl,
-        packageName: pack.name,
-        packageUrl: pack.packageUrl,
-        shaUrl: pack.shaUrl,
-        branch: UPDATE_BRANCH,
-        projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
-        localCommit: local.commitSha,
-        localSource: local.source,
-        localIncludesRemote: false,
-        localUpdatedAt: local.updatedAt,
-        remoteCommit: pack.commitSha,
-        remoteUrl: pack.packageUrl,
-        remoteDate: pack.date,
-        checkedAt: new Date().toISOString(),
-      };
-    } catch (error) {
-      errors.push(`${mirrorUrl}: ${compactError(error)}`);
-    }
-  }
-  for (const mirrorUrl of await discoverLanMirrorUrls(knownUrls)) {
-    try {
-      const pack = await fetchMirrorPackageInfo(mirrorUrl);
-      const available = Boolean(!pack.commitSha || !sameCommit(local.commitSha, pack.commitSha));
-      return {
-        source: "mirror",
-        available,
-        repoUrl: UPDATE_REPO_URL,
-        mirrorUrl,
-        packageName: pack.name,
-        packageUrl: pack.packageUrl,
-        shaUrl: pack.shaUrl,
-        branch: UPDATE_BRANCH,
-        projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
-        localCommit: local.commitSha,
-        localSource: local.source,
-        localIncludesRemote: false,
-        localUpdatedAt: local.updatedAt,
-        remoteCommit: pack.commitSha,
-        remoteUrl: pack.packageUrl,
-        remoteDate: pack.date,
-        checkedAt: new Date().toISOString(),
-      };
-    } catch (error) {
-      errors.push(`${mirrorUrl}: ${compactError(error)}`);
-    }
-  }
-  throw new Error(`mirror-unreachable: ${errors.join(" | ")}`);
-}
-
-async function readMirrorSha(status) {
-  if (!status.shaUrl) return "";
-  try {
-    const buffer = await requestUrl(status.shaUrl, { json: false, headers: { Accept: "text/plain" } });
-    const match = buffer.toString("utf8").match(/[a-f0-9]{64}/i);
-    return match ? match[0].toLowerCase() : "";
-  } catch {
-    return "";
-  }
-}
-
-async function extractLibrePosZip(buffer) {
-  const zipModule = await import("adm-zip");
-  const AdmZip = zipModule.default || zipModule;
-  const zip = new AdmZip(buffer);
-  const files = [];
-  for (const entry of zip.getEntries()) {
-    if (entry.isDirectory) continue;
-    const entryName = entry.entryName.replaceAll("\\", "/");
-    const relativePath = safeRemoteRelativePath(entryName);
-    if (!relativePath) continue;
-    files.push({
-      relativePath,
-      buffer: entry.getData(),
-    });
-  }
-  if (!files.length) throw new Error("mirror-package-empty");
-  return files;
 }
 
 async function readLocalVersionFromFiles(remoteFiles, remoteCommit) {
@@ -738,6 +505,7 @@ async function writeDownloadedProjectFiles(files) {
 
 async function installDependencies() {
   const command = process.platform === "win32" ? "npm.cmd" : "npm";
+  updateLog("Ejecutando npm install");
   const { stdout, stderr } = await execFile(command, ["install"], {
     cwd: ROOT_DIR,
     timeout: 180000,
@@ -746,66 +514,50 @@ async function installDependencies() {
   return { stdout: stdout.slice(-4000), stderr: stderr.slice(-4000) };
 }
 
-async function applyRepositoryUpdate(options = {}) {
+export async function applyRepositoryUpdate() {
   if (updateInProgress) throw new Error("update-in-progress");
   updateInProgress = true;
   try {
-    const status = await getUpdateStatus(options);
-    if (!status.remoteCommit && status.source !== "mirror") throw new Error("remote-version-not-found");
+    updateLog("Buscando actualizacion en GitHub", { repo: `${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`, branch: UPDATE_BRANCH });
+    const status = await getUpdateStatus();
+    if (!status.remoteCommit) throw new Error("remote-version-not-found");
     if (!status.available) {
+      updateLog("LibrePOS ya esta actualizado", {
+        localCommit: status.localCommit,
+        remoteCommit: status.remoteCommit,
+      });
       return { ...status, updated: false, filesUpdated: 0, installRan: false, restartRequired: false };
     }
-    if (status.source === "mirror") {
-      return applyMirrorRepositoryUpdate(status);
-    }
 
-    try {
-      return await applyGithubRepositoryUpdate(status);
-    } catch (error) {
-      const mirrorStatus = await getMirrorUpdateStatus();
-      if (!mirrorStatus.available) throw error;
-      return applyMirrorRepositoryUpdate({ ...mirrorStatus, githubError: compactError(error) });
-    }
+    return await applyGithubRepositoryUpdate(status);
+  } catch (error) {
+    updateLog("Error al actualizar LibrePOS", { error: compactError(error) });
+    throw error;
   } finally {
     updateInProgress = false;
   }
 }
 
 async function applyGithubRepositoryUpdate(status) {
+  updateLog("Actualizacion iniciada", {
+    localCommit: status.localCommit,
+    remoteCommit: status.remoteCommit,
+    remoteUrl: status.remoteUrl,
+  });
   const remoteFiles = await fetchRemoteProjectFiles();
+  updateLog("Lista de archivos recibida desde GitHub", { files: remoteFiles.length });
   const downloadedFiles = await downloadRemoteProjectFiles(remoteFiles);
+  updateLog("Archivos descargados desde GitHub", { files: downloadedFiles.length });
   const remoteFileSet = new Set(downloadedFiles.map((file) => file.relativePath));
   await removeStaleProjectFiles(remoteFileSet);
+  updateLog("Archivos obsoletos removidos");
   await writeDownloadedProjectFiles(downloadedFiles);
+  updateLog("Archivos nuevos escritos");
   const installResult = await installDependencies();
   await writeLocalAppVersion(status.remoteCommit);
-  return {
-    ...status,
-    updated: true,
-    filesUpdated: downloadedFiles.length,
-    installRan: true,
-    installLog: installResult.stderr || installResult.stdout,
-    restartRequired: true,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-async function applyMirrorRepositoryUpdate(status) {
-  const packageBuffer = await requestUrl(status.packageUrl, {
-    json: false,
-    headers: { Accept: "application/zip, application/octet-stream" },
-    timeout: 60000,
+  updateLog("Actualizacion completada. Cierra y abre LibrePOS para cargar la nueva version.", {
+    remoteCommit: status.remoteCommit,
   });
-  const expectedSha = await readMirrorSha(status);
-  if (expectedSha && sha256(packageBuffer) !== expectedSha) {
-    throw new Error("mirror-sha-mismatch");
-  }
-  const downloadedFiles = await extractLibrePosZip(packageBuffer);
-  const remoteFileSet = new Set(downloadedFiles.map((file) => file.relativePath));
-  await removeStaleProjectFiles(remoteFileSet);
-  await writeDownloadedProjectFiles(downloadedFiles);
-  const installResult = await installDependencies();
-  if (status.remoteCommit) await writeLocalAppVersion(status.remoteCommit);
   return {
     ...status,
     updated: true,
@@ -844,7 +596,7 @@ export function createSyncMiddleware() {
       if (!(await requireAccess(req, res))) return;
 
       if (url.pathname === "/api/update/status" && req.method === "GET") {
-        sendJson(res, 200, await getUpdateStatus({ source: url.searchParams.get("source") || "" }));
+        sendJson(res, 200, await getUpdateStatus());
         return;
       }
 
@@ -853,7 +605,7 @@ export function createSyncMiddleware() {
           sendJson(res, 409, { error: "update-in-progress" });
           return;
         }
-        sendJson(res, 200, await applyRepositoryUpdate({ source: url.searchParams.get("source") || "" }));
+        sendJson(res, 200, await applyRepositoryUpdate());
         return;
       }
 

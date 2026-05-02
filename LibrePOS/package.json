@@ -6,13 +6,11 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "start": "vite --host 0.0.0.0",
+    "update": "node scripts/update.js",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "devDependencies": {
     "vite": "^7.2.7"
-  },
-  "dependencies": {
-    "adm-zip": "^0.5.17"
   }
 }

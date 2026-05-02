@@ -74,13 +74,13 @@ LibrePOS consulta `https://github.com/JMartinezRuiz/DigQro` y muestra el boton `
 
 Al actualizar se descargan los archivos del proyecto, se ejecuta `npm install` y se conserva completa la carpeta `.librepos/`, por lo que ventas, mesas, usuarios, inventario, fichajes y datos locales no se borran. Tras actualizar, cierra y vuelve a abrir LibrePOS para cargar tambien los cambios del servidor local.
 
-Si el equipo del cliente no puede conectarse a GitHub, LibrePOS intenta usar Transferencia Local como respaldo. Primero revisa si esta en el mismo equipo y despues busca automaticamente en la red local. Si quieres fijar una IP concreta, crea `.librepos/update-source.json` con:
+Tambien se puede actualizar desde la consola dentro de la carpeta LibrePOS:
 
-```json
-{
-  "mirrorUrl": "http://TU-IP:3000"
-}
+```bash
+npm run update
 ```
+
+El actualizador escribe logs en la consola donde corre `npm start` y tambien en la consola cuando se usa `npm run update`.
 
 ## Seguridad local
 
