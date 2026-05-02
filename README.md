@@ -2,6 +2,17 @@
 
 Landing estática de una sola página para GitHub Pages.
 
+## LibrePOS
+
+El proyecto POS para restaurante esta en la carpeta `LibrePOS/`.
+
+- Instalacion point-and-click para macOS: `LibrePOS/Instalar LibrePOS.command`
+- Arranque point-and-click para macOS: `LibrePOS/Abrir LibrePOS.command`
+- Instalacion point-and-click para Windows: `LibrePOS/Instalar LibrePOS.bat`
+- Arranque point-and-click para Windows: `LibrePOS/Abrir LibrePOS.bat`
+
+Los datos locales del POS se guardan en `LibrePOS/.librepos/` y no se publican en Git.
+
 ## Archivos para publicar
 
 ```text
