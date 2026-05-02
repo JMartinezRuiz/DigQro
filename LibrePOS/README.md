@@ -68,6 +68,12 @@ Los datos reales del restaurante se guardan localmente en:
 
 Esa carpeta esta ignorada por Git para no publicar ventas, usuarios, tokens ni informacion de operacion. Si migras el POS a otro equipo y quieres conservar datos, copia manualmente la carpeta `.librepos/`.
 
+## Actualizaciones
+
+LibrePOS consulta `https://github.com/JMartinezRuiz/DigQro` y muestra el boton `Actualizar` solo a usuarios admin cuando hay cambios nuevos dentro de la carpeta `LibrePOS/`.
+
+Al actualizar se descargan los archivos del proyecto, se ejecuta `npm install` y se conserva completa la carpeta `.librepos/`, por lo que ventas, mesas, usuarios, inventario, fichajes y datos locales no se borran. Tras actualizar, cierra y vuelve a abrir LibrePOS para cargar tambien los cambios del servidor local.
+
 ## Seguridad local
 
 La sincronizacion usa una API local servida por Vite. No esta pensada para internet publico. Usala solo dentro de una red WiFi de confianza.

@@ -483,6 +483,8 @@ const defaultState = {
   productConfig: null,
   modal: null,
   paymentMethod: "Efectivo",
+  updateInfo: null,
+  updateBusy: false,
   settings: {
     restaurantName: "LibrePOS",
     subtitle: "Los Tatas · POS restaurante",
@@ -739,6 +741,8 @@ function applySharedState(shared) {
     productConfig: state.productConfig,
     modal: state.modal,
     paymentMethod: state.paymentMethod,
+    updateInfo: state.updateInfo,
+    updateBusy: state.updateBusy,
   };
   state = {
     ...state,
@@ -944,6 +948,58 @@ function applyRemoteSyncPayload(payload) {
   syncLastPayload = JSON.stringify(sharedStateFromCurrent());
   persistLocal();
   render();
+}
+
+async function checkForUpdates() {
+  try {
+    const response = await fetch("/api/update/status", { cache: "no-store" });
+    if (!response.ok) return;
+    const info = await response.json();
+    const previous = state.updateInfo || {};
+    const changed =
+      previous.available !== info.available ||
+      previous.remoteCommit !== info.remoteCommit ||
+      previous.localCommit !== info.localCommit;
+    state.updateInfo = info;
+    if (changed && currentUser()) render();
+  } catch {
+    // The update button stays hidden when GitHub or the local server is unavailable.
+  }
+}
+
+async function applyUpdate() {
+  if (state.updateBusy) return;
+  state.updateBusy = true;
+  render();
+  try {
+    const response = await fetch("/api/update/apply", { method: "POST" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "update-failed");
+    state.updateInfo = {
+      ...(state.updateInfo || {}),
+      ...payload,
+      available: false,
+      localCommit: payload.remoteCommit || state.updateInfo?.remoteCommit || state.updateInfo?.localCommit,
+    };
+    persistLocal();
+    showToast(
+      payload.updated
+        ? "LibrePOS actualizado. Cierra y abre LibrePOS para cargar la nueva version."
+        : "LibrePOS ya estaba actualizado.",
+    );
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (message.includes("update-in-progress")) {
+      showToast("Ya hay una actualizacion en curso.");
+    } else if (message.includes("github")) {
+      showToast("No se pudo consultar GitHub. Revisa la conexion a internet.");
+    } else {
+      showToast("No se pudo actualizar LibrePOS.");
+    }
+  } finally {
+    state.updateBusy = false;
+    render();
+  }
 }
 
 function setTheme() {
@@ -1318,6 +1374,24 @@ function renderLogin() {
   `;
 }
 
+function shortCommit(value) {
+  return value ? String(value).slice(0, 7) : "";
+}
+
+function renderUpdateButton() {
+  if (!isAdminUser()) return "";
+  if (!state.updateBusy && !state.updateInfo?.available) return "";
+  const title = state.updateInfo?.remoteCommit
+    ? `Nueva version disponible: ${shortCommit(state.updateInfo.remoteCommit)}`
+    : "Actualizar LibrePOS";
+  return `
+    <button class="nav-button update-nav-button ${state.updateBusy ? "is-busy" : ""}" data-apply-update ${state.updateBusy ? "disabled" : ""} title="${escapeHtml(title)}">
+      ${svg("transfer")}
+      <span>${state.updateBusy ? "Actualizando" : "Actualizar"}</span>
+    </button>
+  `;
+}
+
 function renderHeader() {
   const user = currentUser();
   return `
@@ -1343,6 +1417,7 @@ function renderHeader() {
             `,
           )
           .join("")}
+        ${renderUpdateButton()}
         <button class="nav-button logout-nav-button" data-logout>${svg("logout")}Salir</button>
       </nav>
     </header>
@@ -3157,6 +3232,7 @@ function bindLogin() {
     state.sessionUserId = user.id;
     persist();
     render();
+    checkForUpdates();
   });
 }
 
@@ -3186,6 +3262,7 @@ async function authenticateUser(username, password) {
 }
 
 function bindEvents() {
+  document.querySelector("[data-apply-update]")?.addEventListener("click", applyUpdate);
   document.querySelectorAll("[data-nav]").forEach((button) => {
     button.addEventListener("click", () => {
       state.view = button.dataset.nav;
@@ -4709,3 +4786,5 @@ function minutesBetween(start, end) {
 
 render();
 initNetworkSync();
+checkForUpdates();
+window.setInterval(checkForUpdates, 10 * 60 * 1000);

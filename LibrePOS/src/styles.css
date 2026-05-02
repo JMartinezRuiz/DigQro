@@ -343,6 +343,18 @@ button:disabled {
   color: var(--surface);
 }
 
+.update-nav-button {
+  border-color: rgba(223, 131, 95, 0.35);
+  background: #fff4ec;
+  color: #9a3412;
+  box-shadow: 0 8px 18px rgba(223, 131, 95, 0.16);
+}
+
+.update-nav-button.is-busy {
+  cursor: wait;
+  opacity: 0.78;
+}
+
 .primary-button {
   min-height: 44px;
   padding: 0 14px;

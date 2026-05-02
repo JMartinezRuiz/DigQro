@@ -1,22 +1,40 @@
-import { randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
+import { execFile as execFileCallback } from "node:child_process";
+import https from "node:https";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(ROOT_DIR, ".librepos");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 const TOKEN_FILE = path.join(DATA_DIR, "sync-token");
+const VERSION_FILE = path.join(DATA_DIR, "app-version.json");
 const BODY_LIMIT = 8 * 1024 * 1024;
 const ACCESS_COOKIE = "librepos_sync";
 const PASSWORD_ITERATIONS = 120000;
 const PASSWORD_KEYLEN = 32;
 const PASSWORD_DIGEST = "sha256";
+const UPDATE_REPO_OWNER = "JMartinezRuiz";
+const UPDATE_REPO_NAME = "DigQro";
+const UPDATE_BRANCH = "main";
+const UPDATE_PROJECT_PREFIX = "LibrePOS/";
+const UPDATE_REPO_URL = `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`;
+const PRESERVED_UPDATE_DIRS = new Set([".git", ".librepos", ".vite", "node_modules", "dist"]);
+const PRESERVED_UPDATE_FILES = new Set([".DS_Store", ".env", ".env.local"]);
+const GITHUB_API_HEADERS = {
+  Accept: "application/vnd.github+json",
+  "User-Agent": "LibrePOS-Updater",
+  "X-GitHub-Api-Version": "2022-11-28",
+};
 
 let sharedState = null;
 let sharedVersion = 0;
 let accessToken = "";
+let updateInProgress = false;
 const clients = new Set();
+const execFile = promisify(execFileCallback);
 
 async function loadSharedState() {
   if (sharedState) return;
@@ -193,6 +211,316 @@ async function requireAccess(req, res) {
   return true;
 }
 
+function githubApiUrl(pathname) {
+  return `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}${pathname}`;
+}
+
+function githubRawUrl(githubPath) {
+  const encodedPath = githubPath.split("/").map(encodeURIComponent).join("/");
+  return `https://raw.githubusercontent.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/${UPDATE_BRANCH}/${encodedPath}`;
+}
+
+function requestGithub(url, { json = true, headers = {} } = {}, redirects = 0) {
+  return new Promise((resolve, reject) => {
+    const target = url instanceof URL ? url : new URL(url);
+    const req = https.request(
+      target,
+      {
+        method: "GET",
+        headers: { ...GITHUB_API_HEADERS, ...headers },
+      },
+      (res) => {
+        const status = res.statusCode || 0;
+        if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
+          res.resume();
+          if (redirects >= 5) {
+            reject(new Error("github-redirect-limit"));
+            return;
+          }
+          resolve(requestGithub(new URL(res.headers.location, target), { json, headers }, redirects + 1));
+          return;
+        }
+
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          const body = Buffer.concat(chunks);
+          if (status < 200 || status >= 300) {
+            reject(new Error(`github-${status}: ${body.toString("utf8").slice(0, 240)}`));
+            return;
+          }
+          if (!json) {
+            resolve(body);
+            return;
+          }
+          try {
+            resolve(JSON.parse(body.toString("utf8")));
+          } catch {
+            reject(new Error("github-invalid-json"));
+          }
+        });
+      },
+    );
+    req.setTimeout(25000, () => {
+      req.destroy(new Error("github-timeout"));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+async function readLocalAppVersion() {
+  try {
+    const version = JSON.parse(await readFile(VERSION_FILE, "utf8"));
+    if (version?.commitSha) {
+      return { commitSha: String(version.commitSha), source: "version-file", updatedAt: version.updatedAt || "" };
+    }
+  } catch {
+    // Older installs do not have this file yet.
+  }
+
+  try {
+    const { stdout } = await execFile("git", ["log", "-n", "1", "--format=%H", "--", "."], {
+      cwd: ROOT_DIR,
+      timeout: 5000,
+      maxBuffer: 64 * 1024,
+    });
+    const commitSha = stdout.trim();
+    if (commitSha) return { commitSha, source: "git", updatedAt: "" };
+  } catch {
+    // ZIP installs normally do not have git metadata.
+  }
+
+  return { commitSha: null, source: "unknown", updatedAt: "" };
+}
+
+async function writeLocalAppVersion(commitSha) {
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeFile(
+    VERSION_FILE,
+    JSON.stringify(
+      {
+        commitSha,
+        branch: UPDATE_BRANCH,
+        repo: `${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`,
+        projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function fetchLatestRemoteVersion() {
+  const commitsUrl = new URL(githubApiUrl("/commits"));
+  commitsUrl.searchParams.set("sha", UPDATE_BRANCH);
+  commitsUrl.searchParams.set("path", UPDATE_PROJECT_PREFIX.replace(/\/$/, ""));
+  commitsUrl.searchParams.set("per_page", "1");
+  const commits = await requestGithub(commitsUrl);
+  const latest = Array.isArray(commits) ? commits[0] : null;
+  if (!latest?.sha) return null;
+  return {
+    commitSha: latest.sha,
+    htmlUrl: latest.html_url || `${UPDATE_REPO_URL}/commit/${latest.sha}`,
+    date: latest.commit?.committer?.date || latest.commit?.author?.date || "",
+  };
+}
+
+async function getUpdateStatus() {
+  const [storedLocal, remote] = await Promise.all([readLocalAppVersion(), fetchLatestRemoteVersion()]);
+  let local = storedLocal;
+  let localIncludesRemote = false;
+  if (remote?.commitSha && storedLocal.source === "git" && storedLocal.commitSha !== remote.commitSha) {
+    localIncludesRemote = await gitCommitIncludes(remote.commitSha, storedLocal.commitSha);
+  }
+  if (remote?.commitSha && !localIncludesRemote && storedLocal.commitSha !== remote.commitSha) {
+    try {
+      const remoteFiles = await fetchRemoteProjectFiles();
+      local = (await readLocalVersionFromFiles(remoteFiles, remote.commitSha)) || storedLocal;
+    } catch {
+      local = storedLocal;
+    }
+  }
+  const available = Boolean(remote?.commitSha && !localIncludesRemote && (!local.commitSha || remote.commitSha !== local.commitSha));
+  return {
+    available,
+    repoUrl: UPDATE_REPO_URL,
+    branch: UPDATE_BRANCH,
+    projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
+    localCommit: local.commitSha,
+    localSource: local.source,
+    localIncludesRemote,
+    localUpdatedAt: local.updatedAt,
+    remoteCommit: remote?.commitSha || null,
+    remoteUrl: remote?.htmlUrl || UPDATE_REPO_URL,
+    remoteDate: remote?.date || "",
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+async function gitCommitIncludes(ancestorCommit, descendantCommit) {
+  if (!ancestorCommit || !descendantCommit) return false;
+  try {
+    await execFile("git", ["merge-base", "--is-ancestor", ancestorCommit, descendantCommit], {
+      cwd: ROOT_DIR,
+      timeout: 5000,
+      maxBuffer: 64 * 1024,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function gitBlobSha(buffer) {
+  return createHash("sha1")
+    .update(Buffer.from(`blob ${buffer.length}\0`))
+    .update(buffer)
+    .digest("hex");
+}
+
+async function readLocalVersionFromFiles(remoteFiles, remoteCommit) {
+  const localFiles = new Set(await listLocalProjectFiles());
+  if (localFiles.size !== remoteFiles.length) return null;
+  for (const file of remoteFiles) {
+    if (!localFiles.has(file.relativePath)) return null;
+    const targetPath = path.join(ROOT_DIR, ...file.relativePath.split("/"));
+    assertInsideRoot(targetPath);
+    const buffer = await readFile(targetPath);
+    if (gitBlobSha(buffer) !== file.sha) return null;
+  }
+  return { commitSha: remoteCommit, source: "files", updatedAt: "" };
+}
+
+function safeRemoteRelativePath(githubPath) {
+  if (!githubPath.startsWith(UPDATE_PROJECT_PREFIX)) return null;
+  const relativePath = githubPath.slice(UPDATE_PROJECT_PREFIX.length);
+  if (!relativePath || relativePath.includes("\\")) return null;
+  const normalized = path.posix.normalize(relativePath);
+  if (!normalized || normalized === "." || normalized.startsWith("../") || path.isAbsolute(normalized)) return null;
+  const rootName = normalized.split("/")[0];
+  if (PRESERVED_UPDATE_DIRS.has(rootName) || PRESERVED_UPDATE_FILES.has(normalized)) return null;
+  return normalized;
+}
+
+async function fetchRemoteProjectFiles() {
+  const commit = await requestGithub(githubApiUrl(`/commits/${UPDATE_BRANCH}`));
+  const treeSha = commit?.commit?.tree?.sha;
+  if (!treeSha) throw new Error("github-tree-not-found");
+  const treeUrl = new URL(githubApiUrl(`/git/trees/${treeSha}`));
+  treeUrl.searchParams.set("recursive", "1");
+  const tree = await requestGithub(treeUrl);
+  if (tree.truncated) throw new Error("github-tree-truncated");
+  const files = (Array.isArray(tree.tree) ? tree.tree : [])
+    .filter((entry) => entry.type === "blob")
+    .map((entry) => ({ githubPath: entry.path, relativePath: safeRemoteRelativePath(entry.path), sha: entry.sha }))
+    .filter((entry) => entry.relativePath);
+  if (!files.length) throw new Error("github-project-empty");
+  return files;
+}
+
+function assertInsideRoot(targetPath) {
+  const relativePath = path.relative(ROOT_DIR, targetPath);
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    throw new Error("unsafe-update-path");
+  }
+}
+
+async function downloadRemoteProjectFiles(files) {
+  const downloaded = [];
+  for (const file of files) {
+    const buffer = await requestGithub(githubRawUrl(file.githubPath), {
+      json: false,
+      headers: { Accept: "application/octet-stream" },
+    });
+    downloaded.push({ ...file, buffer });
+  }
+  return downloaded;
+}
+
+async function listLocalProjectFiles(baseDir = ROOT_DIR, prefix = "") {
+  const entries = await readdir(baseDir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const rootName = relativePath.split("/")[0];
+    if (PRESERVED_UPDATE_DIRS.has(rootName) || PRESERVED_UPDATE_FILES.has(relativePath)) continue;
+    const absolutePath = path.join(baseDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listLocalProjectFiles(absolutePath, relativePath));
+      continue;
+    }
+    if (entry.isFile() || entry.isSymbolicLink()) {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
+
+async function removeStaleProjectFiles(remoteFiles) {
+  const localFiles = await listLocalProjectFiles();
+  await Promise.all(
+    localFiles
+      .filter((relativePath) => !remoteFiles.has(relativePath))
+      .map(async (relativePath) => {
+        const targetPath = path.join(ROOT_DIR, ...relativePath.split("/"));
+        assertInsideRoot(targetPath);
+        await rm(targetPath, { force: true });
+      }),
+  );
+}
+
+async function writeDownloadedProjectFiles(files) {
+  for (const file of files) {
+    const targetPath = path.join(ROOT_DIR, ...file.relativePath.split("/"));
+    assertInsideRoot(targetPath);
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, file.buffer);
+  }
+}
+
+async function installDependencies() {
+  const command = process.platform === "win32" ? "npm.cmd" : "npm";
+  const { stdout, stderr } = await execFile(command, ["install"], {
+    cwd: ROOT_DIR,
+    timeout: 180000,
+    maxBuffer: 2 * 1024 * 1024,
+  });
+  return { stdout: stdout.slice(-4000), stderr: stderr.slice(-4000) };
+}
+
+async function applyRepositoryUpdate() {
+  if (updateInProgress) throw new Error("update-in-progress");
+  updateInProgress = true;
+  try {
+    const status = await getUpdateStatus();
+    if (!status.remoteCommit) throw new Error("remote-version-not-found");
+    if (!status.available) {
+      return { ...status, updated: false, filesUpdated: 0, installRan: false, restartRequired: false };
+    }
+
+    const remoteFiles = await fetchRemoteProjectFiles();
+    const downloadedFiles = await downloadRemoteProjectFiles(remoteFiles);
+    const remoteFileSet = new Set(downloadedFiles.map((file) => file.relativePath));
+    await removeStaleProjectFiles(remoteFileSet);
+    await writeDownloadedProjectFiles(downloadedFiles);
+    const installResult = await installDependencies();
+    await writeLocalAppVersion(status.remoteCommit);
+    return {
+      ...status,
+      updated: true,
+      filesUpdated: downloadedFiles.length,
+      installRan: true,
+      installLog: installResult.stderr || installResult.stdout,
+      restartRequired: true,
+      updatedAt: new Date().toISOString(),
+    };
+  } finally {
+    updateInProgress = false;
+  }
+}
+
 export function createSyncMiddleware() {
   return async function syncMiddleware(req, res, next) {
     const url = new URL(req.url || "/", "http://localhost");
@@ -218,6 +546,20 @@ export function createSyncMiddleware() {
 
     try {
       if (!(await requireAccess(req, res))) return;
+
+      if (url.pathname === "/api/update/status" && req.method === "GET") {
+        sendJson(res, 200, await getUpdateStatus());
+        return;
+      }
+
+      if (url.pathname === "/api/update/apply" && req.method === "POST") {
+        if (updateInProgress) {
+          sendJson(res, 409, { error: "update-in-progress" });
+          return;
+        }
+        sendJson(res, 200, await applyRepositoryUpdate());
+        return;
+      }
 
       if (url.pathname === "/api/login" && req.method === "POST") {
         await loadSharedState();
