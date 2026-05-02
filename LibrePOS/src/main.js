@@ -649,11 +649,13 @@ function normalizeInventory(inventory) {
 }
 
 function normalizeUsers(users) {
-  const source = Array.isArray(users) && users.length ? users : defaultUsers;
-  const merged = source.some((user) => user.username === "admin") ? source : [...defaultUsers, ...source];
+  const rawUsers = Array.isArray(users) && users.length ? users : defaultUsers;
+  const source = rawUsers.filter((user) => user.active !== false);
+  const hasAdminAccess = source.some((user) => user.active !== false && normalizeUserFunctions(user).includes("admin"));
+  const merged = hasAdminAccess ? source : [...defaultUsers, ...source];
   return merged.map((user) => ({
     ...user,
-    password: user.password ?? (user.username === "admin" && !user.passwordHash ? "admin" : ""),
+    password: user.password ?? (sameUsername(user.username, "admin") && !user.passwordHash ? "admin" : ""),
     role: user.role || roleFromFunctions(normalizeUserFunctions(user)),
     functions: normalizeUserFunctions(user),
     active: user.active !== false,
@@ -691,6 +693,18 @@ function hasUserFunction(user, functionId) {
 
 function isAdminUser(user = currentUser()) {
   return Boolean(user && normalizeUserFunctions(user).includes("admin"));
+}
+
+function cleanUserText(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizedUsername(value) {
+  return cleanUserText(value).toLocaleLowerCase("es-MX");
+}
+
+function sameUsername(left, right) {
+  return normalizedUsername(left) === normalizedUsername(right);
 }
 
 function availableWaiters() {
@@ -2278,6 +2292,7 @@ function renderModal() {
     "open-table": renderOpenTableModal(),
     takeout: renderTakeoutModal(),
     "new-user": isAdminUser() ? renderCreateUserModal() : "",
+    "edit-user": isAdminUser() ? renderEditUserModal(state.modal.userId) : "",
     command: order ? renderCommandModal(order) : "",
     price: order ? renderPriceModal(order) : "",
     checkout: modalOrder ? renderCheckoutModal(modalOrder) : "",
@@ -2344,7 +2359,7 @@ function renderCreateUserModal() {
         <div class="field-row">
           <label class="field">
             <span>Usuario</span>
-            <input name="username" placeholder="usuario" required />
+            <input name="username" placeholder="usuario o nombre con espacios" required />
           </label>
           <label class="field">
             <span>Contrasena inicial</span>
@@ -2353,6 +2368,34 @@ function renderCreateUserModal() {
         </div>
         ${renderFunctionChoices(["mesero"])}
         <button class="primary-button" type="submit">${svg("plus")}Crear usuario</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderEditUserModal(userId) {
+  const user = state.users.find((item) => item.id === userId && item.active);
+  if (!user) return "";
+  return `
+    <section class="panel modal-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Editar usuario</h2>
+          <p class="panel-kicker">${escapeHtml(user.name)} · ${escapeHtml(user.username)}</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-edit-user-form data-user-id="${user.id}">
+        <label class="field">
+          <span>Nombre</span>
+          <input name="name" value="${escapeAttr(user.name || "")}" placeholder="Nombre del usuario" required />
+        </label>
+        <label class="field">
+          <span>Usuario</span>
+          <input name="username" value="${escapeAttr(user.username || "")}" placeholder="usuario o nombre con espacios" required />
+        </label>
+        ${renderFunctionChoices(normalizeUserFunctions(user))}
+        <button class="primary-button" type="submit">${svg("check")}Guardar cambios</button>
       </form>
     </section>
   `;
@@ -3199,6 +3242,7 @@ function renderUsers() {
                         <button class="${shift ? "danger-button" : "primary-button"} compact" data-clock-action="${user.id}:${shift ? "out" : "in"}">
                           ${svg(shift ? "logout" : "clock")}${shift ? "Terminar fichaje" : "Fichar entrada"}
                         </button>
+                        <button class="secondary-button compact" data-open-modal="edit-user" data-user-id="${user.id}">${svg("note")}Editar</button>
                         <button class="secondary-button compact" data-reset-password="${user.id}">${svg("transfer")}Resetear clave</button>
                         <button class="danger-button compact" data-delete-user="${user.id}" ${canDelete ? "" : "disabled"}>${svg("trash")}Borrar</button>
                       </td>
@@ -3237,11 +3281,12 @@ function bindLogin() {
 }
 
 async function authenticateUser(username, password) {
+  const loginUsername = cleanUserText(username);
   try {
     const response = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username: loginUsername, password }),
     });
     if (response.ok) {
       const payload = await response.json();
@@ -3258,7 +3303,7 @@ async function authenticateUser(username, password) {
   } catch {
     // Fall back to local login when the sync server is not running.
   }
-  return state.users.find((item) => item.active && item.username === username && item.password === password) || null;
+  return state.users.find((item) => item.active && sameUsername(item.username, loginUsername) && item.password === password) || null;
 }
 
 function bindEvents() {
@@ -3290,6 +3335,7 @@ function bindEvents() {
       if (button.dataset.lineId) modal.lineId = button.dataset.lineId;
       if (button.dataset.commandId) modal.commandId = button.dataset.commandId;
       if (button.dataset.cancelSource) modal.cancelSource = button.dataset.cancelSource;
+      if (button.dataset.userId) modal.userId = button.dataset.userId;
       state.modal = modal;
       persist();
       render();
@@ -3427,6 +3473,7 @@ function bindEvents() {
     button.addEventListener("click", (event) => finalizeOrder(event.currentTarget));
   });
   document.querySelector("[data-user-form]")?.addEventListener("submit", createUser);
+  document.querySelector("[data-edit-user-form]")?.addEventListener("submit", editUser);
   document.querySelectorAll("[data-reset-password]").forEach((button) => {
     button.addEventListener("click", () => resetUserPassword(button.dataset.resetPassword));
   });
@@ -4035,9 +4082,14 @@ function createUser(event) {
     return;
   }
   const form = new FormData(event.currentTarget);
-  const username = String(form.get("username") || "").trim();
+  const username = cleanUserText(form.get("username"));
+  const name = cleanUserText(form.get("name"));
   const functions = form.getAll("functions").map(String);
-  if (state.users.some((user) => user.username === username)) {
+  if (!username || !name) {
+    showToast("Captura nombre y usuario.");
+    return;
+  }
+  if (state.users.some((user) => user.active && sameUsername(user.username, username))) {
     showToast("Ese usuario ya existe.");
     return;
   }
@@ -4049,7 +4101,7 @@ function createUser(event) {
     id: safeId("user"),
     username,
     password: String(form.get("password") || ""),
-    name: String(form.get("name") || "").trim(),
+    name,
     role: roleFromFunctions(functions),
     functions,
     active: true,
@@ -4058,6 +4110,49 @@ function createUser(event) {
   state.modal = null;
   persist();
   showToast("Usuario creado.");
+  render();
+}
+
+function editUser(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede editar usuarios.");
+    return;
+  }
+  const userId = event.currentTarget.dataset.userId;
+  const user = state.users.find((item) => item.id === userId && item.active);
+  if (!user) return;
+  const form = new FormData(event.currentTarget);
+  const username = cleanUserText(form.get("username"));
+  const name = cleanUserText(form.get("name"));
+  const functions = form.getAll("functions").map(String);
+  if (!username || !name) {
+    showToast("Captura nombre y usuario.");
+    return;
+  }
+  if (state.users.some((item) => item.active && item.id !== user.id && sameUsername(item.username, username))) {
+    showToast("Ese usuario ya existe.");
+    return;
+  }
+  if (!functions.length) {
+    showToast("Selecciona al menos una funcion.");
+    return;
+  }
+  const wasAdmin = normalizeUserFunctions(user).includes("admin");
+  const willBeAdmin = functions.includes("admin");
+  if (wasAdmin && !willBeAdmin && activeAdmins().length <= 1) {
+    showToast("Debe quedar al menos un admin activo.");
+    return;
+  }
+  user.username = username;
+  user.name = name;
+  user.functions = functions;
+  user.role = roleFromFunctions(functions);
+  user.updatedAt = new Date().toISOString();
+  user.updatedBy = currentUser()?.id;
+  state.modal = null;
+  persist();
+  showToast("Usuario actualizado.");
   render();
 }
 
@@ -4108,14 +4203,13 @@ function deleteUser(userId) {
   }
   const confirmed = window.confirm(`Borrar usuario ${user.name}? Ya no podra iniciar sesion.`);
   if (!confirmed) return;
-  user.active = false;
-  user.deletedAt = new Date().toISOString();
-  user.deletedBy = currentUser()?.id;
+  const deletedAt = new Date().toISOString();
   const shift = currentShift(user.id);
   if (shift) {
-    shift.clockOutAt = user.deletedAt;
+    shift.clockOutAt = deletedAt;
     shift.clockOutBy = currentUser()?.id;
   }
+  state.users = state.users.filter((item) => item.id !== user.id);
   persist();
   showToast(`${user.name} borrado.`);
   render();

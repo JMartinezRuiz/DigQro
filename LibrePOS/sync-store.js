@@ -71,7 +71,7 @@ async function writeStateFile() {
 
 async function saveSharedState(state, clientId = "") {
   await mkdir(DATA_DIR, { recursive: true });
-  const normalized = normalizeStateForStorage(state);
+  const normalized = normalizeStateForStorage(state, sharedState);
   sharedState = normalized.state;
   sharedVersion = Math.max(Date.now(), sharedVersion + 1);
   await writeStateFile();
@@ -133,19 +133,36 @@ function verifyPassword(user, password) {
   return typeof user.password === "string" && user.password === String(password);
 }
 
-function normalizeStateForStorage(state) {
+function cleanUsername(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("es-MX");
+}
+
+function sameUsername(left, right) {
+  return cleanUsername(left) === cleanUsername(right);
+}
+
+function normalizeStateForStorage(state, existingState = null) {
   if (!state || typeof state !== "object") return { state: null, changed: false };
   let changed = false;
   const next = structuredClone(state);
-  const users = Array.isArray(next.users) ? next.users : [];
+  const rawUsers = Array.isArray(next.users) ? next.users : [];
+  const users = rawUsers.filter((user) => user.active !== false);
+  if (users.length !== rawUsers.length) changed = true;
+  const existingUsers = Array.isArray(existingState?.users) ? existingState.users : [];
   next.users = users.map((user) => {
     const normalized = { ...user };
+    const existing = existingUsers.find((item) => item.id === normalized.id || sameUsername(item.username, normalized.username));
     if (typeof normalized.password === "string" && normalized.password) {
       Object.assign(normalized, hashPassword(normalized.password));
       delete normalized.password;
       changed = true;
     }
-    if (!normalized.passwordHash && normalized.username === "admin") {
+    if (!normalized.passwordHash && existing?.passwordHash && existing?.passwordSalt) {
+      normalized.passwordHash = existing.passwordHash;
+      normalized.passwordSalt = existing.passwordSalt;
+      normalized.passwordIterations = existing.passwordIterations;
+    }
+    if (!normalized.passwordHash && sameUsername(normalized.username, "admin")) {
       Object.assign(normalized, hashPassword("admin"));
       changed = true;
     }
@@ -617,9 +634,9 @@ export function createSyncMiddleware() {
         }
         const rawBody = await readBody(req);
         const payload = rawBody ? JSON.parse(rawBody) : {};
-        const username = String(payload.username || "").trim();
+        const username = cleanUsername(payload.username);
         const password = String(payload.password || "");
-        const user = (sharedState?.users || []).find((item) => item.active !== false && item.username === username);
+        const user = (sharedState?.users || []).find((item) => item.active !== false && sameUsername(item.username, username));
         if (!verifyPassword(user, password)) {
           sendJson(res, 401, { error: "invalid-login" });
           return;
