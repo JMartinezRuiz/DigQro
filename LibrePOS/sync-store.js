@@ -152,8 +152,12 @@ function normalizeStateForStorage(state, existingState = null) {
   next.users = users.map((user) => {
     const normalized = { ...user };
     const existing = existingUsers.find((item) => item.id === normalized.id || sameUsername(item.username, normalized.username));
-    if (typeof normalized.password === "string" && normalized.password) {
-      Object.assign(normalized, hashPassword(normalized.password));
+    const password = typeof normalized.password === "string" ? normalized.password.trim() : "";
+    if (password) {
+      Object.assign(normalized, hashPassword(password));
+      delete normalized.password;
+      changed = true;
+    } else if (typeof normalized.password === "string") {
       delete normalized.password;
       changed = true;
     }

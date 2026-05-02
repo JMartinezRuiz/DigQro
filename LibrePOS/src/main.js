@@ -4084,9 +4084,14 @@ function createUser(event) {
   const form = new FormData(event.currentTarget);
   const username = cleanUserText(form.get("username"));
   const name = cleanUserText(form.get("name"));
+  const password = String(form.get("password") || "").trim();
   const functions = form.getAll("functions").map(String);
   if (!username || !name) {
     showToast("Captura nombre y usuario.");
+    return;
+  }
+  if (!password) {
+    showToast("La contrasena no puede estar vacia.");
     return;
   }
   if (state.users.some((user) => user.active && sameUsername(user.username, username))) {
@@ -4100,7 +4105,7 @@ function createUser(event) {
   state.users.push({
     id: safeId("user"),
     username,
-    password: String(form.get("password") || ""),
+    password,
     name,
     role: roleFromFunctions(functions),
     functions,
