@@ -982,17 +982,20 @@ async function applyUpdate() {
       localCommit: payload.remoteCommit || state.updateInfo?.remoteCommit || state.updateInfo?.localCommit,
     };
     persistLocal();
+    const sourceLabel = payload.source === "mirror" ? "Transferencia Local" : "GitHub";
     showToast(
       payload.updated
-        ? "LibrePOS actualizado. Cierra y abre LibrePOS para cargar la nueva version."
+        ? `LibrePOS actualizado desde ${sourceLabel}. Cierra y abre LibrePOS.`
         : "LibrePOS ya estaba actualizado.",
     );
   } catch (error) {
     const message = String(error?.message || "");
     if (message.includes("update-in-progress")) {
       showToast("Ya hay una actualizacion en curso.");
-    } else if (message.includes("github")) {
-      showToast("No se pudo consultar GitHub. Revisa la conexion a internet.");
+    } else if (message.includes("update-source-unreachable")) {
+      showToast("No se pudo conectar a GitHub ni a Transferencia Local.");
+    } else if (message.includes("github") || message.includes("download")) {
+      showToast("No se pudo descargar la actualizacion. Revisa la conexion.");
     } else {
       showToast("No se pudo actualizar LibrePOS.");
     }
