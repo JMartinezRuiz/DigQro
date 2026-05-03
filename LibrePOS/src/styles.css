@@ -737,6 +737,49 @@ button:disabled {
   font-weight: 850;
 }
 
+.admin-qr-panel {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px;
+}
+
+.admin-qr-code {
+  width: 108px;
+  height: 108px;
+  flex: 0 0 auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-qr-code svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.admin-qr-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-qr-copy strong {
+  font-size: 0.95rem;
+}
+
+.admin-qr-copy span {
+  max-width: min(54vw, 420px);
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
 .clock-grid,
 .reset-grid {
   display: grid;
@@ -2188,6 +2231,87 @@ button:disabled {
   min-width: 0;
 }
 
+.extras-editor {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf9;
+}
+
+.extras-editor summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-weight: 950;
+  list-style: none;
+}
+
+.extras-editor summary::-webkit-details-marker {
+  display: none;
+}
+
+.extras-editor summary span {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.extras-editor summary strong {
+  color: var(--teal);
+  font-size: 0.84rem;
+}
+
+.extras-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.extras-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.extra-list {
+  display: grid;
+  gap: 7px;
+}
+
+.extra-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(28, 25, 23, 0.08);
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.extra-row strong,
+.extra-row small {
+  display: block;
+}
+
+.extra-row small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.compact-text {
+  margin: 0;
+}
+
 .variant-stock {
   display: inline-flex;
   min-width: 42px;
@@ -2574,6 +2698,7 @@ button:disabled {
 
 .kitchen-board,
 .inventory-layout,
+.cash-layout,
 .data-layout {
   display: grid;
   gap: 16px;
@@ -2612,6 +2737,40 @@ button:disabled {
 
 .data-grid {
   grid-template-columns: minmax(300px, 0.6fr) minmax(420px, 1.4fr);
+}
+
+.cash-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.8fr) minmax(360px, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.cash-cut-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cash-cut-preview div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #eef8f6;
+}
+
+.cash-cut-preview span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.cash-cut-preview strong {
+  color: var(--teal);
+  font-size: 1.15rem;
 }
 
 .data-grid-wide {
@@ -2959,6 +3118,7 @@ button:disabled {
   .sale-workspace,
   .kitchen-columns,
   .data-grid,
+  .cash-grid,
   .inventory-controls {
     grid-template-columns: 1fr;
   }
@@ -3012,6 +3172,8 @@ button:disabled {
   .ticket-actions,
   .order-focus-metrics,
   .checkout-actions,
+  .cash-cut-preview,
+  .extras-add-row,
   .command-grid,
   .tip-options,
   .menu-grid,
@@ -3028,6 +3190,14 @@ button:disabled {
 
   .clock-card {
     grid-template-columns: 1fr;
+  }
+
+  .admin-qr-panel {
+    width: 100%;
+  }
+
+  .admin-qr-copy span {
+    max-width: 100%;
   }
 
   .clock-card button {

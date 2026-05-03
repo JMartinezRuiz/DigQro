@@ -2,6 +2,7 @@ import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypt
 import { execFile as execFileCallback } from "node:child_process";
 import https from "node:https";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -186,12 +187,37 @@ function publicState(state) {
 
 function validateStatePayload(state) {
   if (!state || typeof state !== "object" || Array.isArray(state)) return "missing-state";
-  const arrayKeys = ["users", "orders", "sales", "cancellations", "inventory", "inventoryMovements", "expenses", "attendance"];
+  const arrayKeys = [
+    "users",
+    "orders",
+    "sales",
+    "cancellations",
+    "inventory",
+    "inventoryMovements",
+    "expenses",
+    "attendance",
+    "cashSessions",
+  ];
   for (const key of arrayKeys) {
     if (!Array.isArray(state[key])) return `invalid-${key}`;
   }
   if (!state.settings || typeof state.settings !== "object" || Array.isArray(state.settings)) return "invalid-settings";
   return "";
+}
+
+function lanAccessUrls(req) {
+  const host = String(req.headers.host || "localhost:5173");
+  const port = host.includes(":") ? host.split(":").pop() : "5173";
+  const urls = [`http://localhost:${port}/`];
+  Object.values(networkInterfaces()).forEach((entries = []) => {
+    entries.forEach((entry) => {
+      if (entry.family !== "IPv4" || entry.internal || !entry.address) return;
+      const url = `http://${entry.address}:${port}/`;
+      if (!urls.includes(url)) urls.push(url);
+    });
+  });
+  const preferredUrl = urls.find((url) => !url.includes("localhost")) || urls[0];
+  return { preferredUrl, urls };
 }
 
 function cookieValue(req, name) {
@@ -615,6 +641,11 @@ export function createSyncMiddleware() {
 
     try {
       if (!(await requireAccess(req, res))) return;
+
+      if (url.pathname === "/api/access-info" && req.method === "GET") {
+        sendJson(res, 200, lanAccessUrls(req));
+        return;
+      }
 
       if (url.pathname === "/api/update/status" && req.method === "GET") {
         sendJson(res, 200, await getUpdateStatus());

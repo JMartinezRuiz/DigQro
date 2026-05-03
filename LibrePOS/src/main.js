@@ -1,4 +1,5 @@
 import "./styles.css";
+import qrcode from "qrcode-generator";
 
 const STORAGE_KEY = "librepos:v2";
 const CLIENT_ID_KEY = "librepos:client-id";
@@ -13,6 +14,7 @@ const SHARED_STATE_KEYS = [
   "inventoryMovements",
   "expenses",
   "attendance",
+  "cashSessions",
 ];
 
 const money = new Intl.NumberFormat("es-MX", {
@@ -498,6 +500,7 @@ const defaultState = {
   inventoryMovements: [],
   expenses: fixedExpenses,
   attendance: [],
+  cashSessions: [],
 };
 
 let state = loadState();
@@ -510,6 +513,7 @@ let syncVersion = 0;
 let syncClientId = loadClientId();
 let syncPushTimer;
 let syncLastPayload = "";
+let accessInfo = { preferredUrl: "", urls: [] };
 
 const app = document.querySelector("#app");
 
@@ -587,6 +591,7 @@ function loadState() {
       inventoryMovements: Array.isArray(saved.inventoryMovements) ? saved.inventoryMovements : [],
       expenses: Array.isArray(saved.expenses) ? saved.expenses : fixedExpenses,
       attendance: Array.isArray(saved.attendance) ? saved.attendance : [],
+      cashSessions: normalizeCashSessions(saved.cashSessions),
     };
   } catch {
     return structuredClone(defaultState);
@@ -660,6 +665,10 @@ function normalizeUsers(users) {
     functions: normalizeUserFunctions(user),
     active: user.active !== false,
   }));
+}
+
+function normalizeCashSessions(cashSessions) {
+  return Array.isArray(cashSessions) ? cashSessions : [];
 }
 
 function normalizeUserFunctions(user) {
@@ -740,6 +749,7 @@ function normalizeSharedState(shared = {}) {
     inventoryMovements: Array.isArray(shared.inventoryMovements) ? shared.inventoryMovements : [],
     expenses: Array.isArray(shared.expenses) ? shared.expenses : fixedExpenses,
     attendance: Array.isArray(shared.attendance) ? shared.attendance : [],
+    cashSessions: normalizeCashSessions(shared.cashSessions),
   };
 }
 
@@ -1032,6 +1042,50 @@ function currentUser() {
   return state.users.find((user) => user.id === state.sessionUserId) || null;
 }
 
+function normalizeAccessUrl(value) {
+  const fallback = `${window.location.origin}/`;
+  try {
+    const url = new URL(value || fallback, fallback);
+    url.hash = "";
+    url.search = "";
+    url.pathname = "/";
+    return url.toString();
+  } catch {
+    return fallback;
+  }
+}
+
+function appAccessUrl() {
+  return normalizeAccessUrl(accessInfo.preferredUrl || accessInfo.urls?.[0] || window.location.origin);
+}
+
+function qrSvgFor(value) {
+  try {
+    const qr = qrcode(0, "M");
+    qr.addData(value);
+    qr.make();
+    return qr.createSvgTag(3, 2);
+  } catch {
+    return "";
+  }
+}
+
+async function loadAccessInfo() {
+  try {
+    const response = await fetch("/api/access-info", { cache: "no-store" });
+    if (!response.ok) return;
+    const payload = await response.json();
+    const urls = Array.isArray(payload.urls) ? payload.urls.map(normalizeAccessUrl) : [];
+    accessInfo = {
+      preferredUrl: normalizeAccessUrl(payload.preferredUrl || urls[0] || window.location.origin),
+      urls,
+    };
+    if (currentUser() && state.view === "profile" && isAdminUser()) render();
+  } catch {
+    // The QR falls back to the current browser URL when the local server endpoint is unavailable.
+  }
+}
+
 function getActiveOrder() {
   return state.orders.find((order) => order.id === state.activeOrderId && order.status === "open") || null;
 }
@@ -1199,6 +1253,35 @@ function defaultSelectionsFor(product) {
   return selections;
 }
 
+function normalizeExtras(extras) {
+  if (!Array.isArray(extras)) return [];
+  return extras
+    .map((extra) => {
+      const qty = Math.max(0, Number(extra.qty) || 0);
+      const unitCost = Math.max(0, Number(extra.unitCost) || 0);
+      return {
+        itemId: String(extra.itemId || extra.id || ""),
+        name: String(extra.name || "").trim().toUpperCase(),
+        unit: String(extra.unit || "PZ").trim().toUpperCase(),
+        qty,
+        unitCost,
+        total: Math.round(qty * unitCost * 100) / 100,
+      };
+    })
+    .filter((extra) => extra.name && extra.qty > 0);
+}
+
+function extraUnitTotal(extras = []) {
+  return normalizeExtras(extras).reduce((sum, extra) => sum + extra.total, 0);
+}
+
+function defaultExtraQty(item) {
+  const unit = normalize(item?.unit);
+  if (unit.includes("kilo") || unit === "kg" || unit.includes("litro")) return 0.1;
+  if (unit.includes("rollo") || unit.includes("bolsa")) return 0.25;
+  return 1;
+}
+
 function calculateTotals(order) {
   const subtotal = order.items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0);
   const statusCounts = order.items.reduce(
@@ -1319,6 +1402,7 @@ function render() {
         ${state.view === "tables" ? renderTables() : ""}
         ${state.view === "kitchen" ? renderKitchen() : ""}
         ${state.view === "inventory" ? renderInventory() : ""}
+        ${state.view === "cash" ? renderCashRegister() : ""}
         ${state.view === "data" ? renderData() : ""}
         ${state.view === "users" ? renderUsers() : ""}
       </section>
@@ -1355,7 +1439,7 @@ function availableNavItems() {
   }
   if (hasUserFunction(user, "cocina")) items.push(["kitchen", "Cocina", "kitchen"]);
   if (isAdminUser(user)) {
-    items.push(["inventory", "Inventario", "inventory"], ["data", "Datos", "data"], ["users", "Usuarios", "users"]);
+    items.push(["inventory", "Inventario", "inventory"], ["cash", "Caja", "cash"], ["data", "Datos", "data"], ["users", "Usuarios", "users"]);
   }
   return items;
 }
@@ -2061,9 +2145,10 @@ function renderOrderSidePanel(order) {
 function renderProductConfig() {
   const product = getProduct(state.productConfig.productId);
   if (!product) return "";
-  const price = configuredUnitPrice(product, state.productConfig.selections);
+  const extras = normalizeExtras(state.productConfig.extras);
+  const price = configuredUnitPrice(product, state.productConfig.selections, extras);
   const total = price * state.productConfig.qty;
-  const stock = estimateProductStock(product, state.productConfig.selections);
+  const stock = estimateProductStock(product, state.productConfig.selections, extras);
   return `
     <section class="panel detail-panel">
       <div class="panel-header">
@@ -2076,6 +2161,7 @@ function renderProductConfig() {
       <div class="panel-body field-grid">
         <p class="detail-description">${escapeHtml(product.description)}</p>
         ${product.options.map((option) => renderOptionGroup(product, option)).join("")}
+        ${renderExtrasEditor(extras)}
         <div data-config-stock-panel>
           ${renderProductStockPanel(stock, state.productConfig.qty)}
         </div>
@@ -2098,6 +2184,68 @@ function renderProductConfig() {
         <button class="primary-button" data-add-configured>${svg("plus")}Agregar al ticket</button>
       </div>
     </section>
+  `;
+}
+
+function renderExtrasEditor(extras = []) {
+  const inventory = [...currentInventory()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const selectedItem = inventory[0];
+  const defaultQty = defaultExtraQty(selectedItem);
+  const extrasTotal = extraUnitTotal(extras);
+  return `
+    <details class="extras-editor" ${extras.length ? "open" : ""}>
+      <summary>
+        <span>${svg("plus")}Extras</span>
+        <strong>${extras.length ? `+${money.format(extrasTotal)}` : "Opcional"}</strong>
+      </summary>
+      <div class="extras-body">
+        <div class="extras-add-row">
+          <label class="field">
+            <span>Insumo</span>
+            <select data-extra-item ${inventory.length ? "" : "disabled"}>
+              ${inventory
+                .map((item) => {
+                  const qty = defaultExtraQty(item);
+                  return `
+                    <option value="${item.id}" data-default-qty="${qty}">
+                      ${escapeHtml(item.name)} · ${money.format(item.unitCost)}/${escapeHtml(item.unit)}
+                    </option>
+                  `;
+                })
+                .join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span>Cantidad</span>
+            <input data-extra-qty type="number" min="0.001" step="0.001" value="${defaultQty}" ${inventory.length ? "" : "disabled"} />
+          </label>
+          <button class="secondary-button compact" data-extra-add type="button" ${inventory.length ? "" : "disabled"}>
+            ${svg("plus")}Agregar
+          </button>
+        </div>
+        ${
+          extras.length
+            ? `
+              <div class="extra-list">
+                ${extras
+                  .map(
+                    (extra, index) => `
+                      <div class="extra-row">
+                        <span>
+                          <strong>${escapeHtml(extra.name)}</strong>
+                          <small>${formatNumber(extra.qty)} ${escapeHtml(extra.unit)} · +${money.format(extra.total)}</small>
+                        </span>
+                        <button class="icon-button compact" data-extra-remove="${index}" title="Quitar extra" type="button">${svg("trash")}</button>
+                      </div>
+                    `,
+                  )
+                  .join("")}
+              </div>
+            `
+            : `<p class="muted-text compact-text">Sin extras agregados.</p>`
+        }
+      </div>
+    </details>
   `;
 }
 
@@ -2144,7 +2292,7 @@ function renderVariantStockBadge(product, option, index) {
   if (!state.productConfig || !variantAffectsInventory(product, option.id)) return "";
   const selections = structuredClone(state.productConfig.selections);
   selections[option.id] = option.type === "multi" ? toggleSelectionPreview(selections[option.id], index) : index;
-  const stock = estimateProductStock(product, selections);
+  const stock = estimateProductStock(product, selections, state.productConfig.extras);
   if (!stock.known) return "";
   return `<small class="variant-stock ${stock.tone}">~${stock.orderable}</small>`;
 }
@@ -2490,8 +2638,12 @@ function renderPriceModal(order) {
 
 function renderCheckoutModal(order) {
   const totals = calculateTotals(order);
+  const cashSession = currentCashSession();
   const pendingWarning = totals.pending
     ? `<div class="checkout-warning">${svg("alert")}Hay ${totals.pending} pieza${totals.pending === 1 ? "" : "s"} sin comandar.</div>`
+    : "";
+  const cashWarning = !cashSession
+    ? `<div class="checkout-warning">${svg("alert")}Abre caja antes de cobrar efectivo o tarjeta.</div>`
     : "";
   const cancelLabel = order.type === "table" ? "Cancelar mesa" : "Cancelar orden";
   return `
@@ -2505,6 +2657,7 @@ function renderCheckoutModal(order) {
       </div>
       <div class="panel-body checkout-body">
         ${pendingWarning}
+        ${cashWarning}
         <div class="checkout-total">
           <span>Total a cobrar</span>
           <strong data-checkout-total>${money.format(totals.total)}</strong>
@@ -2525,8 +2678,8 @@ function renderCheckoutModal(order) {
           </label>
         </section>
         <div class="checkout-actions">
-          <button class="primary-button" data-charge-order="${order.id}" data-payment-method="Efectivo">${svg("cash")}Efectivo</button>
-          <button class="secondary-button" data-charge-order="${order.id}" data-payment-method="Tarjeta">${svg("card")}Tarjeta</button>
+          <button class="primary-button" data-charge-order="${order.id}" data-payment-method="Efectivo" ${cashSession ? "" : "disabled"}>${svg("cash")}Efectivo</button>
+          <button class="secondary-button" data-charge-order="${order.id}" data-payment-method="Tarjeta" ${cashSession ? "" : "disabled"}>${svg("card")}Tarjeta</button>
           <button class="danger-button" data-open-modal="cancel-order" data-order-id="${order.id}">${svg("cancel")}${cancelLabel}</button>
         </div>
       </div>
@@ -2820,12 +2973,193 @@ function renderInventory() {
   `;
 }
 
+function renderCashRegister() {
+  if (!isAdminUser()) return "";
+  const activeSession = currentCashSession();
+  const todayPayments = paymentTotalsForSales(state.sales.filter((sale) => isSameLocalDay(saleClosedAt(sale))));
+  const activeTotals = cashSessionTotals(activeSession);
+  const lastCut = lastClosedCashSession();
+  return `
+    <div class="cash-layout">
+      <section class="board-header">
+        <div>
+          <h2>Caja</h2>
+          <p>Apertura, efectivo, tarjeta y corte de turno</p>
+        </div>
+        <span class="stat-pill">${activeSession ? "Caja abierta" : "Caja cerrada"}</span>
+      </section>
+      <section class="summary-grid">
+        ${renderSummaryCard("Estado", activeSession ? `Abierta ${formatTime(activeSession.openedAt)}` : "Cerrada")}
+        ${renderSummaryCard("Efectivo hoy", money.format(todayPayments.cash))}
+        ${renderSummaryCard("Tarjeta hoy", money.format(todayPayments.card))}
+        ${renderSummaryCard("Ultimo corte", lastCut ? money.format(Number(lastCut.difference) || 0) : "Sin corte")}
+      </section>
+      <div class="cash-grid">
+        ${
+          activeSession
+            ? renderCashClosePanel(activeSession, activeTotals)
+            : `
+              <section class="panel">
+                <div class="panel-header">
+                  <div>
+                    <h2 class="panel-title">Apertura de caja</h2>
+                    <p class="panel-kicker">Fondo inicial antes de cobrar</p>
+                  </div>
+                </div>
+                <form class="panel-body field-grid" data-cash-open-form>
+                  <label class="field">
+                    <span>Fondo inicial</span>
+                    <input name="openingCash" type="number" min="0" step="0.01" value="0" required />
+                  </label>
+                  <label class="field">
+                    <span>Nota opcional</span>
+                    <input name="note" placeholder="Cambio inicial, turno o responsable" />
+                  </label>
+                  <button class="primary-button" type="submit">${svg("cash")}Abrir caja</button>
+                </form>
+              </section>
+            `
+        }
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Resumen de caja</h2>
+              <p class="panel-kicker">${activeSession ? `Desde ${formatDateTime(activeSession.openedAt)}` : "Sin caja abierta"}</p>
+            </div>
+          </div>
+          <div class="panel-body metric-stack">
+            <div class="total-line"><span>Fondo inicial</span><strong>${money.format(activeTotals.openingCash || 0)}</strong></div>
+            <div class="total-line"><span>Ventas efectivo</span><strong>${money.format(activeTotals.cash || 0)}</strong></div>
+            <div class="total-line"><span>Ventas tarjeta</span><strong>${money.format(activeTotals.card || 0)}</strong></div>
+            <div class="total-line"><span>Propinas incluidas</span><strong>${money.format(activeTotals.tips || 0)}</strong></div>
+            <div class="total-line grand"><span>Efectivo esperado</span><strong>${money.format(activeTotals.expectedCash || 0)}</strong></div>
+          </div>
+        </section>
+      </div>
+      ${activeSession ? renderCashSessionSales(activeSession) : ""}
+      ${renderCashSessionHistory()}
+    </div>
+  `;
+}
+
+function renderCashClosePanel(session, totals) {
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Corte de caja</h2>
+          <p class="panel-kicker">Cuenta el efectivo fisico y cierra el turno</p>
+        </div>
+      </div>
+      <form class="panel-body field-grid" data-cash-close-form data-session-id="${session.id}">
+        <div class="cash-cut-preview">
+          <div><span>Efectivo esperado</span><strong>${money.format(totals.expectedCash)}</strong></div>
+          <div><span>Tarjeta cobrada</span><strong>${money.format(totals.card)}</strong></div>
+        </div>
+        <label class="field">
+          <span>Efectivo contado</span>
+          <input name="countedCash" type="number" min="0" step="0.01" value="${totals.expectedCash.toFixed(2)}" required />
+        </label>
+        <label class="field">
+          <span>Nota opcional</span>
+          <input name="note" placeholder="Faltante, sobrante o terminal bancaria" />
+        </label>
+        <button class="primary-button" type="submit">${svg("check")}Cerrar caja</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderCashSessionSales(session) {
+  const sales = salesForCashSession(session);
+  return `
+    <section class="panel data-grid-wide">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Cobros de la caja abierta</h2>
+          <p class="panel-kicker">${sales.length} ticket${sales.length === 1 ? "" : "s"}</p>
+        </div>
+      </div>
+      <div class="panel-body table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Propina</th><th>Total</th></tr></thead>
+          <tbody>
+            ${
+              sales.length
+                ? sales
+                    .map(
+                      (sale) => `
+                        <tr>
+                          <td>${formatDateTime(saleClosedAt(sale))}</td>
+                          <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
+                          <td>${escapeHtml(waiterName(sale.cashierId))}</td>
+                          <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
+                          <td>${money.format(saleTip(sale))}</td>
+                          <td><strong>${money.format(saleTotal(sale))}</strong></td>
+                        </tr>
+                      `,
+                    )
+                    .join("")
+                : `<tr><td colspan="6">Aun no hay cobros en esta caja.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderCashSessionHistory() {
+  const sessions = [...normalizeCashSessions(state.cashSessions)]
+    .sort((a, b) => new Date(b.closedAt || b.openedAt) - new Date(a.closedAt || a.openedAt))
+    .slice(0, 20);
+  return `
+    <section class="panel data-grid-wide">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Historial de cortes</h2>
+          <p class="panel-kicker">Aperturas y cierres recientes</p>
+        </div>
+      </div>
+      <div class="panel-body table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <tbody>
+            ${
+              sessions.length
+                ? sessions
+                    .map((session) => {
+                      const totals = session.status === "closed" ? session : cashSessionTotals(session);
+                      return `
+                        <tr>
+                          <td>${formatDateTime(session.openedAt)}</td>
+                          <td>${session.closedAt ? formatDateTime(session.closedAt) : "Abierta"}</td>
+                          <td><strong>${escapeHtml(waiterName(session.openedBy))}</strong><small>${session.closedBy ? `Cerro ${escapeHtml(waiterName(session.closedBy))}` : ""}</small></td>
+                          <td>${money.format(Number(totals.cashSales ?? totals.cash) || 0)}</td>
+                          <td>${money.format(Number(totals.cardSales ?? totals.card) || 0)}</td>
+                          <td>${session.status === "closed" ? money.format(Number(session.countedCash) || 0) : "Pendiente"}</td>
+                          <td><strong>${session.status === "closed" ? money.format(Number(session.difference) || 0) : "Pendiente"}</strong></td>
+                        </tr>
+                      `;
+                    })
+                    .join("")
+                : `<tr><td colspan="7">Aun no hay aperturas de caja.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
 function renderData() {
   const metrics = buildBusinessMetrics(new Date());
   return `
     <div class="data-layout">
       <section class="summary-grid">
         ${renderSummaryCard("Cobrado hoy", money.format(metrics.revenue))}
+        ${renderSummaryCard("Efectivo hoy", money.format(metrics.cashRevenue))}
+        ${renderSummaryCard("Tarjeta hoy", money.format(metrics.cardRevenue))}
         ${renderSummaryCard("Propinas hoy", money.format(metrics.tips))}
         ${renderSummaryCard("Costo estimado", money.format(metrics.foodCost))}
         ${renderSummaryCard("Ganancia bruta", money.format(metrics.grossProfit))}
@@ -3022,6 +3356,57 @@ function saleTip(sale) {
   return Number(sale.totals?.tip ?? sale.tip?.amount ?? 0);
 }
 
+function paymentTotalsForSales(sales = []) {
+  return sales.reduce(
+    (acc, sale) => {
+      const total = saleTotal(sale);
+      const tip = saleTip(sale);
+      const method = normalize(sale.paymentMethod);
+      if (method.includes("tarjeta")) {
+        acc.card += total;
+        acc.cardTips += tip;
+      } else {
+        acc.cash += total;
+        acc.cashTips += tip;
+      }
+      acc.total += total;
+      acc.tips += tip;
+      acc.count += 1;
+      return acc;
+    },
+    { cash: 0, card: 0, total: 0, tips: 0, cashTips: 0, cardTips: 0, count: 0 },
+  );
+}
+
+function currentCashSession() {
+  return normalizeCashSessions(state.cashSessions)
+    .filter((session) => session.status === "open")
+    .sort((a, b) => new Date(b.openedAt) - new Date(a.openedAt))[0] || null;
+}
+
+function salesForCashSession(session) {
+  if (!session) return [];
+  return state.sales
+    .filter((sale) => sale.cashSessionId === session.id)
+    .sort((a, b) => new Date(saleClosedAt(b)) - new Date(saleClosedAt(a)));
+}
+
+function cashSessionTotals(session) {
+  const openingCash = Number(session?.openingCash) || 0;
+  const payments = paymentTotalsForSales(salesForCashSession(session));
+  return {
+    ...payments,
+    openingCash,
+    expectedCash: openingCash + payments.cash,
+  };
+}
+
+function lastClosedCashSession() {
+  return normalizeCashSessions(state.cashSessions)
+    .filter((session) => session.status === "closed")
+    .sort((a, b) => new Date(b.closedAt || b.openedAt) - new Date(a.closedAt || a.openedAt))[0] || null;
+}
+
 function renderTimeClockPanel() {
   const users = state.users.filter((user) => user.active);
   return `
@@ -3114,6 +3499,24 @@ function renderAttendanceHistory(userId = null) {
   `;
 }
 
+function renderAdminAccessQr() {
+  if (!isAdminUser()) return "";
+  const url = appAccessUrl();
+  const qr = qrSvgFor(url);
+  if (!qr) return "";
+  return `
+    <section class="panel admin-qr-panel">
+      <div class="admin-qr-code" aria-label="Codigo QR de acceso a LibrePOS">
+        ${qr}
+      </div>
+      <div class="admin-qr-copy">
+        <strong>Acceso web</strong>
+        <span>${escapeHtml(url)}</span>
+      </div>
+    </section>
+  `;
+}
+
 function renderProfile() {
   const user = currentUser();
   const stats = buildUserStatsForDay(new Date())[user.id] || emptyStats();
@@ -3141,6 +3544,7 @@ function renderProfile() {
         ${renderSummaryCard("Cobrado hoy", money.format(profileChargedToday))}
         ${renderSummaryCard("Propinas hoy", money.format(profileTipsToday))}
       </section>
+      ${renderAdminAccessQr()}
       <section class="panel">
         <div class="panel-header">
           <div>
@@ -3459,6 +3863,15 @@ function bindEvents() {
     state.productConfig.note = event.target.value;
     persist();
   });
+  document.querySelector("[data-extra-item]")?.addEventListener("change", (event) => {
+    const nextQty = event.target.selectedOptions?.[0]?.dataset.defaultQty;
+    const qtyInput = document.querySelector("[data-extra-qty]");
+    if (qtyInput && nextQty) qtyInput.value = nextQty;
+  });
+  document.querySelector("[data-extra-add]")?.addEventListener("click", addProductExtra);
+  document.querySelectorAll("[data-extra-remove]").forEach((button) => {
+    button.addEventListener("click", () => removeProductExtra(Number(button.dataset.extraRemove)));
+  });
   document.querySelector("[data-add-configured]")?.addEventListener("click", addConfiguredProduct);
   document.querySelectorAll("[data-line-qty]").forEach((button) => {
     button.addEventListener("click", () => updateLineQty(button.dataset.lineQty, Number(button.dataset.delta)));
@@ -3491,6 +3904,8 @@ function bindEvents() {
   });
   document.querySelector("[data-inventory-add-form]")?.addEventListener("submit", addInventoryItem);
   document.querySelector("[data-inventory-adjust-form]")?.addEventListener("submit", adjustInventoryFromForm);
+  document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);
+  document.querySelector("[data-cash-close-form]")?.addEventListener("submit", closeCashSession);
   document.querySelectorAll("[data-inventory-quick]").forEach((button) => {
     button.addEventListener("click", () => {
       const [itemId, direction] = button.dataset.inventoryQuick.split(":");
@@ -3672,6 +4087,11 @@ function chargeOrder(orderId, paymentMethod = "Efectivo", source) {
     render();
     return;
   }
+  const cashSession = currentCashSession();
+  if (!cashSession) {
+    showToast("Abre caja antes de cobrar efectivo o tarjeta.");
+    return;
+  }
   const pending = order.items.some((item) => item.status === "pending");
   if (pending) {
     const confirmed = window.confirm("Hay productos sin comandar. Cerrar de todos modos?");
@@ -3698,6 +4118,7 @@ function chargeOrder(orderId, paymentMethod = "Efectivo", source) {
     waiterId: order.waiterId,
     cashierId: currentUser().id,
     paymentMethod,
+    cashSessionId: cashSession.id,
     items: structuredClone(order.items),
     commandBatches: structuredClone(order.commandBatches),
     totals,
@@ -3884,8 +4305,48 @@ function startProductConfig(productId) {
   const product = getProduct(productId);
   if (!product) return;
   const selections = defaultSelectionsFor(product);
-  state.productConfig = { productId, qty: 1, selections, note: "" };
+  state.productConfig = { productId, qty: 1, selections, note: "", extras: [] };
   state.modal = null;
+  persist();
+  render();
+}
+
+function addProductExtra() {
+  if (!state.productConfig) return;
+  const itemId = document.querySelector("[data-extra-item]")?.value;
+  const qty = Math.max(0, Number(document.querySelector("[data-extra-qty]")?.value) || 0);
+  const item = currentInventory().find((entry) => entry.id === itemId);
+  if (!item || qty <= 0) {
+    showToast("Selecciona un insumo y cantidad para el extra.");
+    return;
+  }
+  const extras = normalizeExtras(state.productConfig.extras);
+  const existing = extras.find((extra) => extra.itemId === item.id || normalize(extra.name) === normalize(item.name));
+  if (existing) {
+    existing.qty += qty;
+    existing.unitCost = Number(item.unitCost) || existing.unitCost;
+    existing.total = Math.round(existing.qty * existing.unitCost * 100) / 100;
+  } else {
+    extras.push({
+      itemId: item.id,
+      name: item.name,
+      unit: item.unit,
+      qty,
+      unitCost: Number(item.unitCost) || 0,
+      total: Math.round(qty * (Number(item.unitCost) || 0) * 100) / 100,
+    });
+  }
+  state.productConfig.extras = extras;
+  persist();
+  render();
+}
+
+function removeProductExtra(index) {
+  if (!state.productConfig) return;
+  const extras = normalizeExtras(state.productConfig.extras);
+  if (!extras[index]) return;
+  extras.splice(index, 1);
+  state.productConfig.extras = extras;
   persist();
   render();
 }
@@ -3905,8 +4366,8 @@ function updateConfigQty(delta) {
   persist();
   const product = getProduct(state.productConfig.productId);
   if (!product) return;
-  const unitPrice = configuredUnitPrice(product, state.productConfig.selections);
-  const stock = estimateProductStock(product, state.productConfig.selections);
+  const unitPrice = configuredUnitPrice(product, state.productConfig.selections, state.productConfig.extras);
+  const stock = estimateProductStock(product, state.productConfig.selections, state.productConfig.extras);
   const qtyTarget = document.querySelector("[data-config-qty-value]");
   const totalTarget = document.querySelector("[data-config-total]");
   const unitTarget = document.querySelector("[data-config-unit]");
@@ -3930,12 +4391,13 @@ function addConfiguredProduct() {
   const product = getProduct(state.productConfig?.productId);
   if (!order || !product) return;
   const selections = structuredClone(state.productConfig.selections);
-  const unitPrice = configuredUnitPrice(product, selections);
-  const optionsText = optionSummary(product, selections);
-  const optionKey = JSON.stringify(selections);
+  const extras = normalizeExtras(state.productConfig.extras);
+  const unitPrice = configuredUnitPrice(product, selections, extras);
+  const optionsText = optionSummary(product, selections, extras);
+  const optionKey = JSON.stringify({ selections, extras });
   const note = String(state.productConfig.note || "").trim();
   const requestedQty = state.productConfig.qty;
-  const stock = estimateProductStock(product, selections);
+  const stock = estimateProductStock(product, selections, extras);
   const existing = order.items.find(
     (item) => item.status === "pending" && item.productId === product.id && item.optionKey === optionKey && (item.note || "") === note,
   );
@@ -3952,6 +4414,7 @@ function addConfiguredProduct() {
       qty: state.productConfig.qty,
       unitPrice,
       selections,
+      extras,
       optionKey,
       optionsText,
       note,
@@ -3970,7 +4433,7 @@ function addConfiguredProduct() {
   render();
 }
 
-function configuredUnitPrice(product, selections) {
+function configuredUnitPrice(product, selections, extras = []) {
   let price = Number(product.price) || 0;
   product.options.forEach((option) => {
     const selected = selections[option.id];
@@ -3988,10 +4451,11 @@ function configuredUnitPrice(product, selections) {
       });
     }
   });
+  price += extraUnitTotal(extras);
   return price;
 }
 
-function optionSummary(product, selections) {
+function optionSummary(product, selections, extras = []) {
   const parts = [];
   product.options.forEach((option) => {
     const selected = selections[option.id];
@@ -4004,6 +4468,10 @@ function optionSummary(product, selections) {
       if (labels.length) parts.push(`${option.label}: ${labels.join(", ")}`);
     }
   });
+  const extraParts = normalizeExtras(extras).map(
+    (extra) => `${extra.name} ${formatNumber(extra.qty)} ${extra.unit} (+${money.format(extra.total)})`,
+  );
+  if (extraParts.length) parts.push(`Extras: ${extraParts.join(", ")}`);
   return parts.join(" · ");
 }
 
@@ -4267,7 +4735,7 @@ function resetData(action) {
   const labels = {
     "inventory-zero": "poner todo el inventario en cero",
     "expenses-zero": "poner todos los gastos en cero",
-    "sales-data": "borrar ventas y cancelaciones",
+    "sales-data": "borrar ventas, cortes y cancelaciones",
     operations: "borrar la operacion completa del POS",
   };
   const confirmed = window.confirm(`Confirmar: ${labels[action] || "reiniciar datos"}?`);
@@ -4296,8 +4764,9 @@ function resetData(action) {
   }
   if (action === "sales-data") {
     state.sales = [];
+    state.cashSessions = [];
     state.cancellations = [];
-    showToast("Ventas y cancelaciones reiniciadas.");
+    showToast("Ventas, caja y cancelaciones reiniciadas.");
   }
   if (action === "operations") {
     state.activeOrderId = null;
@@ -4305,12 +4774,78 @@ function resetData(action) {
     state.modal = null;
     state.orders = [];
     state.sales = [];
+    state.cashSessions = [];
     state.cancellations = [];
     state.inventoryMovements = [];
     state.expenses = (state.expenses || fixedExpenses).map((item) => ({ ...item, amount: 0 }));
     showToast("Operacion reiniciada.");
   }
   persist();
+  render();
+}
+
+function openCashSession(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede abrir caja.");
+    return;
+  }
+  if (currentCashSession()) {
+    showToast("Ya hay una caja abierta.");
+    render();
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const openingCash = Math.max(0, Number(form.get("openingCash")) || 0);
+  state.cashSessions = normalizeCashSessions(state.cashSessions);
+  state.cashSessions.unshift({
+    id: safeId("cash"),
+    status: "open",
+    openingCash,
+    note: String(form.get("note") || "").trim(),
+    openedAt: new Date().toISOString(),
+    openedBy: currentUser()?.id,
+  });
+  persist();
+  showToast("Caja abierta.");
+  render();
+}
+
+function closeCashSession(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede cerrar caja.");
+    return;
+  }
+  const session = currentCashSession();
+  if (!session || session.id !== event.currentTarget.dataset.sessionId) {
+    showToast("No se encontro la caja abierta.");
+    render();
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const countedCash = Math.max(0, Number(form.get("countedCash")) || 0);
+  const totals = cashSessionTotals(session);
+  const difference = Math.round((countedCash - totals.expectedCash) * 100) / 100;
+  const now = new Date().toISOString();
+  Object.assign(session, {
+    status: "closed",
+    closedAt: now,
+    closedBy: currentUser()?.id,
+    countedCash,
+    openingCash: totals.openingCash,
+    cashSales: totals.cash,
+    cardSales: totals.card,
+    totalSales: totals.total,
+    cashTips: totals.cashTips,
+    cardTips: totals.cardTips,
+    tips: totals.tips,
+    expectedCash: totals.expectedCash,
+    difference,
+    closeNote: String(form.get("note") || "").trim(),
+  });
+  persist();
+  showToast(`Caja cerrada. Diferencia ${money.format(difference)}.`);
   render();
 }
 
@@ -4431,13 +4966,17 @@ function restoreInventoryForLines(lines, order, reason) {
 function inventoryUsageForLine(line) {
   const product = getProduct(line.productId);
   if (!product) return [];
+  const extras = normalizeExtras(line.extras);
   if (product.subsection === "Pan de lena") {
     const option = product.options.find((item) => item.id === "presentacion");
     const choice = option?.choices?.[line.selections?.presentacion || 0]?.label || "Pieza";
     const units = choice.includes("10") ? 10 : choice.includes("5") ? 5 : 1;
-    return [{ name: product.name.toUpperCase(), qty: units * line.qty }];
+    return [
+      { name: product.name.toUpperCase(), qty: units * line.qty },
+      ...extras.map((extra) => ({ name: extra.name, qty: extra.qty * line.qty })),
+    ];
   }
-  return inventoryRecipeForSelections(product, line.selections || defaultSelectionsFor(product)).map((item) => ({
+  return [...inventoryRecipeForSelections(product, line.selections || defaultSelectionsFor(product)), ...extras].map((item) => ({
     name: item.name,
     qty: item.qty * line.qty,
   }));
@@ -4601,10 +5140,11 @@ function salsaIngredients(label) {
   });
 }
 
-function inventoryUsageForProduct(product, selections = defaultSelectionsFor(product)) {
+function inventoryUsageForProduct(product, selections = defaultSelectionsFor(product), extras = []) {
   return inventoryUsageForLine({
     productId: product.id,
     selections,
+    extras,
     qty: 1,
   });
 }
@@ -4624,8 +5164,8 @@ function pendingInventoryUsage() {
   return usage;
 }
 
-function estimateProductStock(product, selections = defaultSelectionsFor(product)) {
-  const recipe = inventoryUsageForProduct(product, selections).filter((item) => Number(item.qty) > 0);
+function estimateProductStock(product, selections = defaultSelectionsFor(product), extras = []) {
+  const recipe = inventoryUsageForProduct(product, selections, extras).filter((item) => Number(item.qty) > 0);
   if (!recipe.length) {
     return { known: false, tone: "unknown", orderable: 0, items: [] };
   }
@@ -4786,6 +5326,10 @@ function productCost(productId) {
   return recipeCosts[productId] ?? Math.round(product.price * 0.32 * 100) / 100;
 }
 
+function lineUnitCost(line) {
+  return productCost(line.productId) + extraUnitTotal(line.extras);
+}
+
 function buildBusinessMetrics(day = null) {
   const productMap = new Map();
   let revenue = 0;
@@ -4797,7 +5341,7 @@ function buildBusinessMetrics(day = null) {
     tips += saleTip(sale);
     sale.items?.forEach((line) => {
       const lineRevenue = line.unitPrice * line.qty;
-      const lineCost = productCost(line.productId) * line.qty;
+      const lineCost = lineUnitCost(line) * line.qty;
       foodCost += lineCost;
       const key = line.productId || line.name;
       const current = productMap.get(key) || { name: line.name, qty: 0, revenue: 0, cost: 0 };
@@ -4808,12 +5352,15 @@ function buildBusinessMetrics(day = null) {
     });
   });
   const expenses = (state.expenses || fixedExpenses).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const paymentTotals = paymentTotalsForSales(sales);
   const cancellations = (Array.isArray(state.cancellations) ? state.cancellations : [])
     .filter((item) => !day || isSameLocalDay(item.createdAt, day));
   const cancelAmount = cancellations.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const grossProfit = revenue - foodCost;
   return {
     revenue,
+    cashRevenue: paymentTotals.cash,
+    cardRevenue: paymentTotals.card,
     tips,
     foodCost,
     grossProfit,
@@ -4885,5 +5432,6 @@ function minutesBetween(start, end) {
 
 render();
 initNetworkSync();
+loadAccessInfo();
 checkForUpdates();
 window.setInterval(checkForUpdates, 10 * 60 * 1000);
