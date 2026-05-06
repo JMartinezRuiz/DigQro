@@ -245,6 +245,7 @@ button:disabled {
 }
 
 .brand-badge,
+.version-badge,
 .line-status,
 .menu-meta span,
 .stat-pill {
@@ -267,6 +268,12 @@ button:disabled {
   color: var(--brand-strong);
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.version-badge {
+  border: 1px solid rgba(47, 111, 115, 0.16);
+  background: #eef8f6;
+  color: var(--teal);
 }
 
 .brand-subtitle {

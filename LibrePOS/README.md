@@ -74,6 +74,10 @@ LibrePOS consulta `https://github.com/JMartinezRuiz/DigQro` y muestra el boton `
 
 Al actualizar se descargan los archivos del proyecto, se ejecuta `npm install` y se conserva completa la carpeta `.librepos/`, por lo que ventas, mesas, usuarios, inventario, fichajes y datos locales no se borran. Tras actualizar, cierra y vuelve a abrir LibrePOS para cargar tambien los cambios del servidor local.
 
+## Version visible
+
+La version visible en la pantalla sale de `package.json` y se muestra junto a `Los Tatas` como `vX.Y.Z`. Cada update publicado debe aumentar el campo `version` en `package.json` y `package-lock.json` antes de subirlo a GitHub.
+
 Tambien se puede actualizar desde la consola dentro de la carpeta LibrePOS:
 
 ```bash

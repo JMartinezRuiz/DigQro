@@ -1,9 +1,11 @@
 import "./styles.css";
+import packageData from "../package.json";
 import qrcode from "./vendor/qrcode-generator.js";
 
 const STORAGE_KEY = "librepos:v2";
 const CLIENT_ID_KEY = "librepos:client-id";
 const BRAND_IMAGE = "/assets/brand.jpg";
+const APP_VERSION = packageData.version || "0.1.0";
 const SHARED_STATE_KEYS = [
   "settings",
   "users",
@@ -1477,7 +1479,7 @@ function renderLogin() {
         <div class="brand-lockup login-brand">
           <div class="brand-mark"><img src="${BRAND_IMAGE}" alt="Los Tatas" /></div>
           <div class="brand-copy">
-            <h1 class="brand-title"><span>LibrePOS</span><span class="brand-badge">Los Tatas</span></h1>
+            <h1 class="brand-title"><span>LibrePOS</span><span class="brand-badge">Los Tatas</span><span class="version-badge">v${escapeHtml(APP_VERSION)}</span></h1>
             <p class="brand-subtitle">Acceso al punto de venta</p>
           </div>
         </div>
@@ -1526,6 +1528,7 @@ function renderHeader() {
           <h1 class="brand-title">
             <span>${escapeHtml(state.settings.restaurantName)}</span>
             <span class="brand-badge">Los Tatas</span>
+            <span class="version-badge">v${escapeHtml(APP_VERSION)}</span>
           </h1>
           <p class="brand-subtitle">${escapeHtml(state.settings.subtitle)} · ${escapeHtml(user.name)}</p>
         </div>
@@ -4097,6 +4100,13 @@ async function authenticateUser(username, password) {
   return state.users.find((item) => item.active && sameUsername(item.username, loginUsername) && item.password === password) || null;
 }
 
+function closeModal() {
+  state.modal = null;
+  state.productConfig = null;
+  persist();
+  render();
+}
+
 function bindEvents() {
   document.querySelector("[data-apply-update]")?.addEventListener("click", applyUpdate);
   document.querySelectorAll("[data-nav]").forEach((button) => {
@@ -4133,14 +4143,19 @@ function bindEvents() {
       render();
     });
   });
-  document.querySelectorAll("[data-close-modal], [data-close-modal-button]").forEach((target) => {
-    target.addEventListener("click", (event) => {
-      if (event.target.closest("[data-modal-card]") && !event.target.closest("[data-close-modal-button]")) return;
-      state.modal = null;
-      state.productConfig = null;
-      persist();
-      render();
+  document.querySelectorAll("[data-close-modal]").forEach((backdrop) => {
+    backdrop.addEventListener("pointerdown", (event) => {
+      backdrop.dataset.pointerStartedOnBackdrop = String(event.target === backdrop);
     });
+    backdrop.addEventListener("click", (event) => {
+      const startedOnBackdrop = backdrop.dataset.pointerStartedOnBackdrop === "true";
+      delete backdrop.dataset.pointerStartedOnBackdrop;
+      if (event.target !== backdrop || !startedOnBackdrop) return;
+      closeModal();
+    });
+  });
+  document.querySelectorAll("[data-close-modal-button]").forEach((button) => {
+    button.addEventListener("click", closeModal);
   });
   document.querySelector("[data-open-table-form]")?.addEventListener("submit", submitOpenTable);
   const openTableSubmit = document.querySelector("[data-open-table-submit]");
