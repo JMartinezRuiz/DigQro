@@ -2733,6 +2733,8 @@ function renderCheckoutModal(order) {
             <div class="cash-change-box">
               <span>A recibir en efectivo</span>
               <strong data-cash-due>${money.format(cashDue)}</strong>
+              <span>Propina</span>
+              <strong data-cash-tip>${money.format(0)}</strong>
               <span>Cambio</span>
               <strong data-cash-change>${money.format(0)}</strong>
             </div>
@@ -2750,7 +2752,7 @@ function renderCheckoutModal(order) {
           </div>
           <label class="field tip-value-field">
             <span>Monto o porcentaje</span>
-            <input data-tip-value type="number" min="0" step="0.01" value="0" />
+            <input name="tipValue" data-tip-value type="number" min="0" step="0.01" value="0" />
           </label>
           <div>
             <p class="mini-title">Metodo de propina</p>
@@ -4521,6 +4523,24 @@ function readCheckoutPayment(order, form = document.querySelector("[data-checkou
   };
 }
 
+function shouldKeepManualCashReceived(event, form, payment) {
+  const cashInput = form.querySelector("[data-cash-received]");
+  if (!cashInput) return false;
+  if (event?.target === cashInput) {
+    cashInput.dataset.cashManual = "true";
+    return true;
+  }
+  if (payment.cashDue <= 0) return true;
+  if (cashInput.dataset.cashManual === "true") return true;
+  const current = Number(cashInput.value);
+  const previousAuto = Number(cashInput.dataset.autoCashDue);
+  if (Number.isFinite(current) && Number.isFinite(previousAuto) && roundCurrency(current) !== roundCurrency(previousAuto)) {
+    cashInput.dataset.cashManual = "true";
+    return true;
+  }
+  return false;
+}
+
 function updateCheckoutPaymentPreview(event) {
   const form = event?.currentTarget?.matches?.("[data-checkout-form]")
     ? event.currentTarget
@@ -4535,10 +4555,10 @@ function updateCheckoutPaymentPreview(event) {
   let payment = readCheckoutPayment(order, form);
   if (!payment) return;
   const cashInput = form.querySelector("[data-cash-received]");
-  const shouldAutofillCash =
-    !event || ["paymentMethod", "tipPaymentMethod", "tipMode"].includes(event.target?.name || "");
-  if (payment.cashDue > 0 && cashInput && shouldAutofillCash) {
+  const keepManualCash = shouldKeepManualCashReceived(event, form, payment);
+  if (payment.cashDue > 0 && cashInput && !keepManualCash) {
     cashInput.value = payment.cashDue.toFixed(2);
+    cashInput.dataset.autoCashDue = payment.cashDue.toFixed(2);
     payment = readCheckoutPayment(order, form);
   }
   form.querySelector("[data-checkout-total]").textContent = money.format(payment.total);
@@ -4547,8 +4567,10 @@ function updateCheckoutPaymentPreview(event) {
   const cashFields = form.querySelector("[data-cash-fields]");
   cashFields?.classList.toggle("is-hidden", payment.cashDue <= 0);
   const cashDue = form.querySelector("[data-cash-due]");
+  const cashTip = form.querySelector("[data-cash-tip]");
   const cashChange = form.querySelector("[data-cash-change]");
   if (cashDue) cashDue.textContent = money.format(payment.cashDue);
+  if (cashTip) cashTip.textContent = `${money.format(payment.tip.amount)} ${payment.tip.amount ? `(${payment.tip.paymentMethod})` : ""}`.trim();
   if (cashChange) {
     const short = payment.cashDue > 0 && payment.cashReceived < payment.cashDue;
     cashChange.textContent = short

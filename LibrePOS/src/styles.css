@@ -2692,6 +2692,7 @@ button:disabled {
 .cash-change-box strong {
   color: var(--ink);
   font-size: 1.05rem;
+  text-align: right;
 }
 
 .cash-change-box strong.is-short {
