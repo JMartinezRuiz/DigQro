@@ -1,5 +1,5 @@
 import "./styles.css";
-import qrcode from "qrcode-generator";
+import qrcode from "./vendor/qrcode-generator.js";
 
 const STORAGE_KEY = "librepos:v2";
 const CLIENT_ID_KEY = "librepos:client-id";
@@ -29,7 +29,7 @@ const defaultUsers = [
     password: "admin",
     name: "Administrador",
     role: "Administrador",
-    functions: ["admin", "mesero", "cocina"],
+    functions: ["admin", "mesero", "cocina", "caja"],
     active: true,
     createdAt: new Date().toISOString(),
   },
@@ -38,6 +38,7 @@ const defaultUsers = [
 const userFunctionOptions = [
   { id: "mesero", label: "Mesero" },
   { id: "cocina", label: "Cocina" },
+  { id: "caja", label: "Caja" },
   { id: "admin", label: "Admin" },
 ];
 
@@ -367,8 +368,8 @@ const recipeCosts = {
 };
 
 const fixedExpenses = [
-  { name: "Gasto insumos y pan", amount: 17241.54 },
-  { name: "Gasto pan registrado", amount: 4212 },
+  { id: "fixed-insumos-pan", name: "Gasto insumos y pan", supplier: "Varios", category: "Insumos", amount: 17241.54 },
+  { id: "fixed-pan-registrado", name: "Gasto pan registrado", supplier: "Panaderia", category: "Pan", amount: 4212 },
 ];
 
 const inventoryRecipes = {
@@ -589,7 +590,7 @@ function loadState() {
       cancellations: Array.isArray(saved.cancellations) ? saved.cancellations : [],
       inventory: normalizeInventory(saved.inventory),
       inventoryMovements: Array.isArray(saved.inventoryMovements) ? saved.inventoryMovements : [],
-      expenses: Array.isArray(saved.expenses) ? saved.expenses : fixedExpenses,
+      expenses: normalizeExpenses(saved.expenses),
       attendance: Array.isArray(saved.attendance) ? saved.attendance : [],
       cashSessions: normalizeCashSessions(saved.cashSessions),
     };
@@ -671,17 +672,33 @@ function normalizeCashSessions(cashSessions) {
   return Array.isArray(cashSessions) ? cashSessions : [];
 }
 
+function normalizeExpenses(expenses) {
+  const source = Array.isArray(expenses) && expenses.length ? expenses : fixedExpenses;
+  return source.map((expense, index) => ({
+    id: expense.id || `expense-${index}-${normalize(expense.name || expense.supplier || "gasto").replaceAll(" ", "-")}`,
+    name: cleanUserText(expense.name || expense.concept || "Gasto"),
+    supplier: cleanUserText(expense.supplier || expense.provider || "Sin proveedor"),
+    category: cleanUserText(expense.category || "General"),
+    amount: Math.max(0, Number(expense.amount) || 0),
+    createdAt: expense.createdAt || expense.date || new Date().toISOString(),
+    createdBy: expense.createdBy || "",
+    note: String(expense.note || "").trim(),
+  }));
+}
+
 function normalizeUserFunctions(user) {
   const valid = new Set(userFunctionOptions.map((item) => item.id));
   const source = Array.isArray(user.functions) && user.functions.length ? user.functions : functionsFromRole(user.role);
   const normalized = source.filter((item) => valid.has(item));
+  if (normalized.includes("admin")) return ["admin", "mesero", "cocina", "caja"];
   return normalized.length ? normalized : ["mesero"];
 }
 
 function functionsFromRole(role = "") {
   const value = normalize(role);
-  if (value.includes("admin")) return ["admin", "mesero", "cocina"];
+  if (value.includes("admin")) return ["admin", "mesero", "cocina", "caja"];
   if (value.includes("cocina")) return ["cocina"];
+  if (value.includes("caja")) return ["caja"];
   return ["mesero"];
 }
 
@@ -702,6 +719,14 @@ function hasUserFunction(user, functionId) {
 
 function isAdminUser(user = currentUser()) {
   return Boolean(user && normalizeUserFunctions(user).includes("admin"));
+}
+
+function hasCashAccess(user = currentUser()) {
+  return Boolean(user && hasUserFunction(user, "caja"));
+}
+
+function isCashOpen() {
+  return Boolean(currentCashSession());
 }
 
 function cleanUserText(value) {
@@ -747,7 +772,7 @@ function normalizeSharedState(shared = {}) {
     cancellations: Array.isArray(shared.cancellations) ? shared.cancellations : [],
     inventory: normalizeInventory(shared.inventory),
     inventoryMovements: Array.isArray(shared.inventoryMovements) ? shared.inventoryMovements : [],
-    expenses: Array.isArray(shared.expenses) ? shared.expenses : fixedExpenses,
+    expenses: normalizeExpenses(shared.expenses),
     attendance: Array.isArray(shared.attendance) ? shared.attendance : [],
     cashSessions: normalizeCashSessions(shared.cashSessions),
   };
@@ -1438,8 +1463,9 @@ function availableNavItems() {
     items.push(["sale", "Venta", "sale"], ["tables", "Mesas", "tables"]);
   }
   if (hasUserFunction(user, "cocina")) items.push(["kitchen", "Cocina", "kitchen"]);
+  if (hasCashAccess(user)) items.push(["cash", "Caja", "cash"]);
   if (isAdminUser(user)) {
-    items.push(["inventory", "Inventario", "inventory"], ["cash", "Caja", "cash"], ["data", "Datos", "data"], ["users", "Usuarios", "users"]);
+    items.push(["inventory", "Inventario", "inventory"], ["data", "Datos", "data"], ["users", "Usuarios", "users"]);
   }
   return items;
 }
@@ -1525,12 +1551,14 @@ function renderHeader() {
 function renderSale() {
   const activeOrder = getActiveOrder();
   if (!activeOrder) return renderSaleHome();
+  const cashOpen = isCashOpen();
   return `
     <div class="quick-actions">
-      <button class="secondary-button" data-open-modal="open-table">${svg("table")}Nueva mesa</button>
-      <button class="secondary-button" data-open-modal="takeout">${svg("bag")}Para llevar</button>
+      <button class="secondary-button" data-open-modal="open-table" ${cashOpen ? "" : "disabled"}>${svg("table")}Nueva mesa</button>
+      <button class="secondary-button" data-open-modal="takeout" ${cashOpen ? "" : "disabled"}>${svg("bag")}Para llevar</button>
       <button class="secondary-button" data-back-home>${svg("minus")}Ordenes</button>
     </div>
+    ${cashOpen ? "" : renderCashClosedNotice()}
     ${renderActiveTableSwitcher(activeOrder)}
     ${renderOrderFocus(activeOrder)}
     <div class="sale-workspace is-immediate">
@@ -1543,6 +1571,7 @@ function renderSale() {
 
 function renderMobileOrderBar(order) {
   const totals = calculateTotals(order);
+  const cashOpen = isCashOpen();
   return `
     <section class="mobile-order-bar" aria-label="Acciones rapidas de orden">
       <div>
@@ -1550,7 +1579,7 @@ function renderMobileOrderBar(order) {
         <span>${totals.pending} por comandar · ${totals.ready} listas</span>
       </div>
       <div class="mobile-order-actions">
-        <button class="primary-button compact" data-open-modal="command" ${totals.pending ? "" : "disabled"}>${svg("digital")}Comandar</button>
+        <button class="primary-button compact" data-open-modal="command" ${totals.pending && cashOpen ? "" : "disabled"}>${svg("digital")}Comandar</button>
         <button class="secondary-button compact" data-open-modal="price">${svg("cash")}</button>
         <button class="secondary-button compact" data-finalize-order ${order.items.length ? "" : "disabled"}>${svg("check")}</button>
       </div>
@@ -1599,15 +1628,17 @@ function renderActiveTableSwitcher(activeOrder) {
 }
 
 function renderSaleHome() {
+  const cashOpen = isCashOpen();
   return `
     <div class="sale-home">
+      ${cashOpen ? "" : renderCashClosedNotice()}
       ${renderServiceOverview()}
       <section class="action-band">
-        <button class="big-action" data-open-modal="open-table">
+        <button class="big-action" data-open-modal="open-table" ${cashOpen ? "" : "disabled"}>
           ${svg("table", "big-icon")}
           <span>Abrir nueva mesa</span>
         </button>
-        <button class="big-action" data-open-modal="takeout">
+        <button class="big-action" data-open-modal="takeout" ${cashOpen ? "" : "disabled"}>
           ${svg("bag", "big-icon")}
           <span>Para llevar</span>
         </button>
@@ -1628,6 +1659,14 @@ function renderSaleHome() {
         </div>
       </section>
     </div>
+  `;
+}
+
+function renderCashClosedNotice() {
+  return `
+    <section class="checkout-warning cash-closed-notice">
+      ${svg("alert")}Caja cerrada. Abre caja antes de abrir mesas, para llevar o comandar productos.
+    </section>
   `;
 }
 
@@ -1786,6 +1825,7 @@ function renderTableTile(number, order) {
   const totals = order ? calculateTotals(order) : null;
   const readyCommands = order ? readyBatches(order) : [];
   const readyQty = readyCommands.reduce((sum, batch) => sum + batchQty(batch), 0);
+  const cashOpen = isCashOpen();
   return `
     <article class="table-tile state-${status}">
       <div class="table-tile-head">
@@ -1819,7 +1859,7 @@ function renderTableTile(number, order) {
           `
           : `
             <div class="table-empty-copy">Lista para abrir.</div>
-            <button class="primary-button" data-open-modal="open-table" data-table-number="${number}">${svg("table")}Abrir</button>
+            <button class="primary-button" data-open-modal="open-table" data-table-number="${number}" ${cashOpen ? "" : "disabled"}>${svg("table")}Abrir</button>
           `
       }
     </article>
@@ -1840,6 +1880,7 @@ function renderTableProgress(totals) {
 
 function renderOpenTableForm() {
   const user = currentUser();
+  const cashOpen = isCashOpen();
   const occupiedTables = new Set(
     getOpenOrders()
       .filter((order) => order.type === "table")
@@ -1851,10 +1892,11 @@ function renderOpenTableForm() {
   const noAvailableTables = availableTables.length === 0;
   return `
     <form class="panel-body field-grid" data-open-table-form>
+      ${cashOpen ? "" : renderCashClosedNotice()}
       <div class="field-row">
         <label class="field">
           <span>Numero de mesa</span>
-          <select name="tableNumber" ${noAvailableTables ? "disabled" : ""}>
+          <select name="tableNumber" ${noAvailableTables || !cashOpen ? "disabled" : ""}>
             ${tables
               .map((number) => {
                 const busy = occupiedTables.has(number);
@@ -1882,15 +1924,17 @@ function renderOpenTableForm() {
         <textarea name="comments" rows="3" placeholder="Alergias, celebracion o notas de servicio"></textarea>
       </label>
       ${noAvailableTables ? `<div class="empty-state compact">No hay mesas libres para abrir.</div>` : ""}
-      <button class="primary-button" type="submit" data-open-table-submit ${noAvailableTables ? "disabled" : ""}>${svg("table")}Abrir mesa</button>
+      <button class="primary-button" type="submit" data-open-table-submit ${noAvailableTables || !cashOpen ? "disabled" : ""}>${svg("table")}Abrir mesa</button>
     </form>
   `;
 }
 
 function renderTakeoutForm() {
   const user = currentUser();
+  const cashOpen = isCashOpen();
   return `
     <form class="panel-body field-grid" data-open-takeout-form>
+      ${cashOpen ? "" : renderCashClosedNotice()}
       <label class="field">
         <span>Cliente</span>
         <input name="customerName" placeholder="Mostrador" />
@@ -1903,7 +1947,7 @@ function renderTakeoutForm() {
             .join("")}
         </select>
       </label>
-      <button class="primary-button" type="submit">${svg("bag")}Abrir para llevar</button>
+      <button class="primary-button" type="submit" ${cashOpen ? "" : "disabled"}>${svg("bag")}Abrir para llevar</button>
     </form>
   `;
 }
@@ -1928,6 +1972,7 @@ function renderOrderCard(order) {
 
 function renderTicket(order) {
   const totals = calculateTotals(order);
+  const cashOpen = isCashOpen();
   return `
     <aside class="ticket-column">
       <section class="ticket-head">
@@ -1965,7 +2010,7 @@ function renderTicket(order) {
           <strong>${money.format(totals.total)}</strong>
         </div>
         <div class="ticket-actions">
-          <button class="primary-button" data-open-modal="command" ${totals.pending ? "" : "disabled"}>${svg("digital")}Comandar</button>
+          <button class="primary-button" data-open-modal="command" ${totals.pending && cashOpen ? "" : "disabled"}>${svg("digital")}Comandar</button>
           <button class="secondary-button" data-open-modal="price">${svg("cash")}Precio</button>
           <button class="secondary-button" data-finalize-order ${order.items.length ? "" : "disabled"}>${svg("check")}Finalizar</button>
         </div>
@@ -2011,11 +2056,13 @@ function renderTicketLine(item, order) {
 
 function renderCommandOptions(order) {
   const pending = order.items.filter((item) => item.status === "pending");
+  const cashOpen = isCashOpen();
   return `
     <div class="command-box">
+      ${cashOpen ? "" : renderCashClosedNotice()}
       <p class="mini-title">Enviar ${pending.length} linea${pending.length === 1 ? "" : "s"}</p>
       <div class="command-grid">
-        <button class="command-option" data-command-mode="digital">${svg("digital")}Digital</button>
+        <button class="command-option" data-command-mode="digital" ${cashOpen ? "" : "disabled"}>${svg("digital")}Digital</button>
         <button class="command-option" disabled title="Pendiente de impresora">${svg("print")}Impresa</button>
         <button class="command-option" disabled title="Pendiente de impresora">${svg("print")}Ambas</button>
       </div>
@@ -2974,7 +3021,7 @@ function renderInventory() {
 }
 
 function renderCashRegister() {
-  if (!isAdminUser()) return "";
+  if (!hasCashAccess()) return "";
   const activeSession = currentCashSession();
   const todayPayments = paymentTotalsForSales(state.sales.filter((sale) => isSameLocalDay(saleClosedAt(sale))));
   const activeTotals = cashSessionTotals(activeSession);
@@ -2990,6 +3037,7 @@ function renderCashRegister() {
       </section>
       <section class="summary-grid">
         ${renderSummaryCard("Estado", activeSession ? `Abierta ${formatTime(activeSession.openedAt)}` : "Cerrada")}
+        ${renderSummaryCard("Total hoy", money.format(todayPayments.total))}
         ${renderSummaryCard("Efectivo hoy", money.format(todayPayments.cash))}
         ${renderSummaryCard("Tarjeta hoy", money.format(todayPayments.card))}
         ${renderSummaryCard("Ultimo corte", lastCut ? money.format(Number(lastCut.difference) || 0) : "Sin corte")}
@@ -3029,6 +3077,7 @@ function renderCashRegister() {
           </div>
           <div class="panel-body metric-stack">
             <div class="total-line"><span>Fondo inicial</span><strong>${money.format(activeTotals.openingCash || 0)}</strong></div>
+            <div class="total-line"><span>Total cobrado</span><strong>${money.format(activeTotals.total || 0)}</strong></div>
             <div class="total-line"><span>Ventas efectivo</span><strong>${money.format(activeTotals.cash || 0)}</strong></div>
             <div class="total-line"><span>Ventas tarjeta</span><strong>${money.format(activeTotals.card || 0)}</strong></div>
             <div class="total-line"><span>Propinas incluidas</span><strong>${money.format(activeTotals.tips || 0)}</strong></div>
@@ -3043,6 +3092,7 @@ function renderCashRegister() {
 }
 
 function renderCashClosePanel(session, totals) {
+  const openOrders = getOpenOrders().length;
   return `
     <section class="panel">
       <div class="panel-header">
@@ -3052,7 +3102,9 @@ function renderCashClosePanel(session, totals) {
         </div>
       </div>
       <form class="panel-body field-grid" data-cash-close-form data-session-id="${session.id}">
+        ${openOrders ? `<div class="checkout-warning">${svg("alert")}Hay ${openOrders} orden${openOrders === 1 ? "" : "es"} abierta${openOrders === 1 ? "" : "s"}. Cierra o cancela antes del corte.</div>` : ""}
         <div class="cash-cut-preview">
+          <div><span>Total cobrado</span><strong>${money.format(totals.total)}</strong></div>
           <div><span>Efectivo esperado</span><strong>${money.format(totals.expectedCash)}</strong></div>
           <div><span>Tarjeta cobrada</span><strong>${money.format(totals.card)}</strong></div>
         </div>
@@ -3064,7 +3116,7 @@ function renderCashClosePanel(session, totals) {
           <span>Nota opcional</span>
           <input name="note" placeholder="Faltante, sobrante o terminal bancaria" />
         </label>
-        <button class="primary-button" type="submit">${svg("check")}Cerrar caja</button>
+        <button class="primary-button" type="submit" ${openOrders ? "disabled" : ""}>${svg("check")}Cerrar caja</button>
       </form>
     </section>
   `;
@@ -3123,7 +3175,7 @@ function renderCashSessionHistory() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               sessions.length
@@ -3135,6 +3187,7 @@ function renderCashSessionHistory() {
                           <td>${formatDateTime(session.openedAt)}</td>
                           <td>${session.closedAt ? formatDateTime(session.closedAt) : "Abierta"}</td>
                           <td><strong>${escapeHtml(waiterName(session.openedBy))}</strong><small>${session.closedBy ? `Cerro ${escapeHtml(waiterName(session.closedBy))}` : ""}</small></td>
+                          <td>${money.format(Number(totals.totalSales ?? totals.total) || 0)}</td>
                           <td>${money.format(Number(totals.cashSales ?? totals.cash) || 0)}</td>
                           <td>${money.format(Number(totals.cardSales ?? totals.card) || 0)}</td>
                           <td>${session.status === "closed" ? money.format(Number(session.countedCash) || 0) : "Pendiente"}</td>
@@ -3143,7 +3196,188 @@ function renderCashSessionHistory() {
                       `;
                     })
                     .join("")
-                : `<tr><td colspan="7">Aun no hay aperturas de caja.</td></tr>`
+                : `<tr><td colspan="8">Aun no hay aperturas de caja.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function expensePeriodKey(expense, period) {
+  const date = new Date(expense.createdAt);
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  if (period === "quincena") {
+    return `${year}-${String(month + 1).padStart(2, "0")} Q${date.getDate() <= 15 ? "1" : "2"}`;
+  }
+  if (period === "trimestre") {
+    return `${year} T${Math.floor(month / 3) + 1}`;
+  }
+  return new Intl.DateTimeFormat("es-MX", { month: "short", year: "numeric" }).format(date);
+}
+
+function summarizeExpensesBy(expenses, keyFn) {
+  const map = new Map();
+  expenses.forEach((expense) => {
+    const key = keyFn(expense);
+    const current = map.get(key) || { label: key, amount: 0, count: 0 };
+    current.amount += Number(expense.amount) || 0;
+    current.count += 1;
+    map.set(key, current);
+  });
+  return [...map.values()].sort((a, b) => b.amount - a.amount);
+}
+
+function cashClosuresByDay() {
+  const map = new Map();
+  normalizeCashSessions(state.cashSessions)
+    .filter((session) => session.status === "closed")
+    .forEach((session) => {
+      const closeDate = new Date(session.closedAt || session.openedAt);
+      const key = localDateKey(closeDate);
+      const current = map.get(key) || {
+        date: closeDate.toLocaleDateString("es-MX"),
+        sortKey: key,
+        sessions: 0,
+        total: 0,
+        cash: 0,
+        card: 0,
+        counted: 0,
+        difference: 0,
+      };
+      current.sessions += 1;
+      current.total += Number(session.totalSales) || 0;
+      current.cash += Number(session.cashSales) || 0;
+      current.card += Number(session.cardSales) || 0;
+      current.counted += Number(session.countedCash) || 0;
+      current.difference += Number(session.difference) || 0;
+      map.set(key, current);
+    });
+  return [...map.values()].sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+}
+
+function renderDataExports() {
+  if (!isAdminUser()) return "";
+  return `
+    <section class="panel data-grid-wide">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Exportar datos</h2>
+          <p class="panel-kicker">CSV para Excel y respaldo JSON</p>
+        </div>
+      </div>
+      <div class="panel-body export-grid">
+        <button class="secondary-button" data-export-data="ventas">${svg("data")}Ventas CSV</button>
+        <button class="secondary-button" data-export-data="caja">${svg("cash")}Cortes CSV</button>
+        <button class="secondary-button" data-export-data="gastos">${svg("cash")}Gastos CSV</button>
+        <button class="secondary-button" data-export-data="inventario">${svg("inventory")}Inventario CSV</button>
+        <button class="primary-button" data-export-data="respaldo">${svg("digital")}Respaldo JSON</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderExpenseControls() {
+  if (!isAdminUser()) return "";
+  const today = new Date().toISOString().slice(0, 10);
+  const expenses = normalizeExpenses(state.expenses);
+  const bySupplier = summarizeExpensesBy(expenses, (expense) => expense.supplier).slice(0, 12);
+  const byFortnight = summarizeExpensesBy(expenses, (expense) => expensePeriodKey(expense, "quincena")).slice(0, 8);
+  const byMonth = summarizeExpensesBy(expenses, (expense) => expensePeriodKey(expense, "mes")).slice(0, 8);
+  const byQuarter = summarizeExpensesBy(expenses, (expense) => expensePeriodKey(expense, "trimestre")).slice(0, 8);
+  return `
+    <section class="panel data-grid-wide">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Gastos</h2>
+          <p class="panel-kicker">Proveedor, quincena, mes y trimestre</p>
+        </div>
+      </div>
+      <div class="panel-body expense-layout">
+        <form class="field-grid expense-form" data-expense-form>
+          <div class="field-row">
+            <label class="field"><span>Proveedor</span><input name="supplier" required placeholder="MERCADO" /></label>
+            <label class="field"><span>Concepto</span><input name="name" required placeholder="Compra de insumos" /></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>Categoria</span><input name="category" placeholder="Insumos" /></label>
+            <label class="field"><span>Fecha</span><input name="date" type="date" value="${today}" /></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>Importe</span><input name="amount" type="number" min="0" step="0.01" required /></label>
+            <label class="field"><span>Nota</span><input name="note" placeholder="Factura, ticket o detalle" /></label>
+          </div>
+          <button class="primary-button" type="submit">${svg("plus")}Registrar gasto</button>
+        </form>
+        <div class="expense-summary-grid">
+          ${renderExpenseSummaryTable("Por proveedor", bySupplier)}
+          ${renderExpenseSummaryTable("Por quincena", byFortnight)}
+          ${renderExpenseSummaryTable("Por mes", byMonth)}
+          ${renderExpenseSummaryTable("Por trimestre", byQuarter)}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderExpenseSummaryTable(title, rows) {
+  return `
+    <section class="mini-table">
+      <h3>${escapeHtml(title)}</h3>
+      <div>
+        ${
+          rows.length
+            ? rows
+                .map(
+                  (row) => `
+                    <div class="mini-table-row">
+                      <span>${escapeHtml(row.label)}<small>${row.count} registro${row.count === 1 ? "" : "s"}</small></span>
+                      <strong>${money.format(row.amount)}</strong>
+                    </div>
+                  `,
+                )
+                .join("")
+            : `<div class="empty-state compact">Sin gastos.</div>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderCashClosuresData() {
+  const rows = cashClosuresByDay();
+  return `
+    <section class="panel data-grid-wide">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Cierres de caja por dia</h2>
+          <p class="panel-kicker">Total, efectivo, tarjeta y diferencias documentadas</p>
+        </div>
+      </div>
+      <div class="panel-body table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows
+                    .map(
+                      (row) => `
+                        <tr>
+                          <td><strong>${escapeHtml(row.date)}</strong></td>
+                          <td>${row.sessions}</td>
+                          <td>${money.format(row.total)}</td>
+                          <td>${money.format(row.cash)}</td>
+                          <td>${money.format(row.card)}</td>
+                          <td>${money.format(row.counted)}</td>
+                          <td><strong>${money.format(row.difference)}</strong></td>
+                        </tr>
+                      `,
+                    )
+                    .join("")
+                : `<tr><td colspan="7">Aun no hay cortes de caja cerrados.</td></tr>`
             }
           </tbody>
         </table>
@@ -3185,6 +3419,9 @@ function renderData() {
           `
           : ""
       }
+      ${renderDataExports()}
+      ${renderExpenseControls()}
+      ${renderCashClosuresData()}
       <div class="data-grid">
         <section class="panel">
           <div class="panel-header">
@@ -3904,6 +4141,10 @@ function bindEvents() {
   });
   document.querySelector("[data-inventory-add-form]")?.addEventListener("submit", addInventoryItem);
   document.querySelector("[data-inventory-adjust-form]")?.addEventListener("submit", adjustInventoryFromForm);
+  document.querySelector("[data-expense-form]")?.addEventListener("submit", addExpense);
+  document.querySelectorAll("[data-export-data]").forEach((button) => {
+    button.addEventListener("click", () => exportData(button.dataset.exportData));
+  });
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);
   document.querySelector("[data-cash-close-form]")?.addEventListener("submit", closeCashSession);
   document.querySelectorAll("[data-inventory-quick]").forEach((button) => {
@@ -3946,6 +4187,13 @@ function submitOpenTable(event) {
 }
 
 function openTable(formElement) {
+  if (!isCashOpen()) {
+    showToast("Abre caja antes de abrir una mesa.");
+    state.modal = null;
+    persist();
+    render();
+    return;
+  }
   const form = new FormData(formElement);
   const tableNumber = Number(form.get("tableNumber"));
   if (!tables.includes(tableNumber)) {
@@ -4017,6 +4265,13 @@ function syncLineNoteToBatches(order, lineId, note) {
 
 function openTakeout(event) {
   event.preventDefault();
+  if (!isCashOpen()) {
+    showToast("Abre caja antes de abrir una orden para llevar.");
+    state.modal = null;
+    persist();
+    render();
+    return;
+  }
   const form = new FormData(event.currentTarget);
   const order = {
     id: safeId("order"),
@@ -4302,6 +4557,10 @@ function clearOrderAlert(key) {
 }
 
 function startProductConfig(productId) {
+  if (!isCashOpen()) {
+    showToast("Abre caja antes de agregar productos.");
+    return;
+  }
   const product = getProduct(productId);
   if (!product) return;
   const selections = defaultSelectionsFor(product);
@@ -4387,6 +4646,13 @@ function updateConfigQty(delta) {
 }
 
 function addConfiguredProduct() {
+  if (!isCashOpen()) {
+    showToast("Abre caja antes de agregar productos.");
+    state.productConfig = null;
+    persist();
+    render();
+    return;
+  }
   const order = getActiveOrder();
   const product = getProduct(state.productConfig?.productId);
   if (!order || !product) return;
@@ -4499,6 +4765,13 @@ function removeLine(lineId) {
 function commandPending(mode, source) {
   const order = getActiveOrder();
   if (!order) return;
+  if (!isCashOpen()) {
+    showToast("Abre caja antes de comandar productos.");
+    state.modal = null;
+    persist();
+    render();
+    return;
+  }
   const pending = order.items.filter((item) => item.status === "pending");
   if (!pending.length) {
     showToast("No hay productos pendientes para comandar.");
@@ -4759,7 +5032,7 @@ function resetData(action) {
     showToast("Inventario puesto en cero.");
   }
   if (action === "expenses-zero") {
-    state.expenses = (state.expenses || fixedExpenses).map((item) => ({ ...item, amount: 0 }));
+    state.expenses = normalizeExpenses(state.expenses).map((item) => ({ ...item, amount: 0 }));
     showToast("Gastos puestos en cero.");
   }
   if (action === "sales-data") {
@@ -4777,7 +5050,7 @@ function resetData(action) {
     state.cashSessions = [];
     state.cancellations = [];
     state.inventoryMovements = [];
-    state.expenses = (state.expenses || fixedExpenses).map((item) => ({ ...item, amount: 0 }));
+    state.expenses = normalizeExpenses(state.expenses).map((item) => ({ ...item, amount: 0 }));
     showToast("Operacion reiniciada.");
   }
   persist();
@@ -4786,8 +5059,8 @@ function resetData(action) {
 
 function openCashSession(event) {
   event.preventDefault();
-  if (!isAdminUser()) {
-    showToast("Solo admin puede abrir caja.");
+  if (!hasCashAccess()) {
+    showToast("No tienes permiso de caja.");
     return;
   }
   if (currentCashSession()) {
@@ -4813,14 +5086,18 @@ function openCashSession(event) {
 
 function closeCashSession(event) {
   event.preventDefault();
-  if (!isAdminUser()) {
-    showToast("Solo admin puede cerrar caja.");
+  if (!hasCashAccess()) {
+    showToast("No tienes permiso de caja.");
     return;
   }
   const session = currentCashSession();
   if (!session || session.id !== event.currentTarget.dataset.sessionId) {
     showToast("No se encontro la caja abierta.");
     render();
+    return;
+  }
+  if (getOpenOrders().length) {
+    showToast("Cierra o cancela las ordenes abiertas antes del corte.");
     return;
   }
   const form = new FormData(event.currentTarget);
@@ -4846,6 +5123,37 @@ function closeCashSession(event) {
   });
   persist();
   showToast(`Caja cerrada. Diferencia ${money.format(difference)}.`);
+  render();
+}
+
+function addExpense(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede registrar gastos.");
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const amount = Math.max(0, Number(form.get("amount")) || 0);
+  const supplier = cleanUserText(form.get("supplier"));
+  const name = cleanUserText(form.get("name"));
+  if (!supplier || !name || amount <= 0) {
+    showToast("Captura proveedor, concepto e importe.");
+    return;
+  }
+  const date = String(form.get("date") || "").trim();
+  state.expenses = normalizeExpenses(state.expenses);
+  state.expenses.unshift({
+    id: safeId("expense"),
+    supplier,
+    name,
+    category: cleanUserText(form.get("category")) || "General",
+    amount,
+    createdAt: date ? new Date(`${date}T12:00:00`).toISOString() : new Date().toISOString(),
+    createdBy: currentUser()?.id,
+    note: String(form.get("note") || "").trim(),
+  });
+  persist();
+  showToast("Gasto registrado.");
   render();
 }
 
@@ -5351,7 +5659,8 @@ function buildBusinessMetrics(day = null) {
       productMap.set(key, current);
     });
   });
-  const expenses = (state.expenses || fixedExpenses).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const expenseRows = normalizeExpenses(state.expenses).filter((item) => !day || isSameLocalDay(item.createdAt, day));
+  const expenses = expenseRows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const paymentTotals = paymentTotalsForSales(sales);
   const cancellations = (Array.isArray(state.cancellations) ? state.cancellations : [])
     .filter((item) => !day || isSameLocalDay(item.createdAt, day));
@@ -5374,6 +5683,106 @@ function buildBusinessMetrics(day = null) {
     products: [...productMap.values()].sort((a, b) => b.revenue - a.revenue),
     cancellations: [...cancellations].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 40),
   };
+}
+
+function exportData(kind) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const exporters = {
+    ventas: () => ({
+      filename: `librepos-ventas-${stamp}.csv`,
+      rows: [
+        ["fecha", "orden", "mesero", "cajero", "metodo_pago", "subtotal", "propina", "total", "productos"],
+        ...state.sales.map((sale) => [
+          formatCsvDateTime(saleClosedAt(sale)),
+          sale.label || sale.orderId,
+          waiterName(sale.waiterId),
+          waiterName(sale.cashierId),
+          sale.paymentMethod || "Efectivo",
+          Number(sale.totals?.subtotal ?? saleTotal(sale) - saleTip(sale)) || 0,
+          saleTip(sale),
+          saleTotal(sale),
+          (sale.items || []).map((item) => `${item.qty} x ${item.name}${item.optionsText ? ` (${item.optionsText})` : ""}`).join(" | "),
+        ]),
+      ],
+    }),
+    caja: () => ({
+      filename: `librepos-caja-${stamp}.csv`,
+      rows: [
+        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
+        ...normalizeCashSessions(state.cashSessions).map((session) => {
+          const totals = session.status === "closed" ? session : cashSessionTotals(session);
+          return [
+            formatCsvDateTime(session.openedAt),
+            session.closedAt ? formatCsvDateTime(session.closedAt) : "Abierta",
+            waiterName(session.openedBy),
+            session.closedBy ? waiterName(session.closedBy) : "",
+            Number(totals.openingCash) || 0,
+            Number(totals.cashSales ?? totals.cash) || 0,
+            Number(totals.cardSales ?? totals.card) || 0,
+            Number(totals.totalSales ?? totals.total) || 0,
+            Number(totals.expectedCash) || 0,
+            Number(session.countedCash) || 0,
+            Number(session.difference) || 0,
+            session.closeNote || session.note || "",
+          ];
+        }),
+      ],
+    }),
+    gastos: () => ({
+      filename: `librepos-gastos-${stamp}.csv`,
+      rows: [
+        ["fecha", "proveedor", "categoria", "concepto", "importe", "nota"],
+        ...normalizeExpenses(state.expenses).map((expense) => [
+          formatCsvDateTime(expense.createdAt),
+          expense.supplier,
+          expense.category,
+          expense.name,
+          expense.amount,
+          expense.note || "",
+        ]),
+      ],
+    }),
+    inventario: () => ({
+      filename: `librepos-inventario-${stamp}.csv`,
+      rows: [
+        ["categoria", "insumo", "proveedor", "unidad", "cantidad", "costo_unitario", "total"],
+        ...currentInventory().map((item) => [item.category, item.name, item.supplier, item.unit, item.qty, item.unitCost, item.totalCost]),
+      ],
+    }),
+    respaldo: () => ({
+      filename: `librepos-respaldo-${stamp}.json`,
+      text: JSON.stringify(sharedStateFromCurrent(), null, 2),
+      type: "application/json;charset=utf-8",
+    }),
+  };
+  const payload = exporters[kind]?.();
+  if (!payload) return;
+  downloadText(
+    payload.filename,
+    payload.text || csvFromRows(payload.rows),
+    payload.type || "text/csv;charset=utf-8",
+  );
+}
+
+function csvFromRows(rows) {
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function downloadText(filename, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatNumber(value) {
@@ -5416,6 +5825,20 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function localDateKey(value) {
+  const date = new Date(value);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function formatCsvDateTime(value) {
+  const date = new Date(value);
+  return `${localDateKey(date)} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function elapsed(value) {
