@@ -2483,6 +2483,7 @@ function renderModal() {
   const order = getActiveOrder();
   const modalOrder = getOrder(state.modal.orderId) || order;
   const lineTarget = state.modal.lineId ? findLine(state.modal.lineId) : null;
+  const saleTarget = state.modal.saleId ? state.sales.find((sale) => sale.id === state.modal.saleId) : null;
   const modalContent = {
     "open-table": renderOpenTableModal(),
     takeout: renderTakeoutModal(),
@@ -2495,6 +2496,7 @@ function renderModal() {
     "cancel-line": lineTarget ? renderCancelLineModal(lineTarget.order, lineTarget.line, state.modal) : "",
     "table-note": modalOrder ? renderTableNoteModal(modalOrder) : "",
     "line-note": lineTarget ? renderLineNoteModal(lineTarget.order, lineTarget.line) : "",
+    "adjust-tip": saleTarget ? renderAdjustTipModal(saleTarget) : "",
   }[state.modal.type] || "";
   if (!modalContent) return "";
   return `
@@ -2686,6 +2688,8 @@ function renderPriceModal(order) {
 function renderCheckoutModal(order) {
   const totals = calculateTotals(order);
   const cashSession = currentCashSession();
+  const paymentMethod = state.paymentMethod || "Efectivo";
+  const cashDue = paymentBucket(paymentMethod) === "cash" ? totals.subtotal : 0;
   const pendingWarning = totals.pending
     ? `<div class="checkout-warning">${svg("alert")}Hay ${totals.pending} pieza${totals.pending === 1 ? "" : "s"} sin comandar.</div>`
     : "";
@@ -2698,17 +2702,39 @@ function renderCheckoutModal(order) {
       <div class="panel-header">
         <div>
           <h2 class="panel-title">Cerrar ${escapeHtml(orderLabel(order))}</h2>
-          <p class="panel-kicker">Cobro o incidencia de cancelacion</p>
+          <p class="panel-kicker">Confirma el pago antes de cerrar la mesa</p>
         </div>
         <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
       </div>
-      <div class="panel-body checkout-body">
+      <form class="panel-body checkout-body" data-checkout-form data-order-id="${order.id}">
         ${pendingWarning}
         ${cashWarning}
         <div class="checkout-total">
           <span>Total a cobrar</span>
           <strong data-checkout-total>${money.format(totals.total)}</strong>
         </div>
+        <section class="checkout-payment-box" data-checkout-payment>
+          <div class="tip-box-head">
+            <strong>${svg("cash")}Metodo de pago</strong>
+            <span data-payment-preview>${escapeHtml(paymentMethod)}</span>
+          </div>
+          <div class="tip-options">
+            <label><input type="radio" name="paymentMethod" value="Efectivo" ${paymentMethod === "Efectivo" ? "checked" : ""} />Efectivo</label>
+            <label><input type="radio" name="paymentMethod" value="Tarjeta" ${paymentMethod === "Tarjeta" ? "checked" : ""} />Tarjeta</label>
+          </div>
+          <div class="cash-fields" data-cash-fields>
+            <label class="field">
+              <span>Efectivo recibido</span>
+              <input name="cashReceived" data-cash-received type="number" min="0" step="0.01" value="${cashDue.toFixed(2)}" />
+            </label>
+            <div class="cash-change-box">
+              <span>A recibir en efectivo</span>
+              <strong data-cash-due>${money.format(cashDue)}</strong>
+              <span>Cambio</span>
+              <strong data-cash-change>${money.format(0)}</strong>
+            </div>
+          </div>
+        </section>
         <section class="tip-box" data-checkout-tip data-subtotal="${totals.subtotal}">
           <div class="tip-box-head">
             <strong>${svg("cash")}Propina</strong>
@@ -2723,13 +2749,55 @@ function renderCheckoutModal(order) {
             <span>Monto o porcentaje</span>
             <input data-tip-value type="number" min="0" step="0.01" value="0" />
           </label>
+          <div>
+            <p class="mini-title">Metodo de propina</p>
+            <div class="tip-options">
+              <label><input type="radio" name="tipPaymentMethod" value="Efectivo" ${paymentMethod === "Efectivo" ? "checked" : ""} />Efectivo</label>
+              <label><input type="radio" name="tipPaymentMethod" value="Tarjeta" ${paymentMethod === "Tarjeta" ? "checked" : ""} />Tarjeta</label>
+            </div>
+          </div>
         </section>
         <div class="checkout-actions">
-          <button class="primary-button" data-charge-order="${order.id}" data-payment-method="Efectivo" ${cashSession ? "" : "disabled"}>${svg("cash")}Efectivo</button>
-          <button class="secondary-button" data-charge-order="${order.id}" data-payment-method="Tarjeta" ${cashSession ? "" : "disabled"}>${svg("card")}Tarjeta</button>
-          <button class="danger-button" data-open-modal="cancel-order" data-order-id="${order.id}">${svg("cancel")}${cancelLabel}</button>
+          <button class="primary-button" type="submit" ${cashSession ? "" : "disabled"}>${svg("check")}Confirmar y cerrar</button>
+          <button class="danger-button" type="button" data-open-modal="cancel-order" data-order-id="${order.id}">${svg("cancel")}${cancelLabel}</button>
         </div>
+      </form>
+    </section>
+  `;
+}
+
+function renderAdjustTipModal(sale) {
+  const tipAmount = saleTip(sale);
+  const tipMethod = saleTipPaymentMethod(sale);
+  const canAdjust = canAdjustSaleTip(sale);
+  return `
+    <section class="panel modal-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Propina de ${escapeHtml(sale.label || "venta")}</h2>
+          <p class="panel-kicker">Ajuste posterior al cierre de la mesa</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
       </div>
+      <form class="panel-body field-grid" data-adjust-tip-form data-sale-id="${sale.id}">
+        ${canAdjust ? "" : `<div class="checkout-warning">${svg("alert")}La caja de esta venta ya fue cortada o no esta abierta.</div>`}
+        <div class="checkout-total">
+          <span>Total actual</span>
+          <strong>${money.format(saleTotal(sale))}</strong>
+        </div>
+        <label class="field">
+          <span>Propina</span>
+          <input name="tipAmount" type="number" min="0" step="0.01" value="${tipAmount.toFixed(2)}" ${canAdjust ? "" : "disabled"} required />
+        </label>
+        <div>
+          <p class="mini-title">Metodo de propina</p>
+          <div class="tip-options">
+            <label><input type="radio" name="tipPaymentMethod" value="Efectivo" ${tipMethod === "Efectivo" ? "checked" : ""} ${canAdjust ? "" : "disabled"} />Efectivo</label>
+            <label><input type="radio" name="tipPaymentMethod" value="Tarjeta" ${tipMethod === "Tarjeta" ? "checked" : ""} ${canAdjust ? "" : "disabled"} />Tarjeta</label>
+          </div>
+        </div>
+        <button class="primary-button" type="submit" ${canAdjust ? "" : "disabled"}>${svg("check")}Guardar propina</button>
+      </form>
     </section>
   `;
 }
@@ -3134,25 +3202,30 @@ function renderCashSessionSales(session) {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Propina</th><th>Total</th></tr></thead>
+          <thead><tr><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
           <tbody>
             ${
               sales.length
                 ? sales
                     .map(
-                      (sale) => `
-                        <tr>
-                          <td>${formatDateTime(saleClosedAt(sale))}</td>
-                          <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
-                          <td>${escapeHtml(waiterName(sale.cashierId))}</td>
-                          <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
-                          <td>${money.format(saleTip(sale))}</td>
-                          <td><strong>${money.format(saleTotal(sale))}</strong></td>
-                        </tr>
-                      `,
+                      (sale) => {
+                        const cashDue = Number(sale.payment?.cashDue) || 0;
+                        return `
+                          <tr>
+                            <td>${formatDateTime(saleClosedAt(sale))}</td>
+                            <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
+                            <td>${escapeHtml(waiterName(sale.cashierId))}</td>
+                            <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
+                            <td>${money.format(saleTip(sale))}<small>${escapeHtml(saleTipPaymentMethod(sale))}</small></td>
+                            <td>${cashDue > 0 ? money.format(Number(sale.payment?.cashReceived) || 0) : "-"}</td>
+                            <td>${cashDue > 0 ? money.format(Number(sale.payment?.changeGiven) || 0) : "-"}</td>
+                            <td><strong>${money.format(saleTotal(sale))}</strong></td>
+                          </tr>
+                        `;
+                      },
                     )
                     .join("")
-                : `<tr><td colspan="6">Aun no hay cobros en esta caja.</td></tr>`
+                : `<tr><td colspan="8">Aun no hay cobros en esta caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -3589,30 +3662,56 @@ function saleTotal(sale) {
   return Number(sale.totals?.total ?? sale.total ?? 0);
 }
 
+function saleSubtotal(sale) {
+  return Number(sale.totals?.subtotal ?? Math.max(0, saleTotal(sale) - saleTip(sale)) ?? 0);
+}
+
 function saleTip(sale) {
   return Number(sale.totals?.tip ?? sale.tip?.amount ?? 0);
+}
+
+function saleTipPaymentMethod(sale) {
+  return sale.tip?.paymentMethod || sale.totals?.tipPaymentMethod || sale.paymentMethod || "Efectivo";
+}
+
+function paymentBucket(method) {
+  return normalize(method).includes("tarjeta") ? "card" : "cash";
 }
 
 function paymentTotalsForSales(sales = []) {
   return sales.reduce(
     (acc, sale) => {
-      const total = saleTotal(sale);
+      const subtotal = saleSubtotal(sale);
       const tip = saleTip(sale);
-      const method = normalize(sale.paymentMethod);
-      if (method.includes("tarjeta")) {
-        acc.card += total;
+      const saleBucket = paymentBucket(sale.paymentMethod);
+      const tipBucket = paymentBucket(saleTipPaymentMethod(sale));
+      if (saleBucket === "card") {
+        acc.card += subtotal;
+        acc.cardSales += subtotal;
+      } else {
+        acc.cash += subtotal;
+        acc.cashSales += subtotal;
+      }
+      if (tipBucket === "card") {
+        acc.card += tip;
         acc.cardTips += tip;
       } else {
-        acc.cash += total;
+        acc.cash += tip;
         acc.cashTips += tip;
       }
-      acc.total += total;
+      acc.total += subtotal + tip;
       acc.tips += tip;
       acc.count += 1;
       return acc;
     },
-    { cash: 0, card: 0, total: 0, tips: 0, cashTips: 0, cardTips: 0, count: 0 },
+    { cash: 0, card: 0, total: 0, tips: 0, cashSales: 0, cardSales: 0, cashTips: 0, cardTips: 0, count: 0 },
   );
+}
+
+function canAdjustSaleTip(sale, user = currentUser()) {
+  const session = currentCashSession();
+  if (!sale || !session || sale.cashSessionId !== session.id) return false;
+  return sale.cashierId === user?.id || hasCashAccess(user);
 }
 
 function currentCashSession() {
@@ -3782,6 +3881,7 @@ function renderProfile() {
         ${renderSummaryCard("Propinas hoy", money.format(profileTipsToday))}
       </section>
       ${renderAdminAccessQr()}
+      ${renderProfileClosedSales(user, profileSalesToday)}
       <section class="panel">
         <div class="panel-header">
           <div>
@@ -3810,6 +3910,56 @@ function renderProfile() {
       </section>
       ${renderAttendanceHistory(user.id)}
     </div>
+  `;
+}
+
+function renderProfileClosedSales(user, sales = []) {
+  const rows = [...sales]
+    .sort((a, b) => new Date(saleClosedAt(b)) - new Date(saleClosedAt(a)))
+    .slice(0, 24);
+  return `
+    <section class="panel profile-sales-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Mesas atendidas y cobradas</h2>
+          <p class="panel-kicker">Recap de cierres del dia y propinas posteriores</p>
+        </div>
+      </div>
+      <div class="panel-body table-wrap">
+        <table class="data-table profile-sales-table">
+          <thead><tr><th>Hora</th><th>Mesa/orden</th><th>Pago</th><th>Propina</th><th>Total</th><th></th></tr></thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows
+                    .map((sale) => {
+                      const canAdjust = canAdjustSaleTip(sale, user);
+                      const tip = saleTip(sale);
+                      return `
+                        <tr>
+                          <td>${formatDateTime(saleClosedAt(sale))}</td>
+                          <td>
+                            <strong>${escapeHtml(sale.label || sale.orderId || "Venta")}</strong>
+                            <small>${sale.cashierId === user.id ? "Cerrada por ti" : `Mesero ${escapeHtml(waiterName(sale.waiterId))}`}</small>
+                          </td>
+                          <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
+                          <td>${money.format(tip)}<small>${escapeHtml(saleTipPaymentMethod(sale))}</small></td>
+                          <td><strong>${money.format(saleTotal(sale))}</strong></td>
+                          <td class="row-actions sale-recap-actions">
+                            <button class="secondary-button compact" data-open-modal="adjust-tip" data-sale-id="${sale.id}" ${canAdjust ? "" : "disabled"}>
+                              ${svg("cash")}Propina
+                            </button>
+                          </td>
+                        </tr>
+                      `;
+                    })
+                    .join("")
+                : `<tr><td colspan="6">Aun no tienes mesas cerradas hoy.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
   `;
 }
 
@@ -3977,6 +4127,7 @@ function bindEvents() {
       if (button.dataset.commandId) modal.commandId = button.dataset.commandId;
       if (button.dataset.cancelSource) modal.cancelSource = button.dataset.cancelSource;
       if (button.dataset.userId) modal.userId = button.dataset.userId;
+      if (button.dataset.saleId) modal.saleId = button.dataset.saleId;
       state.modal = modal;
       persist();
       render();
@@ -4003,11 +4154,12 @@ function bindEvents() {
   document.querySelectorAll("[data-close-order]").forEach((button) => {
     button.addEventListener("click", () => openCheckout(button.dataset.closeOrder));
   });
-  document.querySelectorAll("[data-charge-order]").forEach((button) => {
-    button.addEventListener("click", () => chargeOrder(button.dataset.chargeOrder, button.dataset.paymentMethod, button));
-  });
-  document.querySelector("[data-checkout-tip]")?.addEventListener("input", updateCheckoutTipPreview);
-  document.querySelector("[data-checkout-tip]")?.addEventListener("change", updateCheckoutTipPreview);
+  const checkoutForm = document.querySelector("[data-checkout-form]");
+  checkoutForm?.addEventListener("submit", confirmCheckoutPayment);
+  checkoutForm?.addEventListener("input", updateCheckoutPaymentPreview);
+  checkoutForm?.addEventListener("change", updateCheckoutPaymentPreview);
+  if (checkoutForm) updateCheckoutPaymentPreview();
+  document.querySelector("[data-adjust-tip-form]")?.addEventListener("submit", saveSaleTip);
   document.querySelectorAll("[data-clear-alert]").forEach((button) => {
     button.addEventListener("click", () => clearOrderAlert(button.dataset.clearAlert));
   });
@@ -4303,39 +4455,189 @@ function openCheckout(orderId) {
   render();
 }
 
-function readCheckoutTip(subtotal) {
-  const box = document.querySelector("[data-checkout-tip]");
-  if (!box) return { mode: "none", value: 0, amount: 0 };
+function roundCurrency(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function readCheckoutTip(subtotal, form = document) {
+  const box = form.querySelector?.("[data-checkout-tip]") || document.querySelector("[data-checkout-tip]");
+  if (!box) return { mode: "none", value: 0, amount: 0, paymentMethod: "Efectivo" };
   const mode = box.querySelector('input[name="tipMode"]:checked')?.value || "none";
   const rawValue = Math.max(0, Number(box.querySelector("[data-tip-value]")?.value) || 0);
   const amount = mode === "fixed" ? rawValue : mode === "percent" ? subtotal * (rawValue / 100) : 0;
+  const paymentMethod =
+    form.querySelector?.('input[name="tipPaymentMethod"]:checked')?.value
+    || document.querySelector('input[name="tipPaymentMethod"]:checked')?.value
+    || "Efectivo";
   return {
     mode,
     value: rawValue,
-    amount: Math.round(amount * 100) / 100,
+    amount: roundCurrency(amount),
+    paymentMethod,
   };
 }
 
-function updateCheckoutTipPreview() {
-  const box = document.querySelector("[data-checkout-tip]");
-  if (!box) return;
-  const subtotal = Number(box.dataset.subtotal) || 0;
-  const tip = readCheckoutTip(subtotal);
-  const total = subtotal + tip.amount;
-  const tipPreview = document.querySelector("[data-tip-preview]");
-  const totalPreview = document.querySelector("[data-checkout-total]");
-  if (tipPreview) tipPreview.textContent = money.format(tip.amount);
-  if (totalPreview) totalPreview.textContent = money.format(total);
+function readCheckoutPayment(order, form = document.querySelector("[data-checkout-form]")) {
+  if (!order || !form) return null;
+  const subtotal = calculateTotals(order).subtotal;
+  const paymentMethod = form.querySelector('input[name="paymentMethod"]:checked')?.value || state.paymentMethod || "Efectivo";
+  const tip = readCheckoutTip(subtotal, form);
+  tip.paymentMethod = form.querySelector('input[name="tipPaymentMethod"]:checked')?.value || paymentMethod;
+  const cashDue = roundCurrency(
+    (paymentBucket(paymentMethod) === "cash" ? subtotal : 0)
+    + (paymentBucket(tip.paymentMethod) === "cash" ? tip.amount : 0),
+  );
+  const cardDue = roundCurrency(
+    (paymentBucket(paymentMethod) === "card" ? subtotal : 0)
+    + (paymentBucket(tip.paymentMethod) === "card" ? tip.amount : 0),
+  );
+  const cashReceived = cashDue > 0
+    ? roundCurrency(Math.max(0, Number(form.querySelector("[data-cash-received]")?.value) || 0))
+    : 0;
+  return {
+    paymentMethod,
+    tip,
+    subtotal,
+    total: roundCurrency(subtotal + tip.amount),
+    cashDue,
+    cardDue,
+    cashReceived,
+    changeGiven: cashDue > 0 ? roundCurrency(Math.max(0, cashReceived - cashDue)) : 0,
+  };
 }
 
-function chargeOrder(orderId, paymentMethod = "Efectivo", source) {
+function updateCheckoutPaymentPreview(event) {
+  const form = event?.currentTarget?.matches?.("[data-checkout-form]")
+    ? event.currentTarget
+    : document.querySelector("[data-checkout-form]");
+  if (!form) return;
+  if (event?.target?.name === "paymentMethod") {
+    form.querySelectorAll('input[name="tipPaymentMethod"]').forEach((input) => {
+      input.checked = input.value === event.target.value;
+    });
+  }
+  const order = getOrder(form.dataset.orderId) || getActiveOrder();
+  let payment = readCheckoutPayment(order, form);
+  if (!payment) return;
+  const cashInput = form.querySelector("[data-cash-received]");
+  const shouldAutofillCash =
+    !event || ["paymentMethod", "tipPaymentMethod", "tipMode"].includes(event.target?.name || "");
+  if (payment.cashDue > 0 && cashInput && shouldAutofillCash) {
+    cashInput.value = payment.cashDue.toFixed(2);
+    payment = readCheckoutPayment(order, form);
+  }
+  form.querySelector("[data-checkout-total]").textContent = money.format(payment.total);
+  form.querySelector("[data-tip-preview]").textContent = money.format(payment.tip.amount);
+  form.querySelector("[data-payment-preview]").textContent = payment.paymentMethod;
+  const cashFields = form.querySelector("[data-cash-fields]");
+  cashFields?.classList.toggle("is-hidden", payment.cashDue <= 0);
+  const cashDue = form.querySelector("[data-cash-due]");
+  const cashChange = form.querySelector("[data-cash-change]");
+  if (cashDue) cashDue.textContent = money.format(payment.cashDue);
+  if (cashChange) {
+    const short = payment.cashDue > 0 && payment.cashReceived < payment.cashDue;
+    cashChange.textContent = short
+      ? `Falta ${money.format(payment.cashDue - payment.cashReceived)}`
+      : money.format(payment.changeGiven);
+    cashChange.classList.toggle("is-short", short);
+  }
+}
+
+function confirmCheckoutPayment(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const order = state.orders.find((item) => item.id === form.dataset.orderId && item.status === "open");
+  const payment = readCheckoutPayment(order, form);
+  if (!order || !payment) return;
+  if (!currentCashSession()) {
+    showToast("Abre caja antes de cobrar efectivo o tarjeta.");
+    return;
+  }
+  if (payment.cashDue > 0 && payment.cashReceived < payment.cashDue) {
+    showToast(`Faltan ${money.format(payment.cashDue - payment.cashReceived)} en efectivo.`);
+    return;
+  }
+  const pending = order.items.some((item) => item.status === "pending");
+  const details = [
+    `Total: ${money.format(payment.total)}`,
+    `Pago principal: ${payment.paymentMethod}`,
+    payment.cardDue > 0 ? `A tarjeta: ${money.format(payment.cardDue)}` : "",
+    payment.cashDue > 0 ? `A efectivo: ${money.format(payment.cashDue)}` : "",
+    payment.cashDue > 0 ? `Recibido: ${money.format(payment.cashReceived)}` : "",
+    payment.cashDue > 0 ? `Cambio: ${money.format(payment.changeGiven)}` : "",
+    payment.tip.amount > 0
+      ? `Propina: ${money.format(payment.tip.amount)} (${payment.tip.paymentMethod})`
+      : "Propina: sin propina",
+    pending ? "Aviso: hay productos sin comandar." : "",
+  ].filter(Boolean);
+  const confirmed = window.confirm(`Confirmar cierre de ${orderLabel(order)}?\n\n${details.join("\n")}`);
+  if (!confirmed) return;
+  chargeOrder(order.id, { ...payment, confirmed: true }, event.submitter || form);
+}
+
+function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(order)) {
+  if (payment && typeof payment === "object") {
+    const tip = {
+      mode: payment.tip?.mode || "none",
+      value: Number(payment.tip?.value) || 0,
+      amount: roundCurrency(payment.tip?.amount),
+      paymentMethod: payment.tip?.paymentMethod || payment.paymentMethod || "Efectivo",
+    };
+    return {
+      ...payment,
+      paymentMethod: payment.paymentMethod || "Efectivo",
+      tip,
+      subtotal: roundCurrency(payment.subtotal ?? baseTotals.subtotal),
+      total: roundCurrency(payment.total ?? baseTotals.subtotal + tip.amount),
+      cashDue: roundCurrency(payment.cashDue),
+      cardDue: roundCurrency(payment.cardDue),
+      cashReceived: roundCurrency(payment.cashReceived),
+      changeGiven: roundCurrency(payment.changeGiven),
+    };
+  }
+  const paymentMethod = typeof payment === "string" ? payment : state.paymentMethod || "Efectivo";
+  const tip = readCheckoutTip(baseTotals.subtotal);
+  tip.paymentMethod = tip.paymentMethod || paymentMethod;
+  const cashDue = roundCurrency(
+    (paymentBucket(paymentMethod) === "cash" ? baseTotals.subtotal : 0)
+    + (paymentBucket(tip.paymentMethod) === "cash" ? tip.amount : 0),
+  );
+  const cardDue = roundCurrency(baseTotals.subtotal + tip.amount - cashDue);
+  return {
+    paymentMethod,
+    tip,
+    subtotal: baseTotals.subtotal,
+    total: roundCurrency(baseTotals.subtotal + tip.amount),
+    cashDue,
+    cardDue,
+    cashReceived: cashDue,
+    changeGiven: 0,
+  };
+}
+
+function chargeOrder(orderId, payment = "Efectivo", source) {
   const order = state.orders.find((item) => item.id === orderId && item.status === "open");
   if (!order) return;
+  const baseTotals = calculateTotals(order);
+  const checkout = normalizeCheckoutPayment(order, payment, baseTotals);
+  const paymentMethod = checkout.paymentMethod;
   if (!order.items.length) {
+    const closedAt = new Date().toISOString();
     order.status = "closed";
-    order.closedAt = new Date().toISOString();
+    order.closedAt = closedAt;
     order.closedBy = currentUser().id;
+    order.cashierId = currentUser().id;
     order.paymentMethod = paymentMethod;
+    order.payment = {
+      method: paymentMethod,
+      cashDue: checkout.cashDue,
+      cardDue: checkout.cardDue,
+      cashReceived: checkout.cashReceived,
+      changeGiven: checkout.changeGiven,
+      confirmedAt: closedAt,
+      confirmedBy: currentUser().id,
+    };
+    order.tip = checkout.tip;
     if (state.activeOrderId === order.id) state.activeOrderId = null;
     state.modal = null;
     persist();
@@ -4348,19 +4650,27 @@ function chargeOrder(orderId, paymentMethod = "Efectivo", source) {
     return;
   }
   const pending = order.items.some((item) => item.status === "pending");
-  if (pending) {
+  if (pending && !checkout.confirmed) {
     const confirmed = window.confirm("Hay productos sin comandar. Cerrar de todos modos?");
     if (!confirmed) return;
   }
-  const baseTotals = calculateTotals(order);
-  const tip = readCheckoutTip(baseTotals.subtotal);
   const closedAt = new Date().toISOString();
+  const paymentRecord = {
+    method: paymentMethod,
+    cashDue: checkout.cashDue,
+    cardDue: checkout.cardDue,
+    cashReceived: checkout.cashReceived,
+    changeGiven: checkout.changeGiven,
+    confirmedAt: closedAt,
+    confirmedBy: currentUser().id,
+  };
   const totals = {
     ...baseTotals,
-    tip: tip.amount,
-    tipMode: tip.mode,
-    tipValue: tip.value,
-    total: baseTotals.subtotal + tip.amount,
+    tip: checkout.tip.amount,
+    tipMode: checkout.tip.mode,
+    tipValue: checkout.tip.value,
+    tipPaymentMethod: checkout.tip.paymentMethod,
+    total: checkout.total,
   };
   state.sales.unshift({
     id: safeId("sale"),
@@ -4373,11 +4683,12 @@ function chargeOrder(orderId, paymentMethod = "Efectivo", source) {
     waiterId: order.waiterId,
     cashierId: currentUser().id,
     paymentMethod,
+    payment: paymentRecord,
     cashSessionId: cashSession.id,
     items: structuredClone(order.items),
     commandBatches: structuredClone(order.commandBatches),
     totals,
-    tip,
+    tip: checkout.tip,
     openedAt: order.openedAt,
     closedAt,
     chargedAt: closedAt,
@@ -4387,7 +4698,8 @@ function chargeOrder(orderId, paymentMethod = "Efectivo", source) {
   order.closedAt = closedAt;
   order.cashierId = currentUser().id;
   order.paymentMethod = paymentMethod;
-  order.tip = tip;
+  order.payment = paymentRecord;
+  order.tip = checkout.tip;
   state.paymentMethod = paymentMethod;
   if (state.activeOrderId === order.id) state.activeOrderId = null;
   state.productConfig = null;
@@ -4395,6 +4707,49 @@ function chargeOrder(orderId, paymentMethod = "Efectivo", source) {
   persist();
   showToast(`${orderLabel(order)} cobrada por ${money.format(totals.total)}.`);
   celebrateAction("paid", source, "Cobrado");
+  render();
+}
+
+function saveSaleTip(event) {
+  event.preventDefault();
+  const sale = state.sales.find((item) => item.id === event.currentTarget.dataset.saleId);
+  if (!sale) return;
+  if (!canAdjustSaleTip(sale)) {
+    showToast("La propina solo puede ajustarse antes del corte de caja.");
+    state.modal = null;
+    persist();
+    render();
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const amount = roundCurrency(Math.max(0, Number(form.get("tipAmount")) || 0));
+  const paymentMethod = String(form.get("tipPaymentMethod") || sale.paymentMethod || "Efectivo");
+  const subtotal = saleSubtotal(sale);
+  const now = new Date().toISOString();
+  sale.tip = {
+    ...(sale.tip || {}),
+    mode: "fixed",
+    value: amount,
+    amount,
+    paymentMethod,
+    adjustedAt: now,
+    adjustedBy: currentUser().id,
+  };
+  sale.totals = {
+    ...(sale.totals || {}),
+    subtotal,
+    tip: amount,
+    tipMode: "fixed",
+    tipValue: amount,
+    tipPaymentMethod: paymentMethod,
+    total: roundCurrency(subtotal + amount),
+  };
+  sale.total = sale.totals.total;
+  sale.tipAdjustedAt = now;
+  sale.tipAdjustedBy = currentUser().id;
+  state.modal = null;
+  persist();
+  showToast(`Propina actualizada a ${money.format(amount)} en ${paymentMethod}.`);
   render();
 }
 
@@ -5691,16 +6046,34 @@ function exportData(kind) {
     ventas: () => ({
       filename: `librepos-ventas-${stamp}.csv`,
       rows: [
-        ["fecha", "orden", "mesero", "cajero", "metodo_pago", "subtotal", "propina", "total", "productos"],
+        [
+          "fecha",
+          "orden",
+          "mesero",
+          "cajero",
+          "metodo_pago",
+          "metodo_propina",
+          "subtotal",
+          "propina",
+          "total",
+          "efectivo_a_recibir",
+          "efectivo_recibido",
+          "cambio",
+          "productos",
+        ],
         ...state.sales.map((sale) => [
           formatCsvDateTime(saleClosedAt(sale)),
           sale.label || sale.orderId,
           waiterName(sale.waiterId),
           waiterName(sale.cashierId),
           sale.paymentMethod || "Efectivo",
+          saleTipPaymentMethod(sale),
           Number(sale.totals?.subtotal ?? saleTotal(sale) - saleTip(sale)) || 0,
           saleTip(sale),
           saleTotal(sale),
+          Number(sale.payment?.cashDue) || 0,
+          Number(sale.payment?.cashReceived) || 0,
+          Number(sale.payment?.changeGiven) || 0,
           (sale.items || []).map((item) => `${item.qty} x ${item.name}${item.optionsText ? ` (${item.optionsText})` : ""}`).join(" | "),
         ]),
       ],
