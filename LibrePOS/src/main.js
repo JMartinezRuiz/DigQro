@@ -3004,11 +3004,12 @@ function renderModal() {
     "table-note": modalOrder ? renderTableNoteModal(modalOrder) : "",
     "line-note": lineTarget ? renderLineNoteModal(lineTarget.order, lineTarget.line) : "",
     "adjust-tip": saleTarget ? renderAdjustTipModal(saleTarget) : "",
+    "sale-detail": saleTarget ? renderSaleDetailModal(saleTarget) : "",
   }[state.modal.type] || "";
   if (!modalContent) return "";
   return `
     <div class="modal-backdrop" data-close-modal>
-      <div class="modal-card" data-modal-card>
+      <div class="modal-card ${state.modal.type === "sale-detail" ? "wide-modal-card" : ""}" data-modal-card>
         ${modalContent}
       </div>
     </div>
@@ -3307,6 +3308,92 @@ function renderAdjustTipModal(sale) {
         </div>
         <button class="primary-button" type="submit" ${canAdjust ? "" : "disabled"}>${svg("check")}Guardar propina</button>
       </form>
+    </section>
+  `;
+}
+
+function renderSaleDetailModal(sale) {
+  const subtotal = saleSubtotal(sale);
+  const tipAmount = saleTip(sale);
+  const total = saleTotal(sale);
+  const closedAt = saleClosedAt(sale);
+  const cashDue = Number(sale.payment?.cashDue) || 0;
+  const cashReceived = Number(sale.payment?.cashReceived) || 0;
+  const changeGiven = Number(sale.payment?.changeGiven) || 0;
+  const items = Array.isArray(sale.items) ? sale.items : [];
+  const uid = paymentUidForSale(sale);
+  const orderNumber = Number(sale.orderNumber) || "-";
+  const waitMinutes = Number(sale.waitMinutes) || minutesBetween(sale.openedAt, closedAt);
+  return `
+    <section class="panel modal-panel sale-detail-modal">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Cuenta cerrada</h2>
+          <p class="panel-kicker">ID ${escapeHtml(orderNumber)}${uid ? ` · UID ${escapeHtml(uid)}` : ""}</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <div class="panel-body sale-detail-body">
+        <section class="sale-detail-hero">
+          <div>
+            <span>Total cobrado</span>
+            <strong>${money.format(total)}</strong>
+            <small>${escapeHtml(sale.label || sale.orderId || "Venta")}</small>
+          </div>
+          <div>
+            <span>Hora de pago</span>
+            <strong>${escapeHtml(formatSalePaymentTime(closedAt))}</strong>
+            <small>Cierre registrado en caja</small>
+          </div>
+        </section>
+        <section class="sale-detail-meta">
+          <div><span>Metodo</span><strong>${escapeHtml(sale.paymentMethod || "Efectivo")}</strong></div>
+          <div><span>Mesero</span><strong>${escapeHtml(waiterName(sale.waiterId))}</strong></div>
+          <div><span>Cajero</span><strong>${escapeHtml(waiterName(sale.cashierId))}</strong></div>
+          <div><span>Tiempo mesa</span><strong>${formatDuration(waitMinutes)}</strong></div>
+        </section>
+        <section class="sale-detail-lines">
+          <div class="sale-detail-section-head">
+            <h3>Resumen de cuenta</h3>
+            <span>${items.length} articulo${items.length === 1 ? "" : "s"}</span>
+          </div>
+          ${
+            items.length
+              ? items
+                  .map(
+                    (item) => `
+                      <div class="sale-detail-line">
+                        <div>
+                          <strong>${Number(item.qty) || 0} x ${escapeHtml(item.name || "Producto")}</strong>
+                          ${item.optionsText ? `<small>${escapeHtml(item.optionsText)}</small>` : ""}
+                          ${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ""}
+                        </div>
+                        <span>${money.format(Number(item.unitPrice) || 0)} c/u</span>
+                        <strong>${money.format(saleLineTotal(item))}</strong>
+                      </div>
+                    `,
+                  )
+                  .join("")
+              : `<div class="empty-state compact">Esta venta no tiene articulos registrados.</div>`
+          }
+        </section>
+        <section class="sale-detail-totals">
+          <div><span>Subtotal</span><strong>${money.format(subtotal)}</strong></div>
+          <div><span>Propina</span><strong>${money.format(tipAmount)}</strong><small>${escapeHtml(saleTipPaymentMethod(sale))}</small></div>
+          <div class="grand"><span>Total</span><strong>${money.format(total)}</strong></div>
+        </section>
+        ${
+          cashDue > 0
+            ? `
+              <section class="sale-detail-cash">
+                <div><span>Efectivo recibido</span><strong>${money.format(cashReceived)}</strong></div>
+                <div><span>Cambio entregado</span><strong>${money.format(changeGiven)}</strong></div>
+              </section>
+            `
+            : ""
+        }
+        ${sale.comments ? `<div class="sale-detail-note"><strong>Nota</strong><p>${escapeHtml(sale.comments)}</p></div>` : ""}
+      </div>
     </section>
   `;
 }
@@ -4631,23 +4718,27 @@ function orderItemsSummary(items = []) {
 }
 
 function orderSearchRecords() {
-  const activeRecords = (Array.isArray(state.orders) ? state.orders : []).map((order) => ({
-    recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
-    statusKey: order.status === "cancelled" ? "cancelled" : "open",
-    id: Number(order.orderNumber) || "",
-    uid: "",
-    date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
-    label: orderLabel(order),
-    waiter: waiterName(order.waiterId),
-    payment: order.status === "cancelled" ? "Sin cobro" : "Pendiente",
-    total: calculateTotals(order).total,
-    products: orderItemsSummary(order.items),
-  }));
+  const activeRecords = (Array.isArray(state.orders) ? state.orders : [])
+    .filter((order) => order.status !== "closed")
+    .map((order) => ({
+      recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
+      statusKey: order.status === "cancelled" ? "cancelled" : "open",
+      id: Number(order.orderNumber) || "",
+      uid: "",
+      saleId: "",
+      date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
+      label: orderLabel(order),
+      waiter: waiterName(order.waiterId),
+      payment: order.status === "cancelled" ? "Sin cobro" : "Pendiente",
+      total: calculateTotals(order).total,
+      products: orderItemsSummary(order.items),
+    }));
   const paidRecords = (Array.isArray(state.sales) ? state.sales : []).map((sale) => ({
     recordType: "Cobrada",
     statusKey: "paid",
     id: Number(sale.orderNumber) || "",
     uid: paymentUidForSale(sale),
+    saleId: sale.id,
     date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
     label: sale.label || sale.orderId || "Venta",
     waiter: waiterName(sale.waiterId),
@@ -4727,7 +4818,7 @@ function renderOrderSearchData() {
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Productos</th></tr></thead>
+            <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Productos</th><th>Detalle</th></tr></thead>
             <tbody>
               ${
                 rows.length
@@ -4743,11 +4834,18 @@ function renderOrderSearchData() {
                             <td>${escapeHtml(record.payment)}</td>
                             <td><strong>${money.format(record.total)}</strong></td>
                             <td>${escapeHtml(record.products)}</td>
+                            <td>
+                              ${
+                                record.saleId
+                                  ? `<button class="secondary-button compact" data-open-modal="sale-detail" data-sale-id="${escapeAttr(record.saleId)}" type="button">${svg("note")}Ver cuenta</button>`
+                                  : "-"
+                              }
+                            </td>
                           </tr>
                         `,
                       )
                       .join("")
-                  : `<tr><td colspan="8">No hay ordenes con esos filtros.</td></tr>`
+                  : `<tr><td colspan="9">No hay ordenes con esos filtros.</td></tr>`
               }
             </tbody>
           </table>
@@ -4959,6 +5057,10 @@ function saleClosedAt(sale) {
 
 function saleTotal(sale) {
   return Number(sale.totals?.total ?? sale.total ?? 0);
+}
+
+function saleLineTotal(item) {
+  return roundCurrency(Number(item?.total ?? item?.amount ?? (Number(item?.unitPrice) || 0) * (Number(item?.qty) || 0)) || 0);
 }
 
 function saleSubtotal(sale) {
@@ -8473,6 +8575,19 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatSalePaymentTime(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "Sin hora registrada";
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(date);
 }
 
 function localDateKey(value) {

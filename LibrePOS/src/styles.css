@@ -2919,6 +2919,10 @@ button:disabled {
   animation: surfaceIn 180ms ease-out both;
 }
 
+.wide-modal-card {
+  width: min(820px, 100%);
+}
+
 .modal-panel {
   background: var(--surface);
 }
@@ -3114,6 +3118,144 @@ button:disabled {
 
 .checkout-actions .danger-button {
   grid-column: 1 / -1;
+}
+
+.sale-detail-body {
+  display: grid;
+  gap: 12px;
+}
+
+.sale-detail-hero {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.85fr) minmax(260px, 1.15fr);
+  gap: 12px;
+}
+
+.sale-detail-hero div,
+.sale-detail-meta div,
+.sale-detail-totals div,
+.sale-detail-cash div,
+.sale-detail-note {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.sale-detail-hero div {
+  display: grid;
+  gap: 5px;
+  border-left: 5px solid var(--teal);
+  background: #fffaf4;
+}
+
+.sale-detail-hero span,
+.sale-detail-meta span,
+.sale-detail-totals span,
+.sale-detail-cash span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.sale-detail-hero strong {
+  overflow-wrap: anywhere;
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+
+.sale-detail-hero small,
+.sale-detail-totals small,
+.sale-detail-line small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.sale-detail-meta,
+.sale-detail-cash {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.sale-detail-meta div,
+.sale-detail-cash div {
+  display: grid;
+  gap: 5px;
+}
+
+.sale-detail-lines {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.sale-detail-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.sale-detail-section-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.sale-detail-section-head span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.sale-detail-line {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(90px, auto) minmax(96px, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(28, 25, 23, 0.08);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.sale-detail-line > span,
+.sale-detail-line > strong {
+  text-align: right;
+}
+
+.sale-detail-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sale-detail-totals div {
+  display: grid;
+  gap: 5px;
+}
+
+.sale-detail-totals .grand {
+  border-color: rgba(47, 111, 115, 0.25);
+  background: #eef8f6;
+}
+
+.sale-detail-totals .grand strong {
+  color: var(--teal);
+  font-size: 1.35rem;
+}
+
+.sale-detail-note p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .summary-grid {
@@ -3709,8 +3851,16 @@ button:disabled {
   .menu-grid,
   .context-grid,
   .recipe-row,
+  .sale-detail-hero,
+  .sale-detail-totals,
+  .sale-detail-line,
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sale-detail-line > span,
+  .sale-detail-line > strong {
+    text-align: left;
   }
 
   .menu-head,
