@@ -4724,7 +4724,7 @@ function orderSearchRecords() {
       recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
       statusKey: order.status === "cancelled" ? "cancelled" : "open",
       id: Number(order.orderNumber) || "",
-      uid: "",
+      uid: order.status === "cancelled" ? "" : "Pendiente cobro",
       saleId: "",
       date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
       label: orderLabel(order),
