@@ -193,8 +193,10 @@ function validateStatePayload(state) {
     "sales",
     "cancellations",
     "inventory",
+    "ingredientCategories",
     "inventoryMovements",
     "expenses",
+    "menuProducts",
     "attendance",
     "cashSessions",
   ];

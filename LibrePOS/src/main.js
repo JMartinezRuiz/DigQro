@@ -13,11 +13,15 @@ const SHARED_STATE_KEYS = [
   "sales",
   "cancellations",
   "inventory",
+  "ingredientCategories",
   "inventoryMovements",
   "expenses",
+  "menuProducts",
   "attendance",
   "cashSessions",
 ];
+
+const NON_RECIPE_CATEGORIES = new Set(["EQUIPO", "LIMPIEZA", "DESECHABLES"]);
 
 const money = new Intl.NumberFormat("es-MX", {
   style: "currency",
@@ -290,12 +294,18 @@ const inventoryItems = [
   ["CHILES SECOS", "CHILE COLOR/ANCHO", "MERCADO", "KILO", 1, 150, 150],
   ["CHILES SECOS", "CHILE CAPON", "MERCADO", "KILO", 0.5, 160, 80],
   ["CHILES SECOS", "CHILE MORITA", "MERCADO", "KILO", 0.5, 120, 60],
+  ["CHILES SECOS", "CHILE CANICA", "MERCADO", "KILO", 0.25, 320, 80],
+  ["CHILES SECOS", "CHILE TANTOYUQUERO", "MERCADO", "KILO", 0.25, 1000, 250],
   ["CHILES SECOS", "CHILE PIQUIN", "MERCADO", "KILO", 0.25, 1080, 270],
   ["ESPECIAS", "CANELA VARA", "MERCADO", "KILO", 0.25, 500, 125],
   ["ESPECIAS", "CANELA MOLIDA", "MERCADO", "KILO", 0.25, 72, 18],
   ["ESPECIAS", "ANIS ESTRELLA", "MERCADO", "BOLSA", 3, 12, 36],
   ["ESPECIAS", "PIMIENTA", "MERCADO", "KILO", 0.1, 30, 30],
+  ["ESPECIAS", "CLAVO", "MERCADO", "KILO", 0.1, 20, 20],
+  ["ESPECIAS", "LAUREL", "MERCADO", "KILO", 0.1, 20, 20],
   ["ESPECIAS", "SAL", "OXXO", "KILO", 1, 19.5, 19.5],
+  ["ESPECIAS", "COMINO", "MERCADO", "GR", 0.1, 10, 10],
+  ["ESPECIAS", "CONSOME", "MERCADO", "KILO", 0.25, 72, 18],
   ["SEMILLAS", "PIPIAN CRIOLLO", "MERCADO", "KILO", 1, 180, 180],
   ["SEMILLAS", "AJONJOLI", "MERCADO", "KILO", 0.5, 100, 25],
   ["SEMILLAS", "CACAHUATE", "MERCADO", "KILO", 1, 70, 70],
@@ -314,15 +324,84 @@ const inventoryItems = [
   ["PROTEINAS", "CAMARON", "MERCADO", "KILO", 1, 220, 220],
   ["LACTEOS", "QUESO FRESCO DE ARO", "PRODUCTOR", "PZ", 20, 50, 1000],
   ["LACTEOS", "CREMA", "JAMONERIA", "KG", 0.4, 100, 40],
+  ["LACTEOS", "LECHE ENTERA", "SAN JUAN", "LITRO", 0, 0, 0],
   ["LACTEOS", "LECHE DESLACTOSADA", "SAN JUAN", "LITRO", 1, 34, 34],
+  ["LACTEOS", "LECHE ALMENDRAS", "Sin proveedor", "LITRO", 0, 0, 0],
+  ["LACTEOS", "LECHE COCO", "Sin proveedor", "LITRO", 0, 0, 0],
+  ["LACTEOS", "LECHE AVENA", "Sin proveedor", "LITRO", 0, 0, 0],
+  ["LACTEOS", "LECHE EVAPORADA", "Sin proveedor", "GR", 0, 0, 0],
+  ["LACTEOS", "LECHE CONDENSADA", "Sin proveedor", "GR", 0, 0, 0],
   ["FRUTAS Y VERDURAS", "PLATANO DE CASTILLA", "MERCADO", "KILO", 6, 20, 120],
   ["FRUTAS Y VERDURAS", "PAPA", "MERCADO", "KILO", 5, 24, 120],
   ["FRUTAS Y VERDURAS", "CALABAZA", "MERCADO", "KILO", 2, 30, 60],
   ["FRUTAS Y VERDURAS", "NARANJA DE CUCHO", "MERCADO", "PIEZA", 10, 5, 50],
+  ["FRUTAS Y VERDURAS", "PULPA MARACUYA", "Sin proveedor", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "PULPA TAMARINDO", "Sin proveedor", "KILO", 3, 50, 150],
+  ["FRUTAS Y VERDURAS", "PULPA DE JOBO", "PRODUCTOR", "KILO", 2, 80, 160],
+  ["FRUTAS Y VERDURAS", "JAMAICA", "MERCADO", "KILO", 1, 105, 105],
   ["FRUTAS Y VERDURAS", "JITOMATE", "MERCADO", "KILO", 1, 33, 33],
   ["FRUTAS Y VERDURAS", "CEBOLLA", "MERCADO", "KILO", 1, 17, 17],
   ["FRUTAS Y VERDURAS", "AJO", "MERCADO", "KILO", 1, 70, 70],
+  ["FRUTAS Y VERDURAS", "CHICHARO", "PROVEEDOR", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "ZANAHORIA", "PROVEEDOR", "KILO", 1, 16, 16],
+  ["FRUTAS Y VERDURAS", "REPOLLO", "MERCADO", "PZ", 0, 0, 0],
   ["FRUTAS Y VERDURAS", "CHILE SERRANO", "MERCADO", "KILO", 1, 88, 88],
+  ["FRUTAS Y VERDURAS", "MANGO", "Sin proveedor", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "FRESA", "Sin proveedor", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "ZARZAMORA", "Sin proveedor", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "FRAMBUESA", "Sin proveedor", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "LIMON", "Sin proveedor", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "HIERBA BUENA", "Sin proveedor", "MANOJO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "ALBAHACA", "Sin proveedor", "MANOJO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "JENGIBRE", "Sin proveedor", "KILO", 0, 0, 0],
+  ["FRUTAS Y VERDURAS", "PIÑA", "Sin proveedor", "KILO", 0, 0, 0],
+  ["ENDULZANTES", "AZUCAR", "Sin proveedor", "KILO", 0, 0, 0],
+  ["ENDULZANTES", "PILONCILLO", "MOLIENDA", "PIEZA", 15, 100, 1500],
+  ["ENDULZANTES", "MIEL DE TRAPICHE", "MOLIENDA", "LITRO", 2, 80, 160],
+  ["LEGUMBRES", "FRIJOL VAINA", "MERCADO", "ROLLO", 2, 50, 100],
+  ["LEGUMBRES", "FRIJOL SECO", "MERCADO", "KILO", 1, 28, 28],
+  ["JARABES", "JARABE NATURAL", "Sin proveedor", "ML", 0, 0, 0],
+  ["JARABES", "VAINILLA", "MERCADO", "ML", 125, 60.34, 60.34],
+  ["JARABES", "JARABE GRANADINA", "Sin proveedor", "ML", 0, 0, 0],
+  ["JUGOS", "JUGO DE PIÑA", "Sin proveedor", "LITRO", 0, 0, 0],
+  ["JUGOS", "CREMA DE COCO", "Sin proveedor", "LITRO", 0, 0, 0],
+  ["VARIOS", "CAFE EN GRANO MOLIDO", "CAFE LA NORIA", "KG", 2, 290, 580],
+  ["VARIOS", "MANTECA VEGETAL", "MERCADO", "KG", 0.5, 80, 40],
+  ["VARIOS", "MANTECA", "CARNICERIA", "KILO", 6, 60, 360],
+  ["VARIOS", "CHOCOLATE DE MESA", "Sin proveedor", "PZ", 0, 0, 0],
+  ["VARIOS", "ACEITE", "OXXO", "LITRO", 0.8, 29.9, 29.9],
+  ["VARIOS", "HARINA DE TRIGO", "MERCADO", "KG", 1, 22, 22],
+  ["VARIOS", "MASECA", "OXXO", "KG", 1, 24.5, 24.5],
+  ["VARIOS", "MAIZENA", "Sin proveedor", "KG", 0, 0, 0],
+  ["REFRESCOS", "AGUA MINERAL 2 LT", "Sin proveedor", "PZ", 0, 0, 0],
+  ["REFRESCOS", "AGUA MINERAL TOPO CHICO BOTELLA DE VIDRIO", "Sin proveedor", "PZ", 0, 0, 0],
+  ["REFRESCOS", "AGUA GARRAFON", "OXXO", "LITRO", 60, 3.3, 198],
+  ["REFRESCOS", "ESCUIS VARIOS SABORES", "Sin proveedor", "PZ", 0, 0, 0],
+  ["DESECHABLES", "SERVILETAS", "COSTCO", "PZ", 1040, 0.22525, 234.26],
+  ["DESECHABLES", "VITAFILM", "COSTCO", "PZ", 1, 377.47, 377.47],
+  ["DESECHABLES", "BOLSAS ZIPLOC", "COSTCO", "PZ", 4, 91.81, 367.24],
+  ["EQUIPO", "ESCALERA", "COSTCO", "PZ", 1, 715.05, 715.05],
+  ["EQUIPO", "LICUADORA NINJA", "COSTCO", "PZ", 1, 4397.86, 4397.86],
+  ["EQUIPO", "CAJAS PLASTICO", "COSTCO", "PZ", 6, 62.91166666666667, 377.47],
+  ["LIMPIEZA", "JABON", "COSTCO", "LT", 2.8, 65.39, 183.09],
+  ["LIMPIEZA", "JABON POLVO", "COSTCO", "KG", 10, 29.562, 295.62],
+  ["LIMPIEZA", "MICRODYN", "COSTCO", "LITRO", 1, 162.64, 162.64],
+  ["SUBRECETAS", "MASA HARINA", "COSTEO RECETAS", "KG", 0, 42.99, 0],
+  ["SUBRECETAS", "RELLENO PIERNA", "COSTEO RECETAS", "KG", 0, 193.24, 0],
+  ["SUBRECETAS", "RELLENO POLLO", "COSTEO RECETAS", "KG", 0, 200.89, 0],
+  ["SUBRECETAS", "RELLENO CARNE", "COSTEO RECETAS", "KG", 0, 193.24, 0],
+  ["SUBRECETAS", "MANJAR", "COSTEO RECETAS", "KG", 0, 55.3, 0],
+  ["SUBRECETAS", "MASA TAMALES", "COSTEO RECETAS", "KG", 0, 30.81, 0],
+  ["SUBRECETAS", "PICADILLO", "COSTEO RECETAS", "KG", 0, 119.11, 0],
+  ["SUBRECETAS", "ADOBO", "COSTEO RECETAS", "KG", 0, 54.97, 0],
+  ["SUBRECETAS", "MASA MOLOTES PLATANO", "COSTEO RECETAS", "KG", 0, 28.61, 0],
+  ["SUBRECETAS", "MASA MOLOTES", "COSTEO RECETAS", "KG", 0, 29.56, 0],
+  ["SUBRECETAS", "SALSA MOLOTES", "COSTEO RECETAS", "LITRO", 0, 45.34, 0],
+  ["SUBRECETAS", "SALSA PIPIAN", "COSTEO RECETAS", "KG", 0, 45.14, 0],
+  ["SUBRECETAS", "SALSA ROJA", "COSTEO RECETAS", "KG", 0, 32.19, 0],
+  ["SUBRECETAS", "SALSA VERDE SOFRITA", "COSTEO RECETAS", "KG", 0, 45.14, 0],
+  ["SUBRECETAS", "FRIJOLES", "COSTEO RECETAS", "KG", 0, 15.85, 0],
+  ["FRUTAS Y VERDURAS", "AGUACATE", "Sin proveedor", "KG", 0, 58.46, 0],
   ["PAN", "ROSCAS SIN AZUCAR", "PANADERIA", "PIEZA", 100, 7, 700],
   ["PAN", "ROSCAS CON AZUCAR", "PANADERIA", "PIEZA", 100, 7, 700],
   ["PAN", "PINTAS", "PANADERIA", "PIEZA", 60, 7, 420],
@@ -332,6 +411,15 @@ const inventoryItems = [
   ["PAN", "PEMOLES", "PANADERIA", "PIEZA", 100, 5, 500],
   ["PAN", "BATIDAS", "PANADERIA", "PIEZA", 20, 19, 380],
   ["PAN", "DORADITAS", "PANADERIA", "PIEZA", 96, 7, 672],
+  ["PAN", "PAN BAGUETTE", "PANADERIA", "PZ", 0, 15, 0],
+  ["VENTA DIRECTA", "REFRESCO ESCUIS", "VENTA DIRECTA", "PZ", 0, 14.4, 0],
+  ["VENTA DIRECTA", "LIMONADA MINERAL JENGIBRE", "VENTA DIRECTA", "PZ", 0, 20.8, 0],
+  ["VENTA DIRECTA", "LIMONADA MINERAL CON HIERBAS", "VENTA DIRECTA", "PZ", 0, 17.6, 0],
+  ["VENTA DIRECTA", "FRUTOS ROJOS CON MANGO", "VENTA DIRECTA", "PZ", 0, 17.6, 0],
+  ["VENTA DIRECTA", "PINADA", "VENTA DIRECTA", "PZ", 0, 17.6, 0],
+  ["VENTA DIRECTA", "RUSA TOPO CHICO", "VENTA DIRECTA", "PZ", 0, 20.8, 0],
+  ["VENTA DIRECTA", "AGUA MINERAL TOPO CHICO", "VENTA DIRECTA", "PZ", 0, 14.4, 0],
+  ["VENTA DIRECTA", "AGUA DEL DIA", "VENTA DIRECTA", "PZ", 0, 11.2, 0],
 ].map(([category, name, supplier, unit, qty, unitCost, totalCost]) => ({
   category,
   name,
@@ -400,8 +488,10 @@ const inventoryRecipes = {
     { name: "HOJA DE PLATANO", qty: 0.1 },
   ],
   "empanadas-harina": [
-    { name: "MASA MERCADO", qty: 0.15 },
-    { name: "PIERNA DE CERDO", qty: 0.06 },
+    { name: "MASA HARINA", qty: 0.05 },
+    { name: "MANJAR", qty: 0.05 },
+    { name: "AZUCAR", qty: 0.000667 },
+    { name: "CANELA MOLIDA", qty: 0.000333 },
   ],
   molotes: [
     { name: "MASA MERCADO", qty: 0.14 },
@@ -427,8 +517,15 @@ const inventoryRecipes = {
     { name: "QUESO FRESCO DE ARO", qty: 0.02 },
   ],
   torrejas: [
-    { name: "HUEVO", qty: 0.04 },
+    { name: "PAN BAGUETTE", qty: 0.6 },
+    { name: "HUEVO", qty: 0.042 },
     { name: "CANELA MOLIDA", qty: 0.001 },
+    { name: "VAINILLA", qty: 0.001 },
+    { name: "MIEL DE TRAPICHE", qty: 0.052 },
+  ],
+  hojuelas: [
+    { name: "MASA HARINA", qty: 0.1 },
+    { name: "MIEL DE TRAPICHE", qty: 0.07 },
   ],
   "platanos-fritos": [
     { name: "PLATANO DE CASTILLA", qty: 0.18 },
@@ -436,11 +533,42 @@ const inventoryRecipes = {
     { name: "QUESO FRESCO DE ARO", qty: 0.008 },
   ],
   "cafe-olla": [
-    { name: "CANELA VARA", qty: 0.004 },
+    { name: "AGUA GARRAFON", qty: 0.333 },
+    { name: "ANIS ESTRELLA", qty: 0.044 },
+    { name: "CANELA VARA", qty: 0.003 },
+    { name: "CLAVO", qty: 0.0001 },
+    { name: "CAFE EN GRANO MOLIDO", qty: 0.017 },
+    { name: "PILONCILLO", qty: 0.017 },
   ],
   "atole-dia": [
+    { name: "AGUA GARRAFON", qty: 0.4 },
     { name: "MASA MERCADO", qty: 0.04 },
     { name: "CANELA VARA", qty: 0.003 },
+    { name: "PILONCILLO", qty: 0.025 },
+  ],
+  "refresco-escuis": [
+    { name: "REFRESCO ESCUIS", qty: 1 },
+  ],
+  "limonada-jengibre": [
+    { name: "LIMONADA MINERAL JENGIBRE", qty: 1 },
+  ],
+  "limonada-hierbas": [
+    { name: "LIMONADA MINERAL CON HIERBAS", qty: 1 },
+  ],
+  "frutos-rojos-mango": [
+    { name: "FRUTOS ROJOS CON MANGO", qty: 1 },
+  ],
+  pinada: [
+    { name: "PINADA", qty: 1 },
+  ],
+  "rusa-topo-chico": [
+    { name: "RUSA TOPO CHICO", qty: 1 },
+  ],
+  "agua-mineral-topo": [
+    { name: "AGUA MINERAL TOPO CHICO", qty: 1 },
+  ],
+  "agua-dia": [
+    { name: "AGUA DEL DIA", qty: 1 },
   ],
 };
 
@@ -463,6 +591,8 @@ const icons = {
   cash: `<path d="M4 7h16v10H4z" /><circle cx="12" cy="12" r="3" /><path d="M7 9v.01M17 15v.01" />`,
   card: `<path d="M3 6h18v12H3z" /><path d="M3 10h18" /><path d="M7 15h4" />`,
   transfer: `<path d="M7 7h11l-3-3" /><path d="M17 17H6l3 3" />`,
+  chevronLeft: `<path d="m15 18-6-6 6-6" />`,
+  chevronRight: `<path d="m9 18 6-6-6-6" />`,
   note: `<path d="M5 4h10l4 4v12H5z" /><path d="M15 4v5h5" /><path d="M8 13h8M8 17h6" />`,
   alert: `<path d="M12 3 2.8 19h18.4Z" /><path d="M12 8v5" /><path d="M12 16.5v.01" />`,
   cancel: `<circle cx="12" cy="12" r="9" /><path d="M8 8l8 8M16 8l-8 8" />`,
@@ -481,10 +611,22 @@ const defaultState = {
   sessionUserId: null,
   authError: "",
   view: "sale",
+  navPage: 0,
   activeOrderId: null,
   activeSection: "Para picar",
   activeSubsection: "Todos",
   productSearch: "",
+  recipesMode: "products",
+  recipesSection: "",
+  recipesSubsection: "Todos",
+  recipesSearch: "",
+  ingredientsCategory: "Todos",
+  ingredientsCategoryScroll: 0,
+  ingredientsCategorySearch: "",
+  ingredientsSearch: "",
+  dataOrderSearch: "",
+  dataOrderFrom: "",
+  dataOrderTo: "",
   productConfig: null,
   modal: null,
   paymentMethod: "Efectivo",
@@ -500,8 +642,10 @@ const defaultState = {
   sales: [],
   cancellations: [],
   inventory: inventoryItems,
+  ingredientCategories: [],
   inventoryMovements: [],
   expenses: fixedExpenses,
+  menuProducts: [],
   attendance: [],
   cashSessions: [],
 };
@@ -526,7 +670,7 @@ function singleOption(id, label, choices) {
     label,
     type: "single",
     required: true,
-    choices: choices.map((choice) => ({ label: choice })),
+    choices: choices.map((choice) => (typeof choice === "string" ? { label: choice } : { ...choice })),
   };
 }
 
@@ -582,6 +726,7 @@ function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!saved) return structuredClone(defaultState);
+    const inventory = normalizeInventory(saved.inventory);
     return {
       ...structuredClone(defaultState),
       ...saved,
@@ -590,9 +735,11 @@ function loadState() {
       orders: Array.isArray(saved.orders) ? saved.orders : [],
       sales: Array.isArray(saved.sales) ? saved.sales : [],
       cancellations: Array.isArray(saved.cancellations) ? saved.cancellations : [],
-      inventory: normalizeInventory(saved.inventory),
+      inventory,
+      ingredientCategories: normalizeIngredientCategories(saved.ingredientCategories, inventory),
       inventoryMovements: Array.isArray(saved.inventoryMovements) ? saved.inventoryMovements : [],
       expenses: normalizeExpenses(saved.expenses),
+      menuProducts: normalizeMenuProducts(saved.menuProducts),
       attendance: Array.isArray(saved.attendance) ? saved.attendance : [],
       cashSessions: normalizeCashSessions(saved.cashSessions),
     };
@@ -606,6 +753,61 @@ function safeId(prefix) {
   if (randomUuid) return `${prefix}-${randomUuid}`;
   const fallback = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   return `${prefix}-${fallback}`;
+}
+
+function localTimestampParts(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+    String(date.getSeconds()).padStart(2, "0"),
+  ];
+}
+
+function existingPaymentUids() {
+  const values = [
+    ...(Array.isArray(state.sales) ? state.sales : []),
+    ...(Array.isArray(state.orders) ? state.orders : []),
+  ];
+  return new Set(
+    values
+      .flatMap((record) => [record.uid, record.paymentUid, record.payment?.uid])
+      .filter(Boolean)
+      .map(String),
+  );
+}
+
+function createPaymentUid(date = new Date()) {
+  const stem = localTimestampParts(date).join("");
+  const used = existingPaymentUids();
+  for (let suffix = 0; suffix < 100; suffix += 1) {
+    const uid = `${stem}${String(suffix).padStart(2, "0")}`;
+    if (!used.has(uid)) return uid;
+  }
+  return `${stem}${String(Date.now() % 100).padStart(2, "0")}`;
+}
+
+function paymentUidForSale(sale) {
+  return String(sale?.uid || sale?.paymentUid || sale?.payment?.uid || "");
+}
+
+function nextOrderNumber() {
+  const records = [
+    ...(Array.isArray(state.orders) ? state.orders : []),
+    ...(Array.isArray(state.sales) ? state.sales : []),
+  ];
+  const max = records.reduce((current, record) => Math.max(current, Number(record?.orderNumber) || 0), 0);
+  return max + 1;
+}
+
+function ensureOrderNumber(order) {
+  if (!order) return 0;
+  if (!Number(order.orderNumber)) {
+    order.orderNumber = nextOrderNumber();
+  }
+  return Number(order.orderNumber);
 }
 
 function loadClientId() {
@@ -637,6 +839,8 @@ function normalizeInventory(inventory) {
     totalCost: Number.isFinite(Number(item.totalCost))
       ? Number(item.totalCost)
       : (Number(item.qty) || 0) * (Number(item.unitCost) || 0),
+    costHistory: normalizeCostHistory(item.costHistory),
+    recipeEligible: inventoryItemRecipeEligible(item),
   }));
   inventoryItems.forEach((item, index) => {
     if (normalized.some((entry) => normalize(entry.name) === normalize(item.name))) return;
@@ -651,9 +855,62 @@ function normalizeInventory(inventory) {
       totalCost: Number.isFinite(Number(item.totalCost))
         ? Number(item.totalCost)
         : (Number(item.qty) || 0) * (Number(item.unitCost) || 0),
+      costHistory: normalizeCostHistory(item.costHistory),
+      recipeEligible: inventoryItemRecipeEligible(item),
     });
   });
   return normalized;
+}
+
+function isDefaultNonRecipeCategory(category) {
+  return NON_RECIPE_CATEGORIES.has(String(category || "").trim().toUpperCase());
+}
+
+function inventoryItemRecipeEligible(item) {
+  if (isDefaultNonRecipeCategory(item?.category)) return false;
+  if (Object.prototype.hasOwnProperty.call(item || {}, "recipeEligible")) return item.recipeEligible !== false;
+  if (Object.prototype.hasOwnProperty.call(item || {}, "nonRecipe")) return item.nonRecipe !== true;
+  return true;
+}
+
+function normalizeIngredientCategories(categories = [], inventory = []) {
+  const records = new Map();
+  const addCategory = (name, recipeEligible = true) => {
+    const cleanName = String(name || "").trim().toUpperCase();
+    if (!cleanName) return;
+    const nextRecipeEligible = !isDefaultNonRecipeCategory(cleanName) && recipeEligible !== false;
+    const existing = records.get(cleanName);
+    records.set(cleanName, {
+      name: cleanName,
+      recipeEligible: existing ? existing.recipeEligible !== false && nextRecipeEligible : nextRecipeEligible,
+    });
+  };
+  (Array.isArray(categories) ? categories : []).forEach((category) => {
+    if (typeof category === "string") {
+      addCategory(category, true);
+      return;
+    }
+    addCategory(category?.name || category?.category, category?.recipeEligible);
+  });
+  (Array.isArray(inventory) ? inventory : []).forEach((item) => {
+    addCategory(item.category, !isDefaultNonRecipeCategory(item.category));
+  });
+  return [...records.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+function normalizeCostHistory(history) {
+  return Array.isArray(history)
+    ? history
+        .map((entry, index) => ({
+          id: entry.id || `cost-${index}`,
+          previousCost: Math.max(0, Number(entry.previousCost) || 0),
+          nextCost: Math.max(0, Number(entry.nextCost) || 0),
+          changedAt: entry.changedAt || entry.createdAt || new Date().toISOString(),
+          changedBy: entry.changedBy || entry.userId || "",
+          reason: cleanUserText(entry.reason || "Cambio de costo"),
+        }))
+        .slice(0, 50)
+    : [];
 }
 
 function normalizeUsers(users) {
@@ -686,6 +943,117 @@ function normalizeExpenses(expenses) {
     createdBy: expense.createdBy || "",
     note: String(expense.note || "").trim(),
   }));
+}
+
+function normalizeMenuProducts(products) {
+  if (!Array.isArray(products)) return [];
+  return products
+    .map((product, index) => {
+      const name = cleanUserText(product.name || "Platillo");
+      const recipe = normalizeRecipe(product.recipe);
+      return {
+        id: product.id || `custom-${index}-${slugify(name)}`,
+        name,
+        section: cleanUserText(product.section || "Especiales"),
+        subsection: cleanUserText(product.subsection || "Temporada"),
+        price: Math.max(0, Number(product.price) || 0),
+        station: cleanUserText(product.station || "Cocina"),
+        icon: product.icon && icons[product.icon] ? product.icon : "plate",
+        description: cleanUserText(product.description || "Platillo creado en LibrePOS."),
+        options: normalizeProductOptions(product.options),
+        recipe,
+        variantRecipes: normalizeVariantRecipes(product.variantRecipes),
+        recipeHistory: normalizeProductHistory(product.recipeHistory),
+        priceHistory: normalizeProductHistory(product.priceHistory),
+        active: product.active !== false,
+        createdAt: product.createdAt || new Date().toISOString(),
+        createdBy: product.createdBy || "",
+        updatedAt: product.updatedAt || "",
+        updatedBy: product.updatedBy || "",
+        custom: product.custom !== false,
+      };
+    })
+    .filter((product) => product.name && product.price >= 0);
+}
+
+function normalizeProductOptions(options = []) {
+  return (Array.isArray(options) ? options : [])
+    .map((option, optionIndex) => {
+      const label = cleanUserText(option.label || option.id || `Opcion ${optionIndex + 1}`);
+      return {
+        id: String(option.id || slugify(label) || `opcion-${optionIndex + 1}`),
+        label,
+        type: option.type === "multi" ? "multi" : "single",
+        required: option.required !== false,
+        choices: (Array.isArray(option.choices) ? option.choices : [])
+          .map((choice) => {
+            const source = choice && typeof choice === "object" ? choice : {};
+            const choiceLabel = cleanUserText(choice?.label || choice || "");
+            if (!choiceLabel) return null;
+            return {
+              ...source,
+              label: choiceLabel,
+              active: choice?.active !== false,
+            };
+          })
+          .filter(Boolean),
+      };
+    })
+    .filter((option) => option.label && option.choices.length);
+}
+
+function normalizeVariantRecipes(variantRecipes = []) {
+  return (Array.isArray(variantRecipes) ? variantRecipes : [])
+    .map((variant, index) => {
+      const optionId = String(variant.optionId || "").trim();
+      const choiceLabel = cleanUserText(variant.choiceLabel || variant.label || "");
+      const recipe = normalizeRecipe(variant.recipe);
+      if (!optionId || !choiceLabel || !recipe.length) return null;
+      return {
+        id: variant.id || `variant-${index}-${slugify(`${optionId}-${choiceLabel}`)}`,
+        optionId,
+        choiceLabel,
+        recipe,
+        updatedAt: variant.updatedAt || "",
+        updatedBy: variant.updatedBy || "",
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeProductHistory(history = []) {
+  return (Array.isArray(history) ? history : [])
+    .map((entry, index) => ({
+      id: entry.id || `history-${index}`,
+      changedAt: entry.changedAt || entry.createdAt || new Date().toISOString(),
+      changedBy: entry.changedBy || entry.userId || "",
+      reason: cleanUserText(entry.reason || "Cambio"),
+      previous: cloneValue(entry.previous),
+      next: cloneValue(entry.next),
+    }))
+    .slice(0, 50);
+}
+
+function normalizeRecipe(recipe = []) {
+  const merged = new Map();
+  (Array.isArray(recipe) ? recipe : []).forEach((entry) => {
+    const name = String(entry.name || "").trim().toUpperCase();
+    const qty = Math.max(0, Number(entry.qty) || 0);
+    if (!name || qty <= 0) return;
+    const key = normalize(name);
+    const existing = merged.get(key);
+    if (existing) {
+      existing.qty += qty;
+      return;
+    }
+    merged.set(key, {
+      itemId: String(entry.itemId || ""),
+      name,
+      unit: String(entry.unit || "PZ").trim().toUpperCase(),
+      qty,
+    });
+  });
+  return [...merged.values()];
 }
 
 function normalizeUserFunctions(user) {
@@ -773,8 +1141,10 @@ function normalizeSharedState(shared = {}) {
     sales: Array.isArray(shared.sales) ? shared.sales : [],
     cancellations: Array.isArray(shared.cancellations) ? shared.cancellations : [],
     inventory: normalizeInventory(shared.inventory),
+    ingredientCategories: normalizeIngredientCategories(shared.ingredientCategories, shared.inventory),
     inventoryMovements: Array.isArray(shared.inventoryMovements) ? shared.inventoryMovements : [],
     expenses: normalizeExpenses(shared.expenses),
+    menuProducts: normalizeMenuProducts(shared.menuProducts),
     attendance: Array.isArray(shared.attendance) ? shared.attendance : [],
     cashSessions: normalizeCashSessions(shared.cashSessions),
   };
@@ -785,10 +1155,22 @@ function applySharedState(shared) {
     sessionUserId: state.sessionUserId,
     authError: state.authError,
     view: state.view,
+    navPage: state.navPage,
     activeOrderId: state.activeOrderId,
     activeSection: state.activeSection,
     activeSubsection: state.activeSubsection,
     productSearch: state.productSearch,
+    recipesMode: state.recipesMode,
+    recipesSection: state.recipesSection,
+    recipesSubsection: state.recipesSubsection,
+    recipesSearch: state.recipesSearch,
+    ingredientsCategory: state.ingredientsCategory,
+    ingredientsCategoryScroll: state.ingredientsCategoryScroll,
+    ingredientsCategorySearch: state.ingredientsCategorySearch,
+    ingredientsSearch: state.ingredientsSearch,
+    dataOrderSearch: state.dataOrderSearch,
+    dataOrderFrom: state.dataOrderFrom,
+    dataOrderTo: state.dataOrderTo,
     productConfig: state.productConfig,
     modal: state.modal,
     paymentMethod: state.paymentMethod,
@@ -1126,6 +1508,30 @@ function currentInventory() {
   return state.inventory;
 }
 
+function ingredientCategoryRecords() {
+  state.ingredientCategories = normalizeIngredientCategories(state.ingredientCategories, state.inventory);
+  return state.ingredientCategories;
+}
+
+function ingredientCategoryNames() {
+  return ingredientCategoryRecords().map((category) => category.name);
+}
+
+function categoryRecipeEligible(categoryName) {
+  const name = String(categoryName || "").trim().toUpperCase();
+  if (!name || isDefaultNonRecipeCategory(name)) return false;
+  const category = ingredientCategoryRecords().find((item) => item.name === name);
+  return category?.recipeEligible !== false;
+}
+
+function isRecipeIngredient(item) {
+  return categoryRecipeEligible(item?.category) && item?.recipeEligible !== false;
+}
+
+function recipeInventoryItems() {
+  return currentInventory().filter(isRecipeIngredient);
+}
+
 function getTableOrder(number) {
   return getOpenOrders().find((order) => order.type === "table" && Number(order.tableNumber) === Number(number)) || null;
 }
@@ -1260,24 +1666,82 @@ function cancellationStageLabel(stage) {
   }[stage || "new"] || "Cancelacion";
 }
 
+function baseMenuProductIds() {
+  return new Set(menuCatalog.map((product) => product.id));
+}
+
+function menuProducts({ includeInactive = false } = {}) {
+  state.menuProducts = normalizeMenuProducts(state.menuProducts);
+  const savedById = new Map(state.menuProducts.map((product) => [product.id, product]));
+  const baseProducts = menuCatalog
+    .map((base) => {
+      const saved = savedById.get(base.id);
+      const merged = saved
+        ? {
+            ...base,
+            ...saved,
+            options: Array.isArray(saved.options) && saved.options.length ? saved.options : base.options,
+            variantRecipes: normalizeVariantRecipes(saved.variantRecipes),
+            station: saved.station || base.station || "Cocina",
+            custom: false,
+            edited: true,
+          }
+        : { ...base, active: true, custom: false, edited: false };
+      return merged;
+    })
+    .filter((product) => includeInactive || product.active !== false);
+  const baseIds = baseMenuProductIds();
+  const customProducts = state.menuProducts
+    .filter((product) => !baseIds.has(product.id))
+    .filter((product) => includeInactive || product.active !== false);
+  return [...baseProducts, ...customProducts];
+}
+
+function activeMenuProducts() {
+  return menuProducts().filter((item) => item.active !== false);
+}
+
 function getProduct(id) {
-  return menuCatalog.find((item) => item.id === id);
+  return menuProducts({ includeInactive: true }).find((item) => item.id === id);
 }
 
 function sections() {
-  return [...new Set(menuCatalog.map((item) => item.section))];
+  return [...new Set(activeMenuProducts().map((item) => item.section))];
 }
 
 function subsectionsFor(section) {
-  return ["Todos", ...new Set(menuCatalog.filter((item) => item.section === section).map((item) => item.subsection))];
+  return ["Todos", ...new Set(activeMenuProducts().filter((item) => item.section === section).map((item) => item.subsection))];
 }
 
 function defaultSelectionsFor(product) {
   const selections = {};
   product.options.forEach((option) => {
-    selections[option.id] = option.type === "multi" ? [] : 0;
+    if (option.type === "multi") {
+      selections[option.id] = [];
+      return;
+    }
+    selections[option.id] = firstActiveChoiceIndex(option);
   });
   return selections;
+}
+
+function firstActiveChoiceIndex(option) {
+  const index = (option.choices || []).findIndex((choice) => choice.active !== false);
+  return index >= 0 ? index : -1;
+}
+
+function activeChoiceEntries(option) {
+  return (option.choices || [])
+    .map((choice, index) => ({ choice, index }))
+    .filter(({ choice }) => choice.active !== false);
+}
+
+function productHasAvailableSelections(product, selections = defaultSelectionsFor(product)) {
+  return (product.options || []).every((option) => {
+    if (option.type === "multi") return true;
+    const selected = selections[option.id];
+    return selected >= 0 && option.choices?.[selected]?.active !== false;
+  });
 }
 
 function normalizeExtras(extras) {
@@ -1417,7 +1881,7 @@ function render() {
     bindLogin();
     return;
   }
-  if (state.view === "users" && !isAdminUser()) state.view = "profile";
+  if (["users", "recipes"].includes(state.view) && !isAdminUser()) state.view = "profile";
   if (!state.view || !availableNavItems().some(([view]) => view === state.view)) state.view = "profile";
 
   app.innerHTML = `
@@ -1428,7 +1892,8 @@ function render() {
         ${state.view === "sale" ? renderSale() : ""}
         ${state.view === "tables" ? renderTables() : ""}
         ${state.view === "kitchen" ? renderKitchen() : ""}
-        ${state.view === "inventory" ? renderInventory() : ""}
+      ${state.view === "inventory" ? renderInventory() : ""}
+      ${state.view === "recipes" ? renderRecipes() : ""}
         ${state.view === "cash" ? renderCashRegister() : ""}
         ${state.view === "data" ? renderData() : ""}
         ${state.view === "users" ? renderUsers() : ""}
@@ -1467,7 +1932,7 @@ function availableNavItems() {
   if (hasUserFunction(user, "cocina")) items.push(["kitchen", "Cocina", "kitchen"]);
   if (hasCashAccess(user)) items.push(["cash", "Caja", "cash"]);
   if (isAdminUser(user)) {
-    items.push(["inventory", "Inventario", "inventory"], ["data", "Datos", "data"], ["users", "Usuarios", "users"]);
+    items.push(["inventory", "Inventario", "inventory"], ["recipes", "Catalogo", "note"], ["data", "Datos", "data"], ["users", "Usuarios", "users"]);
   }
   return items;
 }
@@ -1520,6 +1985,28 @@ function renderUpdateButton() {
 
 function renderHeader() {
   const user = currentUser();
+  const updateButton = renderUpdateButton();
+  const navEntries = [
+    ...availableNavItems().map(([view, label, icon]) => ({ type: "nav", view, label, icon })),
+    { type: "logout", label: "Salir", icon: "logout" },
+  ];
+  const pageSize = 5;
+  const maxPage = Math.max(0, Math.ceil(navEntries.length / pageSize) - 1);
+  state.navPage = Math.min(Math.max(Number(state.navPage) || 0, 0), maxPage);
+  const visibleNavEntries = navEntries.slice(state.navPage * pageSize, state.navPage * pageSize + pageSize);
+  const navButtons = visibleNavEntries
+    .map((entry) => {
+      if (entry.type === "logout") {
+        return `<button class="nav-button logout-nav-button" data-logout title="Salir">${svg("logout")}<span>Salir</span></button>`;
+      }
+      return `
+        <button class="nav-button ${state.view === entry.view ? "is-active" : ""}" data-nav="${entry.view}" title="${escapeAttr(entry.label)}">
+          ${svg(entry.icon)}
+          <span>${escapeHtml(entry.label)}</span>
+        </button>
+      `;
+    })
+    .join("");
   return `
     <header class="topbar">
       <div class="brand-lockup">
@@ -1533,19 +2020,15 @@ function renderHeader() {
           <p class="brand-subtitle">${escapeHtml(state.settings.subtitle)} · ${escapeHtml(user.name)}</p>
         </div>
       </div>
-      <nav class="topbar-actions" aria-label="Secciones">
-        ${availableNavItems()
-          .map(
-            ([view, label, icon]) => `
-              <button class="nav-button ${state.view === view ? "is-active" : ""}" data-nav="${view}">
-                ${svg(icon)}
-                <span>${label}</span>
-              </button>
-            `,
-          )
-          .join("")}
-        ${renderUpdateButton()}
-        <button class="nav-button logout-nav-button" data-logout>${svg("logout")}Salir</button>
+      <nav class="topbar-actions ${updateButton ? "has-update" : ""}" aria-label="Secciones">
+        ${updateButton ? `<div class="topbar-update-slot">${updateButton}</div>` : ""}
+        <button class="nav-scroll-button" data-nav-scroll="-1" title="Ver anteriores" ${state.navPage <= 0 ? "disabled" : ""}>${svg("chevronLeft")}</button>
+        <div class="nav-scroll-viewport" data-nav-viewport>
+          <div class="nav-scroll-track">
+            ${navButtons}
+          </div>
+        </div>
+        <button class="nav-scroll-button" data-nav-scroll="1" title="Ver mas opciones" ${state.navPage >= maxPage ? "disabled" : ""}>${svg("chevronRight")}</button>
       </nav>
     </header>
   `;
@@ -2076,7 +2559,8 @@ function renderCommandOptions(order) {
 function renderMenu(order) {
   const activeSubsections = subsectionsFor(state.activeSection);
   const query = normalize(state.productSearch);
-  const products = menuCatalog.filter((item) => {
+  const catalog = activeMenuProducts();
+  const products = catalog.filter((item) => {
     const inSection = item.section === state.activeSection;
     const inSubsection = state.activeSubsection === "Todos" || item.subsection === state.activeSubsection;
     const text = normalize(`${item.name} ${item.description} ${item.section} ${item.subsection}`);
@@ -2106,7 +2590,7 @@ function renderMenu(order) {
               .map(
                 (section) => `
                   <option value="${escapeAttr(section)}" ${state.activeSection === section ? "selected" : ""}>
-                    ${escapeHtml(section)} (${menuCatalog.filter((item) => item.section === section).length})
+                    ${escapeHtml(section)} (${catalog.filter((item) => item.section === section).length})
                   </option>
                 `,
               )
@@ -2134,7 +2618,7 @@ function renderMenu(order) {
             (section) => `
               <button class="section-tab ${state.activeSection === section ? "is-active" : ""}" data-section="${escapeAttr(section)}">
                 ${escapeHtml(section)}
-                <small>${menuCatalog.filter((item) => item.section === section).length}</small>
+                <small>${catalog.filter((item) => item.section === section).length}</small>
               </button>
             `,
           )
@@ -2199,6 +2683,7 @@ function renderProductConfig() {
   const price = configuredUnitPrice(product, state.productConfig.selections, extras);
   const total = price * state.productConfig.qty;
   const stock = estimateProductStock(product, state.productConfig.selections, extras);
+  const canServe = productHasAvailableSelections(product, state.productConfig.selections);
   return `
     <section class="panel detail-panel">
       <div class="panel-header">
@@ -2231,14 +2716,14 @@ function renderProductConfig() {
             <small data-config-unit>${money.format(price)} c/u</small>
           </div>
         </div>
-        <button class="primary-button" data-add-configured>${svg("plus")}Agregar al ticket</button>
+        <button class="primary-button" data-add-configured ${canServe ? "" : "disabled"}>${svg("plus")}Agregar al ticket</button>
       </div>
     </section>
   `;
 }
 
 function renderExtrasEditor(extras = []) {
-  const inventory = [...currentInventory()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const inventory = [...recipeInventoryItems()].sort((a, b) => a.name.localeCompare(b.name, "es"));
   const selectedItem = inventory[0];
   const defaultQty = defaultExtraQty(selectedItem);
   const extrasTotal = extraUnitTotal(extras);
@@ -2301,39 +2786,48 @@ function renderExtrasEditor(extras = []) {
 
 function renderOptionGroup(product, option) {
   const selected = state.productConfig.selections[option.id];
+  const choices = activeChoiceEntries(option);
   if (option.type === "multi") {
     const values = Array.isArray(selected) ? selected : [];
     return `
       <fieldset class="option-group">
         <legend>${escapeHtml(option.label)}</legend>
-        ${option.choices
-          .map(
-            (choice, index) => `
+        ${
+          choices.length
+            ? choices
+                .map(
+                  ({ choice, index }) => `
               <button class="option-pill ${values.includes(index) ? "is-active" : ""}" data-toggle-option="${option.id}" data-choice-index="${index}" type="button">
                 <span>${escapeHtml(choice.label)}</span>
                 ${choice.priceDelta ? `<strong>+${money.format(choice.priceDelta)}</strong>` : ""}
                 ${renderVariantStockBadge(product, option, index)}
               </button>
             `,
-          )
-          .join("")}
+                )
+                .join("")
+            : `<p class="muted-text compact-text">Sin variantes activas.</p>`
+        }
       </fieldset>
     `;
   }
   return `
     <fieldset class="option-group">
       <legend>${escapeHtml(option.label)}</legend>
-      ${option.choices
-        .map(
-          (choice, index) => `
+      ${
+        choices.length
+          ? choices
+              .map(
+                ({ choice, index }) => `
             <button class="option-pill ${selected === index ? "is-active" : ""}" data-select-option="${option.id}" data-choice-index="${index}" type="button">
               <span>${escapeHtml(choice.label)}</span>
               ${choice.price ? `<strong>${money.format(choice.price)}</strong>` : ""}
               ${renderVariantStockBadge(product, option, index)}
             </button>
           `,
-        )
-        .join("")}
+              )
+              .join("")
+          : `<p class="muted-text compact-text">Sin variantes activas.</p>`
+      }
     </fieldset>
   `;
 }
@@ -2353,6 +2847,7 @@ function toggleSelectionPreview(selected, index) {
 }
 
 function variantAffectsInventory(product, optionId) {
+  if (normalizeVariantRecipes(product.variantRecipes).some((variant) => variant.optionId === optionId)) return true;
   const variantOptions = {
     "empanadas-fritas": ["relleno"],
     "bocoles-maiz": ["relleno"],
@@ -2487,11 +2982,18 @@ function renderModal() {
   const modalOrder = getOrder(state.modal.orderId) || order;
   const lineTarget = state.modal.lineId ? findLine(state.modal.lineId) : null;
   const saleTarget = state.modal.saleId ? state.sales.find((sale) => sale.id === state.modal.saleId) : null;
+  const productTarget = state.modal.productId ? getProduct(state.modal.productId) : null;
+  const ingredientTarget = state.modal.ingredientId ? currentInventory().find((item) => item.id === state.modal.ingredientId) : null;
   const modalContent = {
     "open-table": renderOpenTableModal(),
     takeout: renderTakeoutModal(),
     "new-user": isAdminUser() ? renderCreateUserModal() : "",
     "edit-user": isAdminUser() ? renderEditUserModal(state.modal.userId) : "",
+    "new-product": isAdminUser() ? renderMenuProductModal() : "",
+    "edit-product": isAdminUser() && productTarget ? renderMenuProductModal(productTarget) : "",
+    "new-ingredient-category": isAdminUser() ? renderIngredientCategoryModal() : "",
+    "new-ingredient": isAdminUser() ? renderIngredientModal(null, state.modal.ingredientCategory) : "",
+    "edit-ingredient": isAdminUser() && ingredientTarget ? renderIngredientModal(ingredientTarget) : "",
     command: order ? renderCommandModal(order) : "",
     price: order ? renderPriceModal(order) : "",
     checkout: modalOrder ? renderCheckoutModal(modalOrder) : "",
@@ -3001,22 +3503,11 @@ function renderInventory() {
         ${renderSummaryCard("Bajo stock", String(inventory.filter((item) => Number(item.qty) <= 1).length))}
       </section>
       <section class="inventory-controls">
-        <form class="panel panel-body field-grid" data-inventory-add-form>
-          <h2 class="panel-title">Agregar insumo</h2>
-          <div class="field-row">
-            <label class="field"><span>Categoria</span><input name="category" required placeholder="PROTEINAS" /></label>
-            <label class="field"><span>Insumo</span><input name="name" required placeholder="POLLO" /></label>
-          </div>
-          <div class="field-row">
-            <label class="field"><span>Proveedor</span><input name="supplier" placeholder="MERCADO" /></label>
-            <label class="field"><span>Unidad</span><input name="unit" required placeholder="KILO" /></label>
-          </div>
-          <div class="field-row">
-            <label class="field"><span>Cantidad</span><input name="qty" type="number" step="0.001" required value="1" /></label>
-            <label class="field"><span>Costo unitario</span><input name="unitCost" type="number" step="0.01" required value="0" /></label>
-          </div>
-          <button class="primary-button" type="submit">${svg("plus")}Agregar</button>
-        </form>
+        <section class="panel panel-body field-grid admin-tools">
+          <h2 class="panel-title">Catalogo de insumos</h2>
+          <p class="muted-text">Las altas y cambios de costo se hacen en Catalogo. Esta pantalla controla existencias y movimientos.</p>
+          <button class="secondary-button" data-nav="recipes">${svg("note")}Abrir Catalogo</button>
+        </section>
         <form class="panel panel-body field-grid" data-inventory-adjust-form>
           <h2 class="panel-title">Movimiento manual</h2>
           <label class="field">
@@ -3090,6 +3581,664 @@ function renderInventory() {
         </div>
       </section>
     </div>
+  `;
+}
+
+function recipeForProduct(product) {
+  return configuredRecipeForProduct(product, defaultSelectionsFor(product));
+}
+
+function recipeCostForItems(recipe = []) {
+  const inventory = currentInventory();
+  return roundCurrency(
+    normalizeRecipe(recipe).reduce((sum, item) => {
+      const inventoryItem = inventory.find((entry) => normalize(entry.name) === normalize(item.name));
+      return sum + (Number(inventoryItem?.unitCost) || 0) * (Number(item.qty) || 0);
+    }, 0),
+  );
+}
+
+function financialMetrics(price, cost) {
+  const salePrice = Math.max(0, Number(price) || 0);
+  const itemCost = Math.max(0, Number(cost) || 0);
+  const profit = roundCurrency(salePrice - itemCost);
+  const margin = salePrice ? (profit / salePrice) * 100 : 0;
+  return {
+    price: roundCurrency(salePrice),
+    cost: roundCurrency(itemCost),
+    profit,
+    margin,
+  };
+}
+
+function averageFinancialMetrics(entries) {
+  const source = entries.filter(Boolean);
+  if (!source.length) return financialMetrics(0, 0);
+  const totals = source.reduce(
+    (sum, item) => ({
+      price: sum.price + item.price,
+      cost: sum.cost + item.cost,
+      profit: sum.profit + item.profit,
+      margin: sum.margin + item.margin,
+    }),
+    { price: 0, cost: 0, profit: 0, margin: 0 },
+  );
+  return {
+    price: roundCurrency(totals.price / source.length),
+    cost: roundCurrency(totals.cost / source.length),
+    profit: roundCurrency(totals.profit / source.length),
+    margin: totals.margin / source.length,
+    sampleCount: source.length,
+  };
+}
+
+function variantFinancialMetrics(product, option, choiceIndex, recipeOverride = null) {
+  const selections = defaultSelectionsFor(product);
+  selections[option.id] = choiceIndex;
+  const price = configuredUnitPrice(product, selections);
+  const recipe = recipeOverride || recipeForOptionChoice(product, option, choiceIndex);
+  return financialMetrics(price, recipeCostForItems(recipe));
+}
+
+function productVariantFinancialEntries(product) {
+  const variants = normalizeVariantRecipes(product.variantRecipes);
+  return variantOptionsForProduct(product).flatMap((option) =>
+    option.choices.map((choice, index) => {
+      const existing = variants.find(
+        (variant) => variant.optionId === option.id && normalize(variant.choiceLabel) === normalize(choice.label),
+      );
+      const recipe = existing?.recipe?.length ? existing.recipe : recipeForOptionChoice(product, option, index);
+      return {
+        optionId: option.id,
+        choiceLabel: choice.label,
+        active: choice.active !== false,
+        ...variantFinancialMetrics(product, option, index, recipe),
+      };
+    }),
+  );
+}
+
+function productFinancialMetrics(product) {
+  const variants = productVariantFinancialEntries(product);
+  const activeVariants = variants.filter((variant) => variant.active !== false);
+  const source = activeVariants.length ? activeVariants : variants;
+  if (source.length) {
+    return {
+      ...averageFinancialMetrics(source),
+      averaged: source.length > 1,
+      variantCount: source.length,
+    };
+  }
+  return {
+    ...financialMetrics(Number(product.price) || 0, productRecipeCost(product)),
+    averaged: false,
+    variantCount: 0,
+    sampleCount: 1,
+  };
+}
+
+function renderRecipes() {
+  if (!isAdminUser()) return "";
+  const products = menuProducts({ includeInactive: true });
+  const inventory = currentInventory();
+  const categories = [...new Set(products.map((product) => product.section))];
+  const customCount = products.filter((product) => product.custom).length;
+  const editedCount = products.filter((product) => product.edited && !product.custom).length;
+  const mode = state.recipesMode === "ingredients" ? "ingredients" : "products";
+  return `
+    <div class="recipes-layout">
+      <section class="board-header">
+        <div>
+          <h2>Catalogo</h2>
+          <p>Catalogo de articulos, variantes, recetas y costos de insumos</p>
+        </div>
+        <div class="header-actions">
+          <button class="secondary-button ${mode === "products" ? "is-active" : ""}" data-recipes-mode="products">${svg("sale")}Articulos</button>
+          <button class="secondary-button ${mode === "ingredients" ? "is-active" : ""}" data-recipes-mode="ingredients">${svg("inventory")}Insumos</button>
+          <button class="primary-button" data-open-modal="${mode === "ingredients" ? "new-ingredient" : "new-product"}">${svg("plus")}${mode === "ingredients" ? "Nuevo insumo" : "Nuevo platillo"}</button>
+        </div>
+      </section>
+      <section class="summary-grid">
+        ${renderSummaryCard("Articulos", String(products.length))}
+        ${renderSummaryCard("En menu", String(products.filter((product) => product.active !== false).length))}
+        ${renderSummaryCard("Insumos", String(inventory.length))}
+        ${renderSummaryCard("Editados/Nuevos", `${editedCount}/${customCount}`)}
+      </section>
+      ${mode === "ingredients" ? renderIngredientsCatalog(inventory) : renderRecipeProductCatalog(products, categories)}
+    </div>
+  `;
+}
+
+function renderRecipeProductCatalog(products, categories) {
+  const sectionList = categories.length ? categories : ["Menu"];
+  if (!sectionList.includes(state.recipesSection)) state.recipesSection = sectionList[0];
+  const subsections = ["Todos", ...new Set(products.filter((product) => product.section === state.recipesSection).map((product) => product.subsection))];
+  if (!subsections.includes(state.recipesSubsection)) state.recipesSubsection = "Todos";
+  const query = normalize(state.recipesSearch);
+  const filtered = products.filter((product) => {
+    const inSection = product.section === state.recipesSection;
+    const inSubsection = state.recipesSubsection === "Todos" || product.subsection === state.recipesSubsection;
+    const text = normalize(`${product.name} ${product.description} ${product.section} ${product.subsection}`);
+    return inSection && inSubsection && text.includes(query);
+  });
+  return `
+    <section class="panel recipe-catalog-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Articulos en venta</h2>
+          <p class="panel-kicker">Navegacion por categorias igual que Venta</p>
+        </div>
+        <div class="search-wrap compact-search">
+          ${svg("search")}
+          <input class="search-input" data-recipes-search value="${escapeAttr(state.recipesSearch)}" placeholder="Buscar articulo" />
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="section-tabs">
+          ${sectionList
+            .map(
+              (section) => `
+                <button class="section-tab ${state.recipesSection === section ? "is-active" : ""}" data-recipes-section="${escapeAttr(section)}">
+                  ${escapeHtml(section)}
+                  <small>${products.filter((item) => item.section === section).length}</small>
+                </button>
+              `,
+            )
+            .join("")}
+        </div>
+        <div class="chip-row">
+          ${subsections
+            .map(
+              (subsection) => `
+                <button class="chip ${state.recipesSubsection === subsection ? "is-active" : ""}" data-recipes-subsection="${escapeAttr(subsection)}">
+                  ${escapeHtml(subsection)}
+                </button>
+              `,
+            )
+            .join("")}
+        </div>
+        <div class="menu-grid recipe-product-grid">
+          ${filtered.length ? filtered.map(renderRecipeProductCard).join("") : `<div class="empty-state">No hay articulos en esta combinacion.</div>`}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderRecipeProductCard(product) {
+  const recipe = recipeForProduct(product);
+  const metrics = productFinancialMetrics(product);
+  const sourceLabel = product.custom ? "Nuevo" : product.edited ? "Editado" : "Base";
+  const variantCount = productVariantFinancialEntries(product).length;
+  const averageLabel = metrics.averaged ? " prom." : "";
+  return `
+    <article class="menu-item recipe-product-card ${product.active === false ? "is-cancelled" : ""}">
+      <span class="menu-item-top">
+        <span class="menu-icon">${svg(product.icon)}</span>
+        <strong>${money.format(product.price)}</strong>
+      </span>
+      <span>
+        <h3>${escapeHtml(product.name)}</h3>
+        <p>${escapeHtml(product.description)}</p>
+      </span>
+      <span class="recipe-card-metrics">
+        <span>${escapeHtml(product.subsection)}</span>
+        <span>${recipe.length} insumo${recipe.length === 1 ? "" : "s"}</span>
+        <span>${variantCount} variante${variantCount === 1 ? "" : "s"}</span>
+      </span>
+      <span class="recipe-card-cost">
+        <span>Costo${averageLabel} ${money.format(metrics.cost)}</span>
+        <span>Ganancia${averageLabel} ${money.format(metrics.profit)}</span>
+        <strong>Margen${averageLabel} ${formatNumber(metrics.margin)}%</strong>
+      </span>
+      <span class="recipe-card-actions">
+        <small>${sourceLabel} · ${product.active === false ? "Oculto" : "Activo"}</small>
+        <label class="check-toggle compact">
+          <input type="checkbox" data-menu-product-active="${product.id}" ${product.active === false ? "" : "checked"} />
+          <span>Disponible</span>
+        </label>
+        <button class="secondary-button compact" data-open-modal="edit-product" data-product-id="${product.id}">${svg("note")}Editar</button>
+      </span>
+    </article>
+  `;
+}
+
+function renderIngredientsCatalog(inventory) {
+  const categoryRecords = ingredientCategoryRecords();
+  const allCategories = ["Todos", ...categoryRecords.map((item) => item.name)];
+  if (!allCategories.includes(state.ingredientsCategory)) state.ingredientsCategory = "Todos";
+  const categoryQuery = normalize(state.ingredientsCategorySearch);
+  let categories = allCategories.filter((category) => category === "Todos" || !categoryQuery || normalize(category).includes(categoryQuery));
+  if (!categories.includes(state.ingredientsCategory)) categories = [state.ingredientsCategory, ...categories];
+  const categoryOptions = categoryRecords.map((item) => item.name);
+  const selectedCategoryIsNonRecipe = state.ingredientsCategory !== "Todos" && !categoryRecipeEligible(state.ingredientsCategory);
+  const selectedCategoryCount =
+    state.ingredientsCategory === "Todos" ? inventory.length : inventory.filter((item) => item.category === state.ingredientsCategory).length;
+  const query = normalize(state.ingredientsSearch);
+  const filtered = inventory
+    .filter((item) => state.ingredientsCategory === "Todos" || item.category === state.ingredientsCategory)
+    .filter((item) => normalize(`${item.name} ${item.category} ${item.supplier} ${item.unit}`).includes(query))
+    .sort((a, b) => a.category.localeCompare(b.category, "es") || a.name.localeCompare(b.name, "es"));
+  return `
+    <section class="panel data-grid-wide">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Catalogo de insumos</h2>
+          <p class="panel-kicker">Edita categoria directo en la tabla. Escribir una categoria nueva la crea.</p>
+        </div>
+        <div class="ingredient-catalog-actions">
+          <div class="search-wrap compact-search">
+            ${svg("search")}
+            <input class="search-input" data-ingredients-search value="${escapeAttr(state.ingredientsSearch)}" placeholder="Buscar insumo" />
+          </div>
+          <button class="primary-button compact" data-open-modal="new-ingredient" ${state.ingredientsCategory !== "Todos" ? `data-ingredient-category="${escapeAttr(state.ingredientsCategory)}"` : ""}>
+            ${svg("plus")}${state.ingredientsCategory === "Todos" ? "Nuevo insumo" : "Nuevo en categoria"}
+          </button>
+          <button class="secondary-button compact" data-open-modal="new-ingredient-category">${svg("plus")}Nueva categoria</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="ingredient-category-status ${selectedCategoryIsNonRecipe ? "is-non-recipe" : ""}">
+          <div>
+            <span>Categoria activa</span>
+            <strong>${escapeHtml(state.ingredientsCategory)}</strong>
+          </div>
+          <small>${selectedCategoryIsNonRecipe ? "No-comida / no-receta" : "Disponible para recetas"} · ${selectedCategoryCount} insumo${selectedCategoryCount === 1 ? "" : "s"}</small>
+        </div>
+        <div class="ingredient-category-tools">
+          <div class="search-wrap compact-search">
+            ${svg("search")}
+            <input class="search-input" data-ingredient-category-search value="${escapeAttr(state.ingredientsCategorySearch)}" placeholder="Buscar categoria" />
+          </div>
+        </div>
+        <div class="ingredient-category-nav">
+          <button class="nav-scroll-button" type="button" data-ingredients-category-step="-1" title="Categorias anteriores">${svg("chevronLeft")}</button>
+          <div class="ingredient-category-scroll" data-ingredients-category-scroll>
+            <div class="chip-row ingredient-category-row">
+              ${categories
+                .map(
+                  (category) => {
+                    const isNonRecipeCategory = category !== "Todos" && !categoryRecipeEligible(category);
+                    return `
+                    <button class="chip ${state.ingredientsCategory === category ? "is-active" : ""} ${isNonRecipeCategory ? "is-non-recipe" : ""}" data-ingredients-category="${escapeAttr(category)}">
+                      ${escapeHtml(category)}
+                    </button>
+                  `;
+                  },
+                )
+                .join("")}
+            </div>
+          </div>
+          <button class="nav-scroll-button" type="button" data-ingredients-category-step="1" title="Mas categorias">${svg("chevronRight")}</button>
+        </div>
+        <datalist id="ingredient-catalog-category-options">
+          ${categoryOptions.map((category) => `<option value="${escapeAttr(category)}"></option>`).join("")}
+        </datalist>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Categoria</th>
+                <th>Insumo</th>
+                <th>Proveedor</th>
+                <th>Unidad</th>
+                <th>Costo vigente</th>
+                <th>Uso</th>
+                <th>Historial</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.length ? filtered.map(renderIngredientCatalogRow).join("") : `<tr><td colspan="8">No hay insumos con esos filtros.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderIngredientCatalogRow(item) {
+  const recipeEligible = isRecipeIngredient(item);
+  return `
+    <tr class="${recipeEligible ? "" : "non-recipe-row"}">
+      <td>
+        <input class="table-input" data-ingredient-category-field="${item.id}" list="ingredient-catalog-category-options" value="${escapeAttr(item.category)}" title="Cambiar categoria" />
+      </td>
+      <td><strong>${escapeHtml(item.name)}</strong></td>
+      <td>${escapeHtml(item.supplier)}</td>
+      <td>${escapeHtml(item.unit)}</td>
+      <td><strong>${money.format(item.unitCost)}</strong></td>
+      <td>
+        <label class="check-toggle compact ingredient-recipe-toggle">
+          <input type="checkbox" data-ingredient-recipe-toggle="${item.id}" ${recipeEligible ? "checked" : ""} ${isDefaultNonRecipeCategory(item.category) ? "disabled" : ""} />
+          <span>${recipeEligible ? "Receta" : "No-receta"}</span>
+        </label>
+      </td>
+      <td>${normalizeCostHistory(item.costHistory).length} cambio${normalizeCostHistory(item.costHistory).length === 1 ? "" : "s"}</td>
+      <td class="row-actions">
+        <button class="secondary-button compact" data-open-modal="edit-ingredient" data-ingredient-id="${item.id}">${svg("note")}Editar</button>
+      </td>
+    </tr>
+  `;
+}
+
+function recipeInventoryOption(item, selectedId) {
+  return `<option value="${item.id}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.name)} · ${money.format(item.unitCost)}/${escapeHtml(item.unit)}</option>`;
+}
+
+function renderRecipeRows(product = null, recipeOverride = null) {
+  return renderRecipeRowsFromRecipe(recipeOverride || recipeForProduct(product || { options: [], recipe: [] }), {
+    itemAttr: "data-recipe-item",
+    qtyAttr: "data-recipe-qty",
+  });
+}
+
+function renderRecipeRowsFromRecipe(recipeSource = [], { itemAttr = "data-recipe-item", qtyAttr = "data-recipe-qty", minRows = 6 } = {}) {
+  const inventory = [...recipeInventoryItems()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const recipe = normalizeRecipe(recipeSource);
+  const rows = Array.from({ length: Math.max(minRows, recipe.length || 0) }, (_, index) => recipe[index] || null);
+  return rows
+    .map((row, index) => {
+      const selectedId = row?.itemId || inventory.find((item) => normalize(item.name) === normalize(row?.name))?.id || "";
+      return `
+        <div class="recipe-row">
+          <label class="field">
+            <span>Insumo ${index + 1}</span>
+            <select ${itemAttr} ${inventory.length ? "" : "disabled"}>
+              <option value="">Sin insumo</option>
+              ${inventory.map((item) => recipeInventoryOption(item, selectedId)).join("")}
+            </select>
+          </label>
+          <label class="field">
+            <span>Cantidad</span>
+            <input ${qtyAttr} type="number" min="0" step="0.001" value="${row ? formatPlainNumber(row.qty) : ""}" placeholder="0" />
+          </label>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function variantOptionsForProduct(product) {
+  return (product?.options || []).filter((option) => option.type === "single" && Array.isArray(option.choices));
+}
+
+function primaryVariantOptionForProduct(product) {
+  const options = variantOptionsForProduct(product);
+  if (!options.length) {
+    return {
+      id: "variante",
+      label: "Variante",
+      type: "single",
+      required: true,
+      choices: [],
+    };
+  }
+  return [...options].sort((left, right) => variantOptionPriority(left) - variantOptionPriority(right))[0];
+}
+
+function recipeForOptionChoice(product, option, choiceIndex) {
+  const selections = defaultSelectionsFor(product);
+  selections[option.id] = choiceIndex;
+  return configuredRecipeForProduct({ ...product, variantRecipes: [] }, selections);
+}
+
+function variantSummaryText({ active = true, recipeCount = 0, margin = 0 } = {}) {
+  return `Margen ${formatNumber(margin)}% · ${active ? "Activa" : "Inactiva"} · ${recipeCount} insumo${recipeCount === 1 ? "" : "s"}`;
+}
+
+function renderVariantRecipeEditor(product) {
+  const variantOptions = variantOptionsForProduct(product);
+  const primaryOption = primaryVariantOptionForProduct(product);
+  const variants = normalizeVariantRecipes(product.variantRecipes);
+  return `
+    <section class="recipe-editor variant-recipe-editor">
+      <div class="recipe-editor-head">
+        <strong>${svg("plus")}Variantes de receta</strong>
+        <span>Se usan al vender cada variante</span>
+      </div>
+      <div class="variant-add-box" data-primary-variant-option-id="${escapeAttr(primaryOption.id)}" data-primary-variant-option-label="${escapeAttr(primaryOption.label)}">
+        <div class="field-row">
+          <label class="field">
+            <span>Nueva variante</span>
+            <input name="newVariantLabel" placeholder="Ej. Carne, Queso, Especial" />
+          </label>
+          <button class="secondary-button" type="button" data-add-variant-choice>${svg("plus")}Anadir variante</button>
+        </div>
+      </div>
+      <div class="variant-list" data-variant-list>
+      ${variantOptions
+        .map((option) =>
+          option.choices
+            .map((choice, index) => {
+              const existing = variants.find(
+                (variant) => variant.optionId === option.id && normalize(variant.choiceLabel) === normalize(choice.label),
+              );
+              const recipe = existing?.recipe?.length ? existing.recipe : recipeForOptionChoice(product, option, index);
+              const metrics = variantFinancialMetrics(product, option, index, recipe);
+              return `
+                <details class="variant-recipe ${choice.active === false ? "is-cancelled" : ""}" data-variant-recipe data-option-id="${escapeAttr(option.id)}" data-option-label="${escapeAttr(option.label)}" data-choice-label="${escapeAttr(choice.label)}">
+                  <summary>
+                    <span>${escapeHtml(option.label)}: ${escapeHtml(choice.label)}</span>
+                    <strong>${variantSummaryText({
+                      active: choice.active !== false,
+                      recipeCount: recipe.length,
+                      margin: metrics.margin,
+                    })}</strong>
+                  </summary>
+                  <div class="variant-recipe-body">
+                    <label class="check-toggle">
+                      <input type="checkbox" data-variant-active ${choice.active === false ? "" : "checked"} />
+                      <span>Disponible en venta</span>
+                    </label>
+                    <div class="recipe-row-list" data-variant-row-list>
+                      ${renderRecipeRowsFromRecipe(recipe, {
+                        itemAttr: "data-variant-item",
+                        qtyAttr: "data-variant-qty",
+                        minRows: Math.max(4, recipe.length),
+                      })}
+                    </div>
+                    <button class="secondary-button compact" type="button" data-add-variant-row>${svg("plus")}Anadir insumo</button>
+                  </div>
+                </details>
+              `;
+            })
+            .join(""),
+        )
+        .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderMenuProductModal(product = null) {
+  const isEdit = Boolean(product);
+  const sectionOptions = [...new Set(activeMenuProducts().map((item) => item.section))];
+  const subsectionOptions = [...new Set(activeMenuProducts().map((item) => item.subsection))];
+  const iconOptions = ["plate", "bowl", "empanada", "steam", "fry", "dessert", "cup"];
+  return `
+    <section class="panel modal-panel menu-product-modal">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">${isEdit ? "Editar platillo" : "Nuevo platillo"}</h2>
+          <p class="panel-kicker">${isEdit ? escapeHtml(product.name) : "Catalogo, precio y receta de inventario"}</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-menu-product-form data-product-id="${product?.id || ""}">
+        <label class="field">
+          <span>Nombre</span>
+          <input name="name" required value="${escapeAttr(product?.name || "")}" placeholder="Nombre del platillo" />
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Categoria</span>
+            <input name="section" list="menu-section-options" required value="${escapeAttr(product?.section || state.activeSection || "Especiales")}" />
+            <datalist id="menu-section-options">
+              ${sectionOptions.map((section) => `<option value="${escapeAttr(section)}"></option>`).join("")}
+            </datalist>
+          </label>
+          <label class="field">
+            <span>Subcategoria</span>
+            <input name="subsection" list="menu-subsection-options" required value="${escapeAttr(product?.subsection || "Temporada")}" />
+            <datalist id="menu-subsection-options">
+              ${subsectionOptions.map((subsection) => `<option value="${escapeAttr(subsection)}"></option>`).join("")}
+            </datalist>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Precio venta</span>
+            <input name="price" type="number" min="0" step="0.01" required value="${product ? formatPlainNumber(product.price) : ""}" />
+          </label>
+          <label class="field">
+            <span>Icono</span>
+            <select name="icon">
+              ${iconOptions.map((icon) => `<option value="${icon}" ${(product?.icon || "plate") === icon ? "selected" : ""}>${icon}</option>`).join("")}
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Descripcion</span>
+          <input name="description" value="${escapeAttr(product?.description || "")}" placeholder="Detalle corto para el menu" />
+        </label>
+        <label class="check-toggle">
+          <input name="active" type="checkbox" ${product?.active === false ? "" : "checked"} />
+          <span>Disponible en venta</span>
+        </label>
+        <section class="recipe-editor">
+          <div class="recipe-editor-head">
+            <strong>${svg("inventory")}Receta por unidad</strong>
+            <span>${product ? money.format(productRecipeCost(product)) : "Costo al guardar"}</span>
+          </div>
+          <div class="recipe-row-list" data-recipe-row-list>
+            ${renderRecipeRows(product)}
+          </div>
+          <button class="secondary-button compact" type="button" data-add-recipe-row>${svg("plus")}Anadir insumo</button>
+        </section>
+        ${renderVariantRecipeEditor(product || { options: [], recipe: [] })}
+        <template data-recipe-row-template>
+          ${renderRecipeRowsFromRecipe([], { minRows: 1 })}
+        </template>
+        <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar cambios" : "Crear platillo"}</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderIngredientModal(item = null, presetCategory = "") {
+  const isEdit = Boolean(item);
+  const inventory = currentInventory();
+  const categories = ingredientCategoryNames();
+  const units = [...new Set(inventory.map((entry) => entry.unit))].sort((a, b) => a.localeCompare(b, "es"));
+  const history = normalizeCostHistory(item?.costHistory).slice(0, 6);
+  const category = item?.category || presetCategory || "GENERAL";
+  const recipeEligible = item ? isRecipeIngredient(item) : categoryRecipeEligible(category);
+  return `
+    <section class="panel modal-panel menu-product-modal">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">${isEdit ? "Editar insumo" : "Nuevo insumo"}</h2>
+          <p class="panel-kicker">${isEdit ? escapeHtml(item.name) : "Catalogo de insumos, no inventario fisico"}</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-ingredient-form data-ingredient-id="${item?.id || ""}">
+        <div class="field-row">
+          <label class="field">
+            <span>Categoria</span>
+            <input name="category" list="ingredient-category-options" required value="${escapeAttr(category)}" />
+            <datalist id="ingredient-category-options">
+              ${categories.map((category) => `<option value="${escapeAttr(category)}"></option>`).join("")}
+            </datalist>
+          </label>
+          <label class="field">
+            <span>Insumo</span>
+            <input name="name" required value="${escapeAttr(item?.name || "")}" placeholder="POLLO" />
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Proveedor</span>
+            <input name="supplier" required value="${escapeAttr(item?.supplier || "Sin proveedor")}" placeholder="MERCADO" />
+          </label>
+          <label class="field">
+            <span>Unidad</span>
+            <input name="unit" list="ingredient-unit-options" required value="${escapeAttr(item?.unit || "PZ")}" />
+            <datalist id="ingredient-unit-options">
+              ${units.map((unit) => `<option value="${escapeAttr(unit)}"></option>`).join("")}
+            </datalist>
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">
+            <span>Costo vigente</span>
+            <input name="unitCost" type="number" min="0" step="0.01" required value="${formatPlainNumber(item?.unitCost || 0)}" />
+          </label>
+          <label class="field">
+            <span>Motivo del cambio</span>
+            <input name="reason" placeholder="Compra, cambio proveedor, correccion" />
+          </label>
+        </div>
+        <label class="check-toggle">
+          <input name="recipeEligible" type="checkbox" ${recipeEligible ? "checked" : ""} />
+          <span>Disponible para recetas</span>
+        </label>
+        ${
+          history.length
+            ? `
+              <section class="cost-history-box">
+                <h3 class="mini-title">Historial de costo</h3>
+                ${history
+                  .map(
+                    (entry) => `
+                      <div class="history-row compact-history">
+                        <span>${svg("clock")}</span>
+                        <div>
+                          <strong>${money.format(entry.previousCost)} -> ${money.format(entry.nextCost)}</strong>
+                          <p>${formatDateTime(entry.changedAt)} · ${escapeHtml(waiterName(entry.changedBy) || "Sistema")} · ${escapeHtml(entry.reason)}</p>
+                        </div>
+                      </div>
+                    `,
+                  )
+                  .join("")}
+              </section>
+            `
+            : ""
+        }
+        <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar insumo" : "Crear insumo"}</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderIngredientCategoryModal() {
+  const categories = ingredientCategoryNames();
+  return `
+    <section class="panel modal-panel menu-product-modal">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Nueva categoria</h2>
+          <p class="panel-kicker">Clasifica insumos de comida o administrativos.</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-ingredient-category-form>
+        <label class="field">
+          <span>Nombre de categoria</span>
+          <input name="category" required list="ingredient-category-options" placeholder="Ej. UNIFORMES, PAPELERIA, LACTEOS" />
+          <datalist id="ingredient-category-options">
+            ${categories.map((category) => `<option value="${escapeAttr(category)}"></option>`).join("")}
+          </datalist>
+        </label>
+        <label class="check-toggle">
+          <input name="nonRecipe" type="checkbox" />
+          <span>No-comida / no-receta</span>
+        </label>
+        <button class="primary-button" type="submit">${svg("check")}Crear categoria</button>
+      </form>
+    </section>
   `;
 }
 
@@ -3207,7 +4356,7 @@ function renderCashSessionSales(session) {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
+          <thead><tr><th>UID</th><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
           <tbody>
             ${
               sales.length
@@ -3217,6 +4366,7 @@ function renderCashSessionSales(session) {
                         const cashDue = Number(sale.payment?.cashDue) || 0;
                         return `
                           <tr>
+                            <td><strong>${escapeHtml(paymentUidForSale(sale) || "-")}</strong><small>ID ${Number(sale.orderNumber) || ""}</small></td>
                             <td>${formatDateTime(saleClosedAt(sale))}</td>
                             <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
                             <td>${escapeHtml(waiterName(sale.cashierId))}</td>
@@ -3230,7 +4380,7 @@ function renderCashSessionSales(session) {
                       },
                     )
                     .join("")
-                : `<tr><td colspan="8">Aun no hay cobros en esta caja.</td></tr>`
+                : `<tr><td colspan="9">Aun no hay cobros en esta caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -3464,6 +4614,120 @@ function renderCashClosuresData() {
   `;
 }
 
+function localDateValue(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function orderItemsSummary(items = []) {
+  const cleanItems = Array.isArray(items) ? items : [];
+  if (!cleanItems.length) return "Sin productos";
+  const labels = cleanItems.slice(0, 4).map((item) => `${item.qty || 0} x ${item.name || "Producto"}`);
+  const remaining = cleanItems.length - labels.length;
+  return `${labels.join(" · ")}${remaining > 0 ? ` · +${remaining}` : ""}`;
+}
+
+function orderSearchRecords() {
+  const activeRecords = (Array.isArray(state.orders) ? state.orders : []).map((order) => ({
+    recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
+    id: Number(order.orderNumber) || "",
+    uid: "",
+    date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
+    label: orderLabel(order),
+    waiter: waiterName(order.waiterId),
+    payment: order.status === "cancelled" ? "Sin cobro" : "Pendiente",
+    total: calculateTotals(order).total,
+    products: orderItemsSummary(order.items),
+  }));
+  const paidRecords = (Array.isArray(state.sales) ? state.sales : []).map((sale) => ({
+    recordType: "Cobrada",
+    id: Number(sale.orderNumber) || "",
+    uid: paymentUidForSale(sale),
+    date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
+    label: sale.label || sale.orderId || "Venta",
+    waiter: waiterName(sale.waiterId),
+    payment: sale.paymentMethod || "Efectivo",
+    total: saleTotal(sale),
+    products: orderItemsSummary(sale.items),
+  }));
+  return [...paidRecords, ...activeRecords].sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function filteredOrderSearchRecords() {
+  const query = normalize(state.dataOrderSearch);
+  const from = state.dataOrderFrom || "";
+  const to = state.dataOrderTo || "";
+  return orderSearchRecords()
+    .filter((record) => {
+      const dateKey = localDateValue(record.date);
+      if (from && dateKey < from) return false;
+      if (to && dateKey > to) return false;
+      if (!query) return true;
+      const haystack = normalize(`${record.id} ${record.uid} ${record.label} ${record.waiter} ${record.payment} ${record.products}`);
+      return haystack.includes(query);
+    })
+    .slice(0, 100);
+}
+
+function renderOrderSearchData() {
+  const rows = filteredOrderSearchRecords();
+  return `
+    <section class="panel data-grid-wide order-search-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Buscador de ordenes</h2>
+          <p class="panel-kicker">Busca por ID, UID, mesa, pago, producto o rango de fechas</p>
+        </div>
+      </div>
+      <div class="panel-body field-grid">
+        <div class="order-search-grid">
+          <label class="field">
+            <span>Buscar</span>
+            <input data-order-search value="${escapeAttr(state.dataOrderSearch)}" placeholder="ID, UID, mesa, producto..." />
+          </label>
+          <label class="field">
+            <span>Desde</span>
+            <input data-order-from type="date" value="${escapeAttr(state.dataOrderFrom)}" />
+          </label>
+          <label class="field">
+            <span>Hasta</span>
+            <input data-order-to type="date" value="${escapeAttr(state.dataOrderTo)}" />
+          </label>
+          <button class="secondary-button" data-order-search-clear type="button">${svg("trash")}Limpiar</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Productos</th></tr></thead>
+            <tbody>
+              ${
+                rows.length
+                  ? rows
+                      .map(
+                        (record) => `
+                          <tr>
+                            <td><strong>${record.id || "-"}</strong></td>
+                            <td>${record.uid ? `<strong>${escapeHtml(record.uid)}</strong>` : "-"}</td>
+                            <td>${formatDateTime(record.date)}</td>
+                            <td><strong>${escapeHtml(record.label)}</strong><small>${escapeHtml(record.waiter)}</small></td>
+                            <td><span class="shift-status ${record.recordType === "Cobrada" ? "is-active" : ""}">${escapeHtml(record.recordType)}</span></td>
+                            <td>${escapeHtml(record.payment)}</td>
+                            <td><strong>${money.format(record.total)}</strong></td>
+                            <td>${escapeHtml(record.products)}</td>
+                          </tr>
+                        `,
+                      )
+                      .join("")
+                  : `<tr><td colspan="8">No hay ordenes con esos filtros.</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderData() {
   const metrics = buildBusinessMetrics(new Date());
   return `
@@ -3497,6 +4761,7 @@ function renderData() {
           `
           : ""
       }
+      ${renderOrderSearchData()}
       ${renderDataExports()}
       ${renderExpenseControls()}
       ${renderCashClosuresData()}
@@ -3946,6 +5211,7 @@ function renderProfileClosedSales(user, sales = []) {
                           <td>
                             <strong>${escapeHtml(sale.label || sale.orderId || "Venta")}</strong>
                             <small>${sale.cashierId === user.id ? "Cerrada por ti" : `Mesero ${escapeHtml(waiterName(sale.waiterId))}`}</small>
+                            <small>ID ${Number(sale.orderNumber) || "-"}</small>
                           </td>
                           <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
                           <td>${money.format(tip)}<small>${escapeHtml(saleTipPaymentMethod(sale))}</small></td>
@@ -4120,6 +5386,15 @@ function bindEvents() {
       render();
     });
   });
+  document.querySelectorAll("[data-nav-scroll]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const totalItems = availableNavItems().length + 1;
+      const maxPage = Math.max(0, Math.ceil(totalItems / 5) - 1);
+      state.navPage = Math.min(Math.max((Number(state.navPage) || 0) + Number(button.dataset.navScroll), 0), maxPage);
+      persist();
+      render();
+    });
+  });
   document.querySelectorAll("[data-logout]").forEach((button) => {
     button.addEventListener("click", () => {
       state.sessionUserId = null;
@@ -4140,6 +5415,9 @@ function bindEvents() {
       if (button.dataset.cancelSource) modal.cancelSource = button.dataset.cancelSource;
       if (button.dataset.userId) modal.userId = button.dataset.userId;
       if (button.dataset.saleId) modal.saleId = button.dataset.saleId;
+      if (button.dataset.productId) modal.productId = button.dataset.productId;
+      if (button.dataset.ingredientId) modal.ingredientId = button.dataset.ingredientId;
+      if (button.dataset.ingredientCategory) modal.ingredientCategory = button.dataset.ingredientCategory;
       state.modal = modal;
       persist();
       render();
@@ -4310,6 +5588,135 @@ function bindEvents() {
   });
   document.querySelector("[data-inventory-add-form]")?.addEventListener("submit", addInventoryItem);
   document.querySelector("[data-inventory-adjust-form]")?.addEventListener("submit", adjustInventoryFromForm);
+  const menuProductForm = document.querySelector("[data-menu-product-form]");
+  menuProductForm?.addEventListener("submit", saveMenuProduct);
+  menuProductForm?.addEventListener("keydown", preventMenuProductEnterSubmit);
+  menuProductForm?.addEventListener("input", updateVariantSummaryFromEvent);
+  menuProductForm?.addEventListener("change", updateVariantSummaryFromEvent);
+  document.querySelectorAll("[data-add-recipe-row]").forEach((button) => {
+    button.addEventListener("click", () => addRecipeRow(button));
+  });
+  document.querySelectorAll("[data-add-variant-row]").forEach((button) => {
+    button.addEventListener("click", () => addVariantRecipeRow(button));
+  });
+  document.querySelectorAll("[data-variant-active]").forEach((input) => {
+    input.addEventListener("change", () => updateVariantActivePreview(input));
+  });
+  document.querySelector("[data-add-variant-choice]")?.addEventListener("click", (event) => {
+    addVariantChoice(event.currentTarget);
+  });
+  document.querySelector("[data-ingredient-form]")?.addEventListener("submit", saveIngredient);
+  document.querySelector("[data-ingredient-category-form]")?.addEventListener("submit", createIngredientCategory);
+  document.querySelectorAll("[data-ingredient-category-field]").forEach((input) => {
+    input.addEventListener("change", () => updateIngredientCategory(input.dataset.ingredientCategoryField, input.value));
+  });
+  document.querySelectorAll("[data-ingredient-recipe-toggle]").forEach((input) => {
+    input.addEventListener("change", (event) => {
+      setIngredientRecipeEligible(input.dataset.ingredientRecipeToggle, event.target.checked);
+    });
+  });
+  document.querySelectorAll("[data-menu-product-toggle]").forEach((button) => {
+    button.addEventListener("click", () => toggleMenuProduct(button.dataset.menuProductToggle));
+  });
+  document.querySelectorAll("[data-menu-product-active]").forEach((input) => {
+    input.addEventListener("change", (event) => {
+      setMenuProductActive(input.dataset.menuProductActive, event.target.checked);
+    });
+  });
+  document.querySelectorAll("[data-recipes-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.recipesMode = button.dataset.recipesMode;
+      state.modal = null;
+      persist();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-recipes-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.recipesSection = button.dataset.recipesSection;
+      state.recipesSubsection = "Todos";
+      persist();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-recipes-subsection]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.recipesSubsection = button.dataset.recipesSubsection;
+      persist();
+      render();
+    });
+  });
+  const recipesSearch = document.querySelector("[data-recipes-search]");
+  recipesSearch?.addEventListener("input", (event) => {
+    const caret = event.target.selectionStart || event.target.value.length;
+    state.recipesSearch = event.target.value;
+    persist();
+    render();
+    const restored = document.querySelector("[data-recipes-search]");
+    restored?.focus();
+    restored?.setSelectionRange(caret, caret);
+  });
+  const ingredientsCategoryRow = document.querySelector("[data-ingredients-category-scroll]");
+  if (ingredientsCategoryRow) ingredientsCategoryRow.scrollLeft = Number(state.ingredientsCategoryScroll) || 0;
+  document.querySelectorAll("[data-ingredients-category-step]").forEach((button) => {
+    button.addEventListener("click", () => scrollIngredientCategories(Number(button.dataset.ingredientsCategoryStep) || 1));
+  });
+  document.querySelectorAll("[data-ingredients-category]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ingredientsCategoryScroll = button.closest("[data-ingredients-category-scroll]")?.scrollLeft || 0;
+      state.ingredientsCategory = button.dataset.ingredientsCategory;
+      persist();
+      render();
+    });
+  });
+  const ingredientCategorySearch = document.querySelector("[data-ingredient-category-search]");
+  ingredientCategorySearch?.addEventListener("input", (event) => {
+    const caret = event.target.selectionStart || event.target.value.length;
+    state.ingredientsCategorySearch = event.target.value;
+    state.ingredientsCategoryScroll = 0;
+    persist();
+    render();
+    const restored = document.querySelector("[data-ingredient-category-search]");
+    restored?.focus();
+    restored?.setSelectionRange(caret, caret);
+  });
+  const ingredientsSearch = document.querySelector("[data-ingredients-search]");
+  ingredientsSearch?.addEventListener("input", (event) => {
+    const caret = event.target.selectionStart || event.target.value.length;
+    state.ingredientsSearch = event.target.value;
+    persist();
+    render();
+    const restored = document.querySelector("[data-ingredients-search]");
+    restored?.focus();
+    restored?.setSelectionRange(caret, caret);
+  });
+  const orderSearch = document.querySelector("[data-order-search]");
+  orderSearch?.addEventListener("input", (event) => {
+    const caret = event.target.selectionStart || event.target.value.length;
+    state.dataOrderSearch = event.target.value;
+    persist();
+    render();
+    const restored = document.querySelector("[data-order-search]");
+    restored?.focus();
+    restored?.setSelectionRange(caret, caret);
+  });
+  document.querySelector("[data-order-from]")?.addEventListener("change", (event) => {
+    state.dataOrderFrom = event.target.value;
+    persist();
+    render();
+  });
+  document.querySelector("[data-order-to]")?.addEventListener("change", (event) => {
+    state.dataOrderTo = event.target.value;
+    persist();
+    render();
+  });
+  document.querySelector("[data-order-search-clear]")?.addEventListener("click", () => {
+    state.dataOrderSearch = "";
+    state.dataOrderFrom = "";
+    state.dataOrderTo = "";
+    persist();
+    render();
+  });
   document.querySelector("[data-expense-form]")?.addEventListener("submit", addExpense);
   document.querySelectorAll("[data-export-data]").forEach((button) => {
     button.addEventListener("click", () => exportData(button.dataset.exportData));
@@ -4380,6 +5787,7 @@ function openTable(formElement) {
   }
   const order = {
     id: safeId("order"),
+    orderNumber: nextOrderNumber(),
     type: "table",
     tableNumber,
     guests: Math.max(1, Number(form.get("guests")) || 1),
@@ -4444,6 +5852,7 @@ function openTakeout(event) {
   const form = new FormData(event.currentTarget);
   const order = {
     id: safeId("order"),
+    orderNumber: nextOrderNumber(),
     type: "takeout",
     tableNumber: null,
     guests: 0,
@@ -4658,14 +6067,19 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   const baseTotals = calculateTotals(order);
   const checkout = normalizeCheckoutPayment(order, payment, baseTotals);
   const paymentMethod = checkout.paymentMethod;
+  const orderNumber = ensureOrderNumber(order);
   if (!order.items.length) {
-    const closedAt = new Date().toISOString();
+    const closedDate = new Date();
+    const closedAt = closedDate.toISOString();
+    const paymentUid = createPaymentUid(closedDate);
     order.status = "closed";
     order.closedAt = closedAt;
     order.closedBy = currentUser().id;
     order.cashierId = currentUser().id;
     order.paymentMethod = paymentMethod;
+    order.paymentUid = paymentUid;
     order.payment = {
+      uid: paymentUid,
       method: paymentMethod,
       cashDue: checkout.cashDue,
       cardDue: checkout.cardDue,
@@ -4691,8 +6105,11 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     const confirmed = window.confirm("Hay productos sin comandar. Cerrar de todos modos?");
     if (!confirmed) return;
   }
-  const closedAt = new Date().toISOString();
+  const closedDate = new Date();
+  const closedAt = closedDate.toISOString();
+  const paymentUid = createPaymentUid(closedDate);
   const paymentRecord = {
+    uid: paymentUid,
     method: paymentMethod,
     cashDue: checkout.cashDue,
     cardDue: checkout.cardDue,
@@ -4711,7 +6128,10 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   };
   state.sales.unshift({
     id: safeId("sale"),
+    uid: paymentUid,
+    paymentUid,
     orderId: order.id,
+    orderNumber,
     type: order.type,
     tableNumber: order.tableNumber,
     label: orderLabel(order),
@@ -4735,6 +6155,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   order.closedAt = closedAt;
   order.cashierId = currentUser().id;
   order.paymentMethod = paymentMethod;
+  order.paymentUid = paymentUid;
   order.payment = paymentRecord;
   order.tip = checkout.tip;
   state.paymentMethod = paymentMethod;
@@ -4955,7 +6376,15 @@ function startProductConfig(productId) {
   }
   const product = getProduct(productId);
   if (!product) return;
+  if (product.active === false) {
+    showToast("Este articulo esta desactivado.");
+    return;
+  }
   const selections = defaultSelectionsFor(product);
+  if (!productHasAvailableSelections(product, selections)) {
+    showToast("Este articulo no tiene variantes activas para vender.");
+    return;
+  }
   state.productConfig = { productId, qty: 1, selections, note: "", extras: [] };
   state.modal = null;
   persist();
@@ -5048,16 +6477,36 @@ function addConfiguredProduct() {
   const order = getActiveOrder();
   const product = getProduct(state.productConfig?.productId);
   if (!order || !product) return;
+  if (product.active === false) {
+    showToast("Este articulo esta desactivado.");
+    state.productConfig = null;
+    persist();
+    render();
+    return;
+  }
   const selections = structuredClone(state.productConfig.selections);
+  if (!productHasAvailableSelections(product, selections)) {
+    showToast("Selecciona una variante activa.");
+    state.productConfig = null;
+    persist();
+    render();
+    return;
+  }
   const extras = normalizeExtras(state.productConfig.extras);
   const unitPrice = configuredUnitPrice(product, selections, extras);
+  const costSnapshot = productCostSnapshot(product, selections, extras);
   const optionsText = optionSummary(product, selections, extras);
   const optionKey = JSON.stringify({ selections, extras });
   const note = String(state.productConfig.note || "").trim();
   const requestedQty = state.productConfig.qty;
   const stock = estimateProductStock(product, selections, extras);
   const existing = order.items.find(
-    (item) => item.status === "pending" && item.productId === product.id && item.optionKey === optionKey && (item.note || "") === note,
+    (item) =>
+      item.status === "pending" &&
+      item.productId === product.id &&
+      item.optionKey === optionKey &&
+      (item.note || "") === note &&
+      roundCurrency(Number(item.costSnapshot?.total ?? item.unitCostSnapshot) || 0) === costSnapshot.total,
   );
   if (existing) {
     existing.qty += state.productConfig.qty;
@@ -5073,6 +6522,8 @@ function addConfiguredProduct() {
       unitPrice,
       selections,
       extras,
+      costSnapshot,
+      unitCostSnapshot: costSnapshot.total,
       optionKey,
       optionsText,
       note,
@@ -5561,27 +7012,656 @@ function addInventoryItem(event) {
   }
   const inventory = currentInventory();
   const existing = inventory.find((item) => normalize(item.name) === normalize(name));
+  const category = String(form.get("category") || "GENERAL").trim().toUpperCase();
+  ensureIngredientCategory(category, !isDefaultNonRecipeCategory(category));
   if (existing) {
+    const previousCost = Number(existing.unitCost) || 0;
     existing.qty += qty;
     existing.unitCost = unitCost || existing.unitCost;
     existing.totalCost = existing.qty * existing.unitCost;
+    if (unitCost && roundCurrency(previousCost) !== roundCurrency(existing.unitCost)) {
+      existing.costHistory = normalizeCostHistory(existing.costHistory);
+      existing.costHistory.unshift({
+        id: safeId("cost"),
+        previousCost,
+        nextCost: existing.unitCost,
+        changedAt: new Date().toISOString(),
+        changedBy: currentUser()?.id,
+        reason: "Entrada por alta/compra",
+      });
+    }
     recordInventoryMovement(existing, qty, "Entrada por alta/compra", "manual");
   } else {
     const item = {
       id: safeId("inv"),
-      category: String(form.get("category") || "GENERAL").trim().toUpperCase(),
+      category,
       name,
       supplier: String(form.get("supplier") || "Sin proveedor").trim().toUpperCase(),
       unit: String(form.get("unit") || "PZ").trim().toUpperCase(),
       qty,
       unitCost,
       totalCost: qty * unitCost,
+      recipeEligible: categoryRecipeEligible(category),
+      costHistory: unitCost
+        ? [{
+            id: safeId("cost"),
+            previousCost: 0,
+            nextCost: unitCost,
+            changedAt: new Date().toISOString(),
+            changedBy: currentUser()?.id,
+            reason: "Alta de insumo",
+          }]
+        : [],
     };
     inventory.push(item);
     recordInventoryMovement(item, qty, "Alta de insumo", "manual");
   }
   persist();
   showToast("Inventario actualizado.");
+  render();
+}
+
+function saveIngredient(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede crear o editar insumos.");
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const inventory = currentInventory();
+  const itemId = event.currentTarget.dataset.ingredientId;
+  const existing = itemId ? inventory.find((item) => item.id === itemId) : null;
+  const name = String(form.get("name") || "").trim().toUpperCase();
+  const category = String(form.get("category") || "GENERAL").trim().toUpperCase();
+  const supplier = String(form.get("supplier") || "Sin proveedor").trim().toUpperCase();
+  const unit = String(form.get("unit") || "PZ").trim().toUpperCase();
+  const unitCost = Math.max(0, Number(form.get("unitCost")) || 0);
+  const requestedRecipeEligible = form.get("recipeEligible") === "on";
+  ensureIngredientCategory(category, requestedRecipeEligible);
+  const recipeEligible = categoryRecipeEligible(category) && requestedRecipeEligible;
+  const reason = cleanUserText(form.get("reason")) || (existing ? "Actualizacion de insumo" : "Alta de insumo");
+  if (!name || !category || !unit) {
+    showToast("Captura categoria, nombre y unidad.");
+    return;
+  }
+  const duplicate = inventory.find((item) => item.id !== existing?.id && normalize(item.name) === normalize(name));
+  if (duplicate) {
+    showToast("Ya existe un insumo con ese nombre.");
+    return;
+  }
+  const now = new Date().toISOString();
+  if (existing) {
+    const previousCost = Number(existing.unitCost) || 0;
+    existing.category = category;
+    existing.name = name;
+    existing.supplier = supplier;
+    existing.unit = unit;
+    existing.unitCost = unitCost;
+    existing.recipeEligible = recipeEligible;
+    existing.totalCost = (Number(existing.qty) || 0) * unitCost;
+    existing.updatedAt = now;
+    existing.updatedBy = currentUser()?.id;
+    if (roundCurrency(previousCost) !== roundCurrency(unitCost)) {
+      existing.costHistory = normalizeCostHistory(existing.costHistory);
+      existing.costHistory.unshift({
+        id: safeId("cost"),
+        previousCost,
+        nextCost: unitCost,
+        changedAt: now,
+        changedBy: currentUser()?.id,
+        reason,
+      });
+    }
+    showToast("Insumo actualizado.");
+  } else {
+    inventory.unshift({
+      id: safeId("inv"),
+      category,
+      name,
+      supplier,
+      unit,
+      qty: 0,
+      unitCost,
+      recipeEligible,
+      totalCost: 0,
+      costHistory: unitCost
+        ? [{
+            id: safeId("cost"),
+            previousCost: 0,
+            nextCost: unitCost,
+            changedAt: now,
+            changedBy: currentUser()?.id,
+            reason,
+          }]
+        : [],
+      createdAt: now,
+      createdBy: currentUser()?.id,
+    });
+    showToast("Insumo creado.");
+  }
+  state.ingredientsCategory = category;
+  state.modal = null;
+  persist();
+  render();
+}
+
+function ensureIngredientCategory(categoryName, recipeEligible = true, { overwrite = false } = {}) {
+  const name = String(categoryName || "").trim().toUpperCase();
+  if (!name) return null;
+  state.ingredientCategories = normalizeIngredientCategories(state.ingredientCategories, state.inventory);
+  let category = state.ingredientCategories.find((item) => item.name === name);
+  const nextRecipeEligible = !isDefaultNonRecipeCategory(name) && recipeEligible !== false;
+  if (!category) {
+    category = { name, recipeEligible: nextRecipeEligible };
+    state.ingredientCategories.push(category);
+    state.ingredientCategories.sort((a, b) => a.name.localeCompare(b.name, "es"));
+    return category;
+  }
+  if (overwrite) category.recipeEligible = nextRecipeEligible;
+  return category;
+}
+
+function createIngredientCategory(event = null) {
+  event?.preventDefault?.();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede crear categorias.");
+    return;
+  }
+  const form = event?.currentTarget ? new FormData(event.currentTarget) : null;
+  const input = document.querySelector("[data-new-ingredient-category]");
+  const name = String(form?.get("category") || input?.value || "").trim().toUpperCase();
+  const nonRecipe = form ? form.get("nonRecipe") === "on" : false;
+  if (!name) {
+    showToast("Captura nombre de categoria.");
+    input?.focus();
+    return;
+  }
+  ensureIngredientCategory(name, !nonRecipe, { overwrite: true });
+  currentInventory()
+    .filter((item) => item.category === name && !categoryRecipeEligible(name))
+    .forEach((item) => {
+      item.recipeEligible = false;
+    });
+  state.ingredientsCategory = name;
+  state.ingredientsCategoryScroll = 0;
+  state.ingredientsCategorySearch = "";
+  state.modal = null;
+  persist();
+  showToast(`Categoria creada: ${name}.`);
+  render();
+}
+
+function scrollIngredientCategories(direction) {
+  const row = document.querySelector("[data-ingredients-category-scroll]");
+  if (!row) return;
+  const amount = Math.max(220, Math.floor(row.clientWidth * 0.8));
+  row.scrollLeft += direction * amount;
+  state.ingredientsCategoryScroll = row.scrollLeft;
+  persist();
+}
+
+function updateIngredientCategory(itemId, value) {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede editar insumos.");
+    render();
+    return;
+  }
+  const category = String(value || "").trim().toUpperCase();
+  if (!category) {
+    showToast("Captura una categoria.");
+    render();
+    return;
+  }
+  const item = currentInventory().find((entry) => entry.id === itemId);
+  if (!item) return;
+  ensureIngredientCategory(category, item.recipeEligible !== false);
+  item.category = category;
+  if (!categoryRecipeEligible(category)) item.recipeEligible = false;
+  item.updatedAt = new Date().toISOString();
+  item.updatedBy = currentUser()?.id;
+  state.ingredientsCategory = category;
+  state.ingredientsCategoryScroll = 0;
+  persist();
+  showToast(`Categoria actualizada: ${category}.`);
+  render();
+}
+
+function setIngredientRecipeEligible(itemId, recipeEligible) {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede editar insumos.");
+    render();
+    return;
+  }
+  const item = currentInventory().find((entry) => entry.id === itemId);
+  if (!item) return;
+  if (isDefaultNonRecipeCategory(item.category) && recipeEligible) {
+    showToast("Esta categoria esta marcada como no-receta.");
+    render();
+    return;
+  }
+  item.recipeEligible = Boolean(recipeEligible);
+  item.updatedAt = new Date().toISOString();
+  item.updatedBy = currentUser()?.id;
+  persist();
+  showToast(recipeEligible ? "Insumo disponible para recetas." : "Insumo marcado como no-receta.");
+  render();
+}
+
+function uniqueMenuProductId(name) {
+  const base = `custom-${slugify(name)}`;
+  const existingIds = new Set(menuProducts({ includeInactive: true }).map((product) => product.id));
+  if (!existingIds.has(base)) return base;
+  for (let index = 2; index < 1000; index += 1) {
+    const id = `${base}-${index}`;
+    if (!existingIds.has(id)) return id;
+  }
+  return safeId(base);
+}
+
+function preventMenuProductEnterSubmit(event) {
+  if (event.key !== "Enter") return;
+  if (event.target?.tagName === "TEXTAREA") return;
+  event.preventDefault();
+}
+
+function cloneRecipeRow({ variant = false } = {}) {
+  const template = document.querySelector("[data-recipe-row-template]");
+  const row = template?.content?.querySelector(".recipe-row")?.cloneNode(true);
+  if (!row) return null;
+  row.querySelectorAll("select, input").forEach((field) => {
+    field.value = "";
+  });
+  if (variant) {
+    const itemField = row.querySelector("[data-recipe-item]");
+    const qtyField = row.querySelector("[data-recipe-qty]");
+    itemField?.removeAttribute("data-recipe-item");
+    itemField?.setAttribute("data-variant-item", "");
+    qtyField?.removeAttribute("data-recipe-qty");
+    qtyField?.setAttribute("data-variant-qty", "");
+  }
+  return row;
+}
+
+function renumberRecipeRows(container) {
+  [...(container?.querySelectorAll(".recipe-row") || [])].forEach((row, index) => {
+    const label = row.querySelector(".field span");
+    if (label) label.textContent = `Insumo ${index + 1}`;
+  });
+}
+
+function addRecipeRow(button) {
+  const list = button.closest(".recipe-editor")?.querySelector("[data-recipe-row-list]");
+  const row = cloneRecipeRow();
+  if (!list || !row) return;
+  list.append(row);
+  renumberRecipeRows(list);
+  row.querySelector("select")?.focus();
+}
+
+function addVariantRecipeRow(button) {
+  const list = button.closest(".variant-recipe-body")?.querySelector("[data-variant-row-list]");
+  const row = cloneRecipeRow({ variant: true });
+  if (!list || !row) return;
+  list.append(row);
+  renumberRecipeRows(list);
+  updateVariantSummary(button.closest("[data-variant-recipe]"));
+  row.querySelector("select")?.focus();
+}
+
+function variantOptionFromForm(formElement) {
+  const addBox = formElement.querySelector("[data-primary-variant-option-id]");
+  return {
+    optionId: String(addBox?.dataset.primaryVariantOptionId || "variante"),
+    optionLabel: cleanUserText(addBox?.dataset.primaryVariantOptionLabel || "Variante"),
+  };
+}
+
+function cloneVariantRowsFromSource(formElement, optionId) {
+  const sourceList =
+    formElement.querySelector(`[data-variant-recipe][data-option-id="${cssEscape(optionId)}"] [data-variant-row-list]`)
+    || formElement.querySelector("[data-variant-recipe] [data-variant-row-list]")
+    || formElement.querySelector("[data-recipe-row-list]");
+  const rows = [...(sourceList?.querySelectorAll(".recipe-row") || [])].map((row) => {
+    const clone = row.cloneNode(true);
+    const recipeItem = clone.querySelector("[data-recipe-item]");
+    const recipeQty = clone.querySelector("[data-recipe-qty]");
+    recipeItem?.removeAttribute("data-recipe-item");
+    recipeItem?.setAttribute("data-variant-item", "");
+    recipeQty?.removeAttribute("data-recipe-qty");
+    recipeQty?.setAttribute("data-variant-qty", "");
+    return clone;
+  });
+  if (rows.length) return rows;
+  const row = cloneRecipeRow({ variant: true });
+  return row ? [row] : [];
+}
+
+function countRecipeRowsWithQty(container) {
+  return [...(container?.querySelectorAll("[data-variant-qty], [data-recipe-qty]") || [])].filter(
+    (input) => Number(input.value) > 0,
+  ).length;
+}
+
+function variantMarginFromContainer(formElement, container) {
+  const form = new FormData(formElement);
+  const basePrice = Math.max(0, Number(form.get("price")) || 0);
+  const product = getProduct(formElement.dataset.productId);
+  const option = product?.options?.find((item) => item.id === container?.dataset.optionId);
+  const choice = option?.choices?.find((item) => normalize(item.label) === normalize(container?.dataset.choiceLabel));
+  let price = basePrice;
+  if (choice && Number.isFinite(choice.price)) price = Number(choice.price);
+  if (choice && Number.isFinite(choice.priceDelta)) price += Number(choice.priceDelta);
+  const recipe = readRecipeFromContainer(container, "[data-variant-item]", "[data-variant-qty]");
+  return financialMetrics(price, recipeCostForItems(recipe)).margin;
+}
+
+function updateVariantSummary(details) {
+  const formElement = details?.closest("[data-menu-product-form]");
+  const countLabel = details?.querySelector("summary strong");
+  const activeInput = details?.querySelector("[data-variant-active]");
+  if (!formElement || !details || !countLabel) return;
+  const active = activeInput?.checked !== false;
+  details.classList.toggle("is-cancelled", !active);
+  countLabel.textContent = variantSummaryText({
+    active,
+    recipeCount: countRecipeRowsWithQty(details),
+    margin: variantMarginFromContainer(formElement, details),
+  });
+}
+
+function updateVariantActivePreview(input) {
+  updateVariantSummary(input.closest("[data-variant-recipe]"));
+}
+
+function updateVariantSummaryFromEvent(event) {
+  const target = event.target;
+  if (!target?.matches) return;
+  const formElement = event.currentTarget;
+  if (target.matches('[name="price"]')) {
+    formElement.querySelectorAll("[data-variant-recipe]").forEach(updateVariantSummary);
+    return;
+  }
+  if (target.matches("[data-variant-item], [data-variant-qty], [data-variant-active]")) {
+    updateVariantSummary(target.closest("[data-variant-recipe]"));
+  }
+}
+
+function addVariantChoice(button) {
+  const formElement = button.closest("[data-menu-product-form]");
+  const list = formElement?.querySelector("[data-variant-list]");
+  if (!formElement || !list) return;
+  const form = new FormData(formElement);
+  const choiceLabel = cleanUserText(form.get("newVariantLabel"));
+  if (!choiceLabel) {
+    showToast("Captura el nombre de la variante.");
+    return;
+  }
+  const { optionId, optionLabel } = variantOptionFromForm(formElement, form);
+  const duplicate = [...list.querySelectorAll("[data-variant-recipe]")].find(
+    (entry) => entry.dataset.optionId === optionId && normalize(entry.dataset.choiceLabel) === normalize(choiceLabel),
+  );
+  if (duplicate) {
+    duplicate.open = true;
+    showToast("Esa variante ya existe.");
+    return;
+  }
+
+  const details = document.createElement("details");
+  details.className = "variant-recipe";
+  details.open = true;
+  details.dataset.variantRecipe = "";
+  details.dataset.optionId = optionId;
+  details.dataset.optionLabel = optionLabel;
+  details.dataset.choiceLabel = choiceLabel;
+  details.innerHTML = `
+    <summary>
+      <span>${escapeHtml(optionLabel)}: ${escapeHtml(choiceLabel)}</span>
+      <strong>${variantSummaryText({ active: true })}</strong>
+    </summary>
+    <div class="variant-recipe-body">
+      <label class="check-toggle">
+        <input type="checkbox" data-variant-active checked />
+        <span>Disponible en venta</span>
+      </label>
+      <div class="recipe-row-list" data-variant-row-list></div>
+      <button class="secondary-button compact" type="button" data-add-variant-row>${svg("plus")}Anadir insumo</button>
+    </div>
+  `;
+  const rowList = details.querySelector("[data-variant-row-list]");
+  const rows = cloneVariantRowsFromSource(formElement, optionId);
+  if (rowList && rows.length) {
+    rows.forEach((row) => rowList.append(row));
+    renumberRecipeRows(rowList);
+  }
+  updateVariantSummary(details);
+  details.querySelector("[data-add-variant-row]")?.addEventListener("click", (event) => {
+    addVariantRecipeRow(event.currentTarget);
+  });
+  details.querySelector("[data-variant-active]")?.addEventListener("change", (event) => {
+    updateVariantActivePreview(event.currentTarget);
+  });
+  list.append(details);
+  formElement.querySelector('[name="newVariantLabel"]').value = "";
+  rowList?.querySelector("select")?.focus();
+  showToast("Variante anadida. Guarda cambios al terminar.");
+}
+
+function readRecipeFromContainer(container, itemSelector = "[data-recipe-item]", qtySelector = "[data-recipe-qty]") {
+  const itemFields = [...container.querySelectorAll(itemSelector)];
+  const qtyFields = [...container.querySelectorAll(qtySelector)];
+  return normalizeRecipe(
+    itemFields
+      .map((field, index) => {
+        const item = currentInventory().find((entry) => entry.id === field.value);
+        const qty = Math.max(0, Number(qtyFields[index]?.value) || 0);
+        if (!item || qty <= 0) return null;
+        return {
+          itemId: item.id,
+          name: item.name,
+          unit: item.unit,
+          qty,
+        };
+      })
+      .filter(Boolean),
+  );
+}
+
+function readVariantRecipesFromForm(formElement) {
+  return [...formElement.querySelectorAll("[data-variant-recipe]")]
+    .map((container) => {
+      const recipe = readRecipeFromContainer(container, "[data-variant-item]", "[data-variant-qty]");
+      if (!recipe.length) return null;
+      return {
+        id: `variant-${slugify(`${container.dataset.optionId}-${container.dataset.choiceLabel}`)}`,
+        optionId: String(container.dataset.optionId || ""),
+        choiceLabel: cleanUserText(container.dataset.choiceLabel),
+        recipe,
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser()?.id,
+      };
+    })
+    .filter(Boolean);
+}
+
+function ensureRecipeVariantOption(options, optionId, optionLabel) {
+  const cleanOptionId = String(optionId || slugify(optionLabel) || "variante");
+  const cleanOptionLabel = cleanUserText(optionLabel || "Variante");
+  let option =
+    options.find((item) => item.id === cleanOptionId)
+    || options.find((item) => item.type === "single" && normalize(item.label) === normalize(cleanOptionLabel));
+  if (!option) {
+    option = {
+      id: cleanOptionId,
+      label: cleanOptionLabel,
+      type: "single",
+      required: true,
+      choices: [],
+    };
+    options.push(option);
+  }
+  option.type = "single";
+  option.label = cleanUserText(option.label || cleanOptionLabel || "Variante");
+  option.required = option.required !== false;
+  option.choices = Array.isArray(option.choices) ? option.choices : [];
+  return option;
+}
+
+function addVariantChoiceToOption(option, choiceLabel, active = true) {
+  const label = cleanUserText(choiceLabel);
+  if (!label) return;
+  const existing = option.choices.find((choice) => normalize(choice.label) === normalize(label));
+  if (existing) {
+    existing.active = active !== false;
+    return;
+  }
+  option.choices.push({ label, active: active !== false });
+}
+
+function optionsWithVariantDefinitions(existingOptions, formElement, form) {
+  const options = normalizeProductOptions(existingOptions);
+  [...formElement.querySelectorAll("[data-variant-recipe]")].forEach((container) => {
+    const option = ensureRecipeVariantOption(options, container.dataset.optionId, container.dataset.optionLabel);
+    const active = container.querySelector("[data-variant-active]")?.checked !== false;
+    addVariantChoiceToOption(option, container.dataset.choiceLabel, active);
+  });
+  const newVariantLabel = cleanUserText(form.get("newVariantLabel"));
+  if (newVariantLabel) {
+    const { optionId, optionLabel } = variantOptionFromForm(formElement, form);
+    const option = ensureRecipeVariantOption(options, optionId, optionLabel);
+    addVariantChoiceToOption(option, newVariantLabel);
+  }
+  return options;
+}
+
+function readMenuProductForm(formElement, existing = null) {
+  const form = new FormData(formElement);
+  const name = cleanUserText(form.get("name"));
+  const section = cleanUserText(form.get("section"));
+  const subsection = cleanUserText(form.get("subsection"));
+  const price = Math.max(0, Number(form.get("price")) || 0);
+  if (!name || !section || !subsection || price <= 0) {
+    showToast("Captura nombre, categoria, subcategoria y precio.");
+    return null;
+  }
+  const recipe = readRecipeFromContainer(formElement);
+  if (!recipe.length) {
+    showToast("Agrega al menos un insumo con cantidad para la receta.");
+    return null;
+  }
+  const now = new Date().toISOString();
+  const id = existing?.id || uniqueMenuProductId(name);
+  const isBaseProduct = baseMenuProductIds().has(id);
+  const options = optionsWithVariantDefinitions(existing?.options, formElement, form);
+  const variantRecipes = formElement.querySelector("[data-variant-recipe]")
+    ? readVariantRecipesFromForm(formElement)
+    : normalizeVariantRecipes(existing?.variantRecipes);
+  const previousRecipeState = {
+    recipe: normalizeRecipe(existing?.recipe?.length ? existing.recipe : recipeForProduct(existing || { options: [], recipe: [] })),
+    variantRecipes: normalizeVariantRecipes(existing?.variantRecipes),
+  };
+  const nextRecipeState = { recipe: normalizeRecipe(recipe), variantRecipes: normalizeVariantRecipes(variantRecipes) };
+  const recipeHistory = normalizeProductHistory(existing?.recipeHistory);
+  if (existing && !isSameJson(previousRecipeState, nextRecipeState)) {
+    recipeHistory.unshift({
+      id: safeId("recipe-history"),
+      changedAt: now,
+      changedBy: currentUser()?.id,
+      reason: "Cambio de receta",
+      previous: previousRecipeState,
+      next: nextRecipeState,
+    });
+  }
+  const priceHistory = normalizeProductHistory(existing?.priceHistory);
+  if (existing && roundCurrency(existing.price) !== roundCurrency(price)) {
+    priceHistory.unshift({
+      id: safeId("price-history"),
+      changedAt: now,
+      changedBy: currentUser()?.id,
+      reason: "Cambio de precio de venta",
+      previous: { price: roundCurrency(existing.price) },
+      next: { price: roundCurrency(price) },
+    });
+  }
+  return {
+    ...(existing || {}),
+    id,
+    name,
+    section,
+    subsection,
+    price,
+    station: existing?.station || "Cocina",
+    icon: icons[form.get("icon")] ? String(form.get("icon")) : "plate",
+    description: cleanUserText(form.get("description")) || "Platillo creado en LibrePOS.",
+    options,
+    recipe: normalizeRecipe(recipe),
+    variantRecipes: normalizeVariantRecipes(variantRecipes),
+    recipeHistory,
+    priceHistory,
+    active: form.get("active") === "on",
+    custom: !isBaseProduct,
+    createdAt: existing?.createdAt || now,
+    createdBy: existing?.createdBy || currentUser()?.id,
+    updatedAt: existing ? now : "",
+    updatedBy: existing ? currentUser()?.id : "",
+  };
+}
+
+function saveMenuProduct(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede crear o editar platillos.");
+    return;
+  }
+  state.menuProducts = normalizeMenuProducts(state.menuProducts);
+  const productId = event.currentTarget.dataset.productId;
+  const existing = productId ? state.menuProducts.find((product) => product.id === productId) : null;
+  const currentProduct = productId ? getProduct(productId) : null;
+  const product = readMenuProductForm(event.currentTarget, currentProduct || existing);
+  if (!product) return;
+  if (existing) {
+    Object.assign(existing, product);
+    showToast("Platillo actualizado.");
+  } else {
+    state.menuProducts.unshift(product);
+    showToast("Platillo creado.");
+  }
+  state.activeSection = product.section;
+  state.activeSubsection = "Todos";
+  state.modal = null;
+  persist();
+  render();
+}
+
+function toggleMenuProduct(productId) {
+  const product = editableMenuProduct(productId);
+  if (!product) return;
+  setMenuProductActive(productId, product.active === false);
+}
+
+function editableMenuProduct(productId) {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede editar platillos.");
+    return null;
+  }
+  state.menuProducts = normalizeMenuProducts(state.menuProducts);
+  let product = state.menuProducts.find((item) => item.id === productId);
+  if (!product) {
+    const source = getProduct(productId);
+    if (!source) return null;
+    product = normalizeMenuProducts([{ ...source, custom: !baseMenuProductIds().has(source.id) }])[0];
+    state.menuProducts.unshift(product);
+  }
+  return product;
+}
+
+function setMenuProductActive(productId, active) {
+  const product = editableMenuProduct(productId);
+  if (!product) return;
+  product.active = Boolean(active);
+  product.updatedAt = new Date().toISOString();
+  product.updatedBy = currentUser()?.id;
+  persist();
+  showToast(active ? "Platillo activado." : "Platillo oculto del menu.");
   render();
 }
 
@@ -5676,13 +7756,20 @@ function inventoryUsageForLine(line) {
       ...extras.map((extra) => ({ name: extra.name, qty: extra.qty * line.qty })),
     ];
   }
-  return [...inventoryRecipeForSelections(product, line.selections || defaultSelectionsFor(product)), ...extras].map((item) => ({
+  return [...configuredRecipeForProduct(product, line.selections || defaultSelectionsFor(product)), ...extras].map((item) => ({
     name: item.name,
     qty: item.qty * line.qty,
   }));
 }
 
 function inventoryRecipeForSelections(product, selections = defaultSelectionsFor(product)) {
+  const variantRecipe = recipeVariantForSelections(product, selections);
+  if (variantRecipe?.recipe?.length) {
+    return normalizeRecipe(variantRecipe.recipe).map((item) => ({ name: item.name, qty: item.qty }));
+  }
+  if (Array.isArray(product.recipe) && product.recipe.length) {
+    return normalizeRecipe(product.recipe).map((item) => ({ name: item.name, qty: item.qty }));
+  }
   const protein = selectedChoiceLabel(product, selections, "proteina");
   const relleno = selectedChoiceLabel(product, selections, "relleno");
   const sabor = selectedChoiceLabel(product, selections, "sabor");
@@ -5733,11 +7820,14 @@ function inventoryRecipeForSelections(product, selections = defaultSelectionsFor
 
   if (product.id === "tamales") {
     return [
-      { name: "MASA MERCADO", qty: 0.054 },
+      { name: "MASA TAMALES", qty: 0.054 },
       { name: "HOJA DE PLATANO", qty: 0.08 },
       ...ingredientChoice(sabor, {
-        Picadillo: [{ name: "PIERNA DE CERDO", qty: 0.035 }],
-        Cerdo: [{ name: "PIERNA DE CERDO", qty: 0.04 }],
+        Picadillo: [{ name: "PICADILLO", qty: 0.058 }],
+        Cerdo: [
+          { name: "PIERNA DE CERDO", qty: 0.042 },
+          { name: "ADOBO", qty: 0.022 },
+        ],
         "Camaron con calabaza": [
           { name: "CAMARON", qty: 0.04 },
           { name: "CALABAZA", qty: 0.03 },
@@ -5750,9 +7840,14 @@ function inventoryRecipeForSelections(product, selections = defaultSelectionsFor
 
   if (product.id === "empanadas-harina") {
     return [
-      { name: "MASA MERCADO", qty: 0.15 },
+      { name: "MASA HARINA", qty: 0.05 },
       ...ingredientChoice(relleno, {
-        Carne: [{ name: "PIERNA DE CERDO", qty: 0.06 }],
+        Manjar: [
+          { name: "MANJAR", qty: 0.05 },
+          { name: "AZUCAR", qty: 0.000667 },
+          { name: "CANELA MOLIDA", qty: 0.000333 },
+        ],
+        Carne: [{ name: "RELLENO PIERNA", qty: 0.02 }],
       }),
     ];
   }
@@ -5760,13 +7855,15 @@ function inventoryRecipeForSelections(product, selections = defaultSelectionsFor
   if (product.id === "molotes") {
     return [
       ...(normalize(masa).includes("platano")
-        ? [{ name: "PLATANO DE CASTILLA", qty: 0.14 }]
-        : [{ name: "PAPA", qty: 0.16 }]),
+        ? [{ name: "MASA MOLOTES PLATANO", qty: 0.14 }]
+        : [{ name: "MASA MOLOTES", qty: 0.14 }]),
+      { name: "REPOLLO", qty: 0.002 },
       { name: "CREMA", qty: 0.001 },
       { name: "QUESO FRESCO DE ARO", qty: 0.02 },
+      { name: "SALSA MOLOTES", qty: 0.18 },
       ...ingredientChoice(relleno, {
-        Pollo: [{ name: "POLLO", qty: 0.1 }],
-        "Carne de cerdo": [{ name: "PIERNA DE CERDO", qty: 0.1 }],
+        Pollo: [{ name: "RELLENO POLLO", qty: 0.1 }],
+        "Carne de cerdo": [{ name: "RELLENO CARNE", qty: 0.1 }],
       }),
     ];
   }
@@ -5799,6 +7896,34 @@ function inventoryRecipeForSelections(product, selections = defaultSelectionsFor
   }
 
   return inventoryRecipes[product.id] || [];
+}
+
+function recipeVariantForSelections(product, selections = defaultSelectionsFor(product)) {
+  const variants = normalizeVariantRecipes(product?.variantRecipes);
+  if (!variants.length) return null;
+  const matches = [];
+  for (const option of product.options || []) {
+    if (option.type !== "single") continue;
+    const choice = option.choices?.[selections?.[option.id]];
+    if (!choice?.label) continue;
+    const variant = variants.find(
+      (item) => item.optionId === option.id && normalize(item.choiceLabel) === normalize(choice.label),
+    );
+    if (variant) matches.push({ option, variant });
+  }
+  matches.sort((left, right) => variantOptionPriority(left.option) - variantOptionPriority(right.option));
+  return matches[0]?.variant || null;
+}
+
+function variantOptionPriority(option) {
+  const value = normalize(`${option?.id || ""} ${option?.label || ""}`);
+  if (value.includes("relleno")) return 1;
+  if (value.includes("sabor")) return 2;
+  if (value.includes("proteina")) return 3;
+  if (value.includes("variante")) return 4;
+  if (value.includes("salsa")) return 5;
+  if (value.includes("masa")) return 8;
+  return 6;
 }
 
 function selectedChoiceLabel(product, selections, optionId) {
@@ -6023,10 +8148,65 @@ function deliverReadyCommands(orderId, source) {
 function productCost(productId) {
   const product = getProduct(productId);
   if (!product) return 0;
-  return recipeCosts[productId] ?? Math.round(product.price * 0.32 * 100) / 100;
+  const recipeCost = productRecipeCost(product);
+  return recipeCosts[productId] ?? (recipeCost || Math.round(product.price * 0.32 * 100) / 100);
+}
+
+function productRecipeCost(product) {
+  const recipe = configuredRecipeForProduct(product, defaultSelectionsFor(product));
+  if (!recipe.length) return 0;
+  return recipeCostForItems(recipe);
+}
+
+function configuredRecipeForProduct(product, selections = defaultSelectionsFor(product)) {
+  if (product?.subsection === "Pan de lena") {
+    const option = product.options.find((item) => item.id === "presentacion");
+    const choice = option?.choices?.[selections?.presentacion || 0]?.label || "Pieza";
+    const units = choice.includes("10") ? 10 : choice.includes("5") ? 5 : 1;
+    return [{ name: product.name.toUpperCase(), qty: units }];
+  }
+  return inventoryRecipeForSelections(product, selections);
+}
+
+function productCostSnapshot(product, selections = defaultSelectionsFor(product), extras = []) {
+  const inventory = currentInventory();
+  const recipeItems = configuredRecipeForProduct(product, selections).map((recipeItem) => {
+    const inventoryItem = inventory.find((entry) => normalize(entry.name) === normalize(recipeItem.name));
+    const unitCost = Number(inventoryItem?.unitCost) || 0;
+    const qty = Number(recipeItem.qty) || 0;
+    return {
+      itemId: inventoryItem?.id || "",
+      name: recipeItem.name,
+      unit: inventoryItem?.unit || recipeItem.unit || "PZ",
+      qty,
+      unitCost,
+      total: roundCurrency(unitCost * qty),
+    };
+  });
+  const extraItems = normalizeExtras(extras).map((extra) => ({
+    itemId: extra.itemId,
+    name: extra.name,
+    unit: extra.unit,
+    qty: extra.qty,
+    unitCost: extra.unitCost,
+    total: roundCurrency(extra.total),
+    extra: true,
+  }));
+  const items = [...recipeItems, ...extraItems];
+  const recipeTotal = roundCurrency(recipeItems.reduce((sum, item) => sum + item.total, 0));
+  const extrasTotal = roundCurrency(extraItems.reduce((sum, item) => sum + item.total, 0));
+  return {
+    capturedAt: new Date().toISOString(),
+    recipeTotal,
+    extrasTotal,
+    total: roundCurrency(recipeTotal + extrasTotal),
+    items,
+  };
 }
 
 function lineUnitCost(line) {
+  const snapshotCost = Number(line.costSnapshot?.total ?? line.unitCostSnapshot);
+  if (Number.isFinite(snapshotCost) && snapshotCost >= 0) return snapshotCost;
   return productCost(line.productId) + extraUnitTotal(line.extras);
 }
 
@@ -6084,6 +8264,8 @@ function exportData(kind) {
       filename: `librepos-ventas-${stamp}.csv`,
       rows: [
         [
+          "uid",
+          "id",
           "fecha",
           "orden",
           "mesero",
@@ -6099,6 +8281,8 @@ function exportData(kind) {
           "productos",
         ],
         ...state.sales.map((sale) => [
+          paymentUidForSale(sale),
+          Number(sale.orderNumber) || "",
           formatCsvDateTime(saleClosedAt(sale)),
           sale.label || sale.orderId,
           waiterName(sale.waiterId),
@@ -6201,6 +8385,18 @@ function formatNumber(value) {
   }).format(Number(value) || 0);
 }
 
+function formatPlainNumber(value) {
+  const number = Number(value) || 0;
+  return Number.isInteger(number) ? String(number) : String(Number(number.toFixed(3)));
+}
+
+function slugify(value) {
+  return normalize(value)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || "platillo";
+}
+
 function normalize(value) {
   return String(value || "")
     .normalize("NFD")
@@ -6219,6 +8415,11 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+function cssEscape(value) {
+  if (window.CSS?.escape) return window.CSS.escape(String(value));
+  return String(value).replace(/["\\]/g, "\\$&");
 }
 
 function formatTime(value) {
