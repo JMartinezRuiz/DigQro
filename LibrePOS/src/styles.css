@@ -2059,6 +2059,11 @@ button:disabled {
   scrollbar-width: thin;
 }
 
+.compact-chip-row {
+  padding: 0;
+  border-bottom: 0;
+}
+
 .section-tab,
 .chip {
   min-width: max-content;
@@ -2083,7 +2088,8 @@ button:disabled {
   background: #fffdf9;
 }
 
-.section-tab small {
+.section-tab small,
+.chip small {
   display: inline-flex;
   min-width: 22px;
   min-height: 22px;

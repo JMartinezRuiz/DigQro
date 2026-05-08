@@ -627,6 +627,7 @@ const defaultState = {
   dataOrderSearch: "",
   dataOrderFrom: "",
   dataOrderTo: "",
+  dataOrderStatus: "all",
   productConfig: null,
   modal: null,
   paymentMethod: "Efectivo",
@@ -1171,6 +1172,7 @@ function applySharedState(shared) {
     dataOrderSearch: state.dataOrderSearch,
     dataOrderFrom: state.dataOrderFrom,
     dataOrderTo: state.dataOrderTo,
+    dataOrderStatus: state.dataOrderStatus,
     productConfig: state.productConfig,
     modal: state.modal,
     paymentMethod: state.paymentMethod,
@@ -4631,6 +4633,7 @@ function orderItemsSummary(items = []) {
 function orderSearchRecords() {
   const activeRecords = (Array.isArray(state.orders) ? state.orders : []).map((order) => ({
     recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
+    statusKey: order.status === "cancelled" ? "cancelled" : "open",
     id: Number(order.orderNumber) || "",
     uid: "",
     date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
@@ -4642,6 +4645,7 @@ function orderSearchRecords() {
   }));
   const paidRecords = (Array.isArray(state.sales) ? state.sales : []).map((sale) => ({
     recordType: "Cobrada",
+    statusKey: "paid",
     id: Number(sale.orderNumber) || "",
     uid: paymentUidForSale(sale),
     date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
@@ -4658,8 +4662,10 @@ function filteredOrderSearchRecords() {
   const query = normalize(state.dataOrderSearch);
   const from = state.dataOrderFrom || "";
   const to = state.dataOrderTo || "";
+  const status = state.dataOrderStatus || "all";
   return orderSearchRecords()
     .filter((record) => {
+      if (status !== "all" && record.statusKey !== status) return false;
       const dateKey = localDateValue(record.date);
       if (from && dateKey < from) return false;
       if (to && dateKey > to) return false;
@@ -4670,8 +4676,18 @@ function filteredOrderSearchRecords() {
     .slice(0, 100);
 }
 
+function orderStatusFilters() {
+  return [
+    { id: "all", label: "Todos" },
+    { id: "open", label: "Abiertas" },
+    { id: "paid", label: "Cobradas" },
+    { id: "cancelled", label: "Canceladas" },
+  ];
+}
+
 function renderOrderSearchData() {
   const rows = filteredOrderSearchRecords();
+  const allRows = orderSearchRecords();
   return `
     <section class="panel data-grid-wide order-search-panel">
       <div class="panel-header">
@@ -4695,6 +4711,19 @@ function renderOrderSearchData() {
             <input data-order-to type="date" value="${escapeAttr(state.dataOrderTo)}" />
           </label>
           <button class="secondary-button" data-order-search-clear type="button">${svg("trash")}Limpiar</button>
+        </div>
+        <div class="chip-row compact-chip-row">
+          ${orderStatusFilters()
+            .map((filter) => {
+              const count = filter.id === "all" ? allRows.length : allRows.filter((record) => record.statusKey === filter.id).length;
+              return `
+                <button class="chip ${state.dataOrderStatus === filter.id || (!state.dataOrderStatus && filter.id === "all") ? "is-active" : ""}" data-order-status="${filter.id}" type="button">
+                  ${escapeHtml(filter.label)}
+                  <small>${count}</small>
+                </button>
+              `;
+            })
+            .join("")}
         </div>
         <div class="table-wrap">
           <table class="data-table">
@@ -5710,10 +5739,18 @@ function bindEvents() {
     persist();
     render();
   });
+  document.querySelectorAll("[data-order-status]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.dataOrderStatus = button.dataset.orderStatus || "all";
+      persist();
+      render();
+    });
+  });
   document.querySelector("[data-order-search-clear]")?.addEventListener("click", () => {
     state.dataOrderSearch = "";
     state.dataOrderFrom = "";
     state.dataOrderTo = "";
+    state.dataOrderStatus = "all";
     persist();
     render();
   });
