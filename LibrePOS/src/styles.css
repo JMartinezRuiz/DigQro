@@ -2923,7 +2923,6 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--surface);
-  animation: surfaceIn 200ms ease-out both;
   position: relative;
   overflow: hidden;
 }
@@ -3230,27 +3229,23 @@ button:disabled {
   text-transform: uppercase;
 }
 
-/* Badges para líneas mixtas */
+/* Badges para líneas mixtas — outlined claro para legibilidad */
 .mixto-badge,
 .mixto-title-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 3px 9px;
   margin-left: 6px;
   border-radius: var(--radius-pill);
-  background: var(--teal);
-  color: #fff;
-  font-size: 0.66rem;
-  font-weight: 700;
+  background: var(--teal-tint);
+  color: var(--teal-strong);
+  border: 1px solid var(--teal-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   vertical-align: middle;
-}
-
-.mixto-title-badge {
-  background: var(--teal-tint);
-  color: var(--teal);
-  border: 1px solid var(--teal-soft);
+  white-space: nowrap;
 }
 
 .editing-title-badge {
@@ -3301,14 +3296,17 @@ button:disabled {
   display: inline-flex;
   min-width: 18px;
   height: 18px;
+  padding: 0 5px;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--teal);
-  color: #fff;
+  background: var(--teal-soft);
+  color: var(--teal-strong);
+  border: 1px solid var(--teal);
   font-size: 0.66rem;
-  font-weight: 700;
+  font-weight: 800;
   flex: 0 0 auto;
+  line-height: 1;
 }
 
 .mixto-common {

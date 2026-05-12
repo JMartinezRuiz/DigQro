@@ -1772,7 +1772,14 @@ function splittableOptions(product) {
 
 function productIsSplittable(product) {
   if (!product || product.splittable === false) return false;
-  return splittableOptions(product).length >= 2;
+  // Es splittable cualquier producto que tenga al menos una opción "single"
+  // con dos o más variantes activas. Antes pedíamos ≥2 opciones single, lo
+  // que dejaba fuera empanadas (1 opción, varios rellenos). Ahora también
+  // se puede pedir mitad/mitad de rellenos distintos.
+  return splittableOptions(product).some((option) => {
+    const activeChoices = (option.choices || []).filter((c) => c.active !== false);
+    return activeChoices.length >= 2;
+  });
 }
 
 function splitMaxParts(product) {
@@ -2909,8 +2916,8 @@ function renderOrderSidePanel(order) {
 }
 
 // Refresca el panel de configuración del producto sin re-pintar toda la app.
-// Evita el "parpadeo" molesto que ocurría al cambiar una selección dentro de
-// un platillo mixto (cada click ya no rearma el DOM completo).
+// Preserva scroll position y foco de inputs para que no se sienta como
+// una recarga al pulsar opciones, extras o cambiar partes en Mixto.
 function refreshProductConfig() {
   if (!state.productConfig) {
     render();
@@ -2921,8 +2928,43 @@ function refreshProductConfig() {
     render();
     return;
   }
+  // Captura scroll del panel-body interno (si existe) y la página entera.
+  const panelBody = side.querySelector(".panel-body");
+  const prevPanelScroll = panelBody?.scrollTop || 0;
+  const prevPageScroll = window.scrollY || 0;
+  // Captura cuál input/textarea estaba enfocado y dónde estaba el cursor.
+  const active = document.activeElement;
+  let focusInfo = null;
+  if (active && side.contains(active)) {
+    if (active.matches("[data-config-note], [data-extra-qty], [data-extra-item]")) {
+      focusInfo = {
+        selector: active.matches("[data-config-note]")
+          ? "[data-config-note]"
+          : active.matches("[data-extra-qty]")
+            ? "[data-extra-qty]"
+            : "[data-extra-item]",
+        selStart: active.selectionStart,
+        selEnd: active.selectionEnd,
+      };
+    }
+  }
   side.innerHTML = renderProductConfig();
   bindProductConfigEvents();
+  // Restaura scroll y foco.
+  const nextPanelBody = side.querySelector(".panel-body");
+  if (nextPanelBody && prevPanelScroll) nextPanelBody.scrollTop = prevPanelScroll;
+  if (prevPageScroll) window.scrollTo({ top: prevPageScroll, behavior: "instant" });
+  if (focusInfo) {
+    const target = side.querySelector(focusInfo.selector);
+    if (target) {
+      target.focus({ preventScroll: true });
+      if (focusInfo.selStart !== null && typeof target.setSelectionRange === "function") {
+        try {
+          target.setSelectionRange(focusInfo.selStart, focusInfo.selEnd ?? focusInfo.selStart);
+        } catch {}
+      }
+    }
+  }
 }
 
 // Registra los listeners específicos del modal de configuración.
