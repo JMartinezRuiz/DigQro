@@ -553,9 +553,10 @@ async function writeDownloadedProjectFiles(files) {
 }
 
 async function installDependencies() {
-  const command = process.platform === "win32" ? "npm.cmd" : "npm";
+  const command = process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "npm";
+  const args = process.platform === "win32" ? ["/d", "/s", "/c", "npm install"] : ["install"];
   updateLog("Ejecutando npm install");
-  const { stdout, stderr } = await execFile(command, ["install"], {
+  const { stdout, stderr } = await execFile(command, args, {
     cwd: ROOT_DIR,
     timeout: 180000,
     maxBuffer: 2 * 1024 * 1024,
