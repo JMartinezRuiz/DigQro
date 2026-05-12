@@ -2915,6 +2915,111 @@ function renderOrderSidePanel(order) {
   `;
 }
 
+// El modal de configuración puede vivir o bien dentro de la sidebar de venta
+// (.side-column) o como modal flotante (.modal-card). Esta función localiza
+// el panel correcto donde está renderizado para actualizarlo en sitio.
+function getProductConfigHost() {
+  return (
+    document.querySelector(".modal-card .detail-panel")?.parentElement ||
+    document.querySelector(".side-column .detail-panel")?.parentElement ||
+    document.querySelector(".modal-card") ||
+    document.querySelector(".side-column")
+  );
+}
+
+// Aplica el cambio de una selección (single o multi) sin tocar la estructura
+// del modal: solo cambia clases, badges de stock, precio y panel de stock.
+// El resto del modal (nota, extras, controles de qty, toggle Mixto) sigue
+// intacto en el DOM y NO hay parpadeo perceptible.
+function applySelectionUpdateInPlace() {
+  if (!state.productConfig) return;
+  const product = getProduct(state.productConfig.productId);
+  const side = getProductConfigHost();
+  if (!product || !side) return;
+  const extras = normalizeExtras(state.productConfig.extras);
+  const isMixto = Array.isArray(state.productConfig.parts) && state.productConfig.parts.length >= 2;
+  const fakeLine = {
+    productId: product.id,
+    selections: state.productConfig.selections,
+    parts: isMixto ? state.productConfig.parts : null,
+    qty: state.productConfig.qty,
+    extras,
+  };
+  const price = combinedUnitPrice(product, fakeLine, extras);
+  const total = price * state.productConfig.qty;
+  const stock = estimateProductStock(
+    product,
+    state.productConfig.selections,
+    extras,
+    isMixto ? state.productConfig.parts : null,
+  );
+  const canServe = lineHasAvailableParts(product, fakeLine);
+
+  // 1. Toggle is-active de TODOS los option-pill (single) según la selección
+  //    actual en el scope correspondiente (común o parte).
+  side.querySelectorAll("[data-select-option]").forEach((pill) => {
+    const optionId = pill.dataset.selectOption;
+    const choiceIdx = Number(pill.dataset.choiceIndex);
+    const partAttr = pill.dataset.partIndex;
+    const isPart = partAttr !== undefined && partAttr !== "";
+    let currentSelection;
+    if (isPart) {
+      currentSelection = state.productConfig.parts?.[Number(partAttr)]?.selections?.[optionId];
+    } else {
+      currentSelection = state.productConfig.selections?.[optionId];
+    }
+    pill.classList.toggle("is-active", currentSelection === choiceIdx);
+  });
+
+  // 2. Toggle is-active de option-pill multi (no usan part-index)
+  side.querySelectorAll("[data-toggle-option]").forEach((pill) => {
+    const optionId = pill.dataset.toggleOption;
+    const choiceIdx = Number(pill.dataset.choiceIndex);
+    const currentList = state.productConfig.selections?.[optionId];
+    const active = Array.isArray(currentList) && currentList.includes(choiceIdx);
+    pill.classList.toggle("is-active", active);
+  });
+
+  // 3. Actualizar badges de stock (~N) de cada pill: cambia con la selección.
+  side.querySelectorAll(".option-pill[data-select-option], .option-pill[data-toggle-option]").forEach((pill) => {
+    const optionId = pill.dataset.selectOption || pill.dataset.toggleOption;
+    const opt = product.options.find((o) => o.id === optionId);
+    if (!opt) return;
+    const choiceIndex = Number(pill.dataset.choiceIndex);
+    const partAttr = pill.dataset.partIndex;
+    const scope = partAttr !== undefined && partAttr !== "" ? { partIndex: Number(partAttr) } : null;
+    const newBadgeHtml = renderVariantStockBadge(product, opt, choiceIndex, scope);
+    const existingBadge = pill.querySelector(".variant-stock");
+    if (newBadgeHtml) {
+      const tmp = document.createElement("span");
+      tmp.innerHTML = newBadgeHtml.trim();
+      const fresh = tmp.firstElementChild;
+      if (existingBadge && fresh) {
+        existingBadge.className = fresh.className;
+        existingBadge.textContent = fresh.textContent;
+      } else if (fresh) {
+        pill.appendChild(fresh);
+      }
+    } else if (existingBadge) {
+      existingBadge.remove();
+    }
+  });
+
+  // 4. Precio y total
+  const totalEl = side.querySelector("[data-config-total]");
+  const unitEl = side.querySelector("[data-config-unit]");
+  if (totalEl) totalEl.textContent = money.format(total);
+  if (unitEl) unitEl.textContent = `${money.format(price)} c/u`;
+
+  // 5. Stock-panel completo (sin animación porque ya la quitamos)
+  const stockHost = side.querySelector("[data-config-stock-panel]");
+  if (stockHost) stockHost.innerHTML = renderProductStockPanel(stock, state.productConfig.qty);
+
+  // 6. Habilitar / deshabilitar Agregar al ticket
+  const addBtn = side.querySelector("[data-add-configured]");
+  if (addBtn) addBtn.disabled = !canServe;
+}
+
 // Refresca el panel de configuración del producto sin re-pintar toda la app.
 // Preserva scroll position y foco de inputs para que no se sienta como
 // una recarga al pulsar opciones, extras o cambiar partes en Mixto.
@@ -2923,19 +3028,19 @@ function refreshProductConfig() {
     render();
     return;
   }
-  const side = document.querySelector(".side-column");
-  if (!side) {
+  const host = getProductConfigHost();
+  if (!host) {
     render();
     return;
   }
-  // Captura scroll del panel-body interno (si existe) y la página entera.
-  const panelBody = side.querySelector(".panel-body");
+  // Captura scroll, scroll del modal y foco para restaurarlos tras reemplazar.
+  const panelBody = host.querySelector(".panel-body");
   const prevPanelScroll = panelBody?.scrollTop || 0;
+  const prevHostScroll = host.scrollTop || 0;
   const prevPageScroll = window.scrollY || 0;
-  // Captura cuál input/textarea estaba enfocado y dónde estaba el cursor.
   const active = document.activeElement;
   let focusInfo = null;
-  if (active && side.contains(active)) {
+  if (active && host.contains(active)) {
     if (active.matches("[data-config-note], [data-extra-qty], [data-extra-item]")) {
       focusInfo = {
         selector: active.matches("[data-config-note]")
@@ -2948,14 +3053,14 @@ function refreshProductConfig() {
       };
     }
   }
-  side.innerHTML = renderProductConfig();
+  host.innerHTML = renderProductConfig();
   bindProductConfigEvents();
-  // Restaura scroll y foco.
-  const nextPanelBody = side.querySelector(".panel-body");
+  const nextPanelBody = host.querySelector(".panel-body");
   if (nextPanelBody && prevPanelScroll) nextPanelBody.scrollTop = prevPanelScroll;
+  if (prevHostScroll) host.scrollTop = prevHostScroll;
   if (prevPageScroll) window.scrollTo({ top: prevPageScroll, behavior: "instant" });
   if (focusInfo) {
-    const target = side.querySelector(focusInfo.selector);
+    const target = host.querySelector(focusInfo.selector);
     if (target) {
       target.focus({ preventScroll: true });
       if (focusInfo.selStart !== null && typeof target.setSelectionRange === "function") {
@@ -2989,7 +3094,9 @@ function bindProductConfigEvents() {
         state.productConfig.selections[optionId] = choiceIdx;
       }
       persist();
-      refreshProductConfig();
+      // Cambio puntual: no re-renderiza el modal, sólo actualiza clases,
+      // badges, precio y panel de stock. Sin parpadeo perceptible.
+      applySelectionUpdateInPlace();
     });
   });
   document.querySelectorAll("[data-toggle-option]").forEach((button) => {
@@ -7162,7 +7269,7 @@ function toggleMultiOption(optionId, index) {
     ? current.filter((item) => item !== index)
     : [...current, index];
   persist();
-  refreshProductConfig();
+  applySelectionUpdateInPlace();
 }
 
 function updateConfigQty(delta) {
