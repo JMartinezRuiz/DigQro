@@ -3253,6 +3253,26 @@ button:disabled {
   border: 1px solid var(--teal-soft);
 }
 
+.editing-title-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  margin-left: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--warning);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.detail-panel.is-editing {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 2px var(--warning-soft), var(--shadow-sm);
+}
+
 .mixto-detail {
   display: grid;
   gap: 4px;
@@ -4706,6 +4726,69 @@ button:disabled {
 .kitchen-card.is-late .kitchen-card-head > strong {
   background: var(--danger);
   color: #fff;
+}
+
+/* Aviso de edición de la comanda desde venta */
+.kitchen-card.is-edited {
+  border-color: var(--warning);
+  background: var(--warning-tint);
+  position: relative;
+}
+
+.kitchen-card.is-edited::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 3px var(--warning-soft);
+  animation: deliverPulse 1.6s ease-in-out infinite;
+}
+
+.kitchen-edit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--warning);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.kitchen-edit-badge .icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* Punto sutil en el botón Editar cuando ya fue editada antes */
+.edit-line-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1.5px solid transparent;
+  pointer-events: none;
+}
+
+.edit-line-dot.is-on {
+  background: var(--warning);
+  border-color: #fff;
+}
+
+[data-edit-line] {
+  position: relative;
 }
 
 .kitchen-card-head {

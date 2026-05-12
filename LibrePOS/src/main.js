@@ -1664,6 +1664,27 @@ function findBatchForLine(order, lineId, commandId = "", allowedStatuses = []) {
   return batches.find((batch) => matchesStatus(batch) && (batch.lines || []).some((line) => line.lineId === lineId));
 }
 
+// Devuelve el batch (comanda) que contiene la línea, sin filtrar por status.
+// Útil para saber si la cocina ya empezó a prepararla.
+function findBatchContainingLine(order, lineId) {
+  if (!order || !lineId) return null;
+  return (order.commandBatches || []).find((batch) =>
+    (batch.lines || []).some((line) => line.lineId === lineId),
+  ) || null;
+}
+
+// Una línea es editable mientras:
+//  - aún no fue comandada (status pending), o
+//  - ya está en cocina pero el batch sigue en estado "new" (no se ha empezado a preparar).
+// Si la cocina ya marcó "preparing" o "ready", la línea queda bloqueada.
+function lineIsEditable(order, line) {
+  if (!order || !line) return false;
+  if (line.status === "pending") return true;
+  if (line.status !== "commanded") return false;
+  const batch = findBatchContainingLine(order, line.id);
+  return Boolean(batch && (batch.status || "new") === "new");
+}
+
 function cancellationStageLabel(stage) {
   return {
     new: "Esperando cocina",
@@ -2673,6 +2694,9 @@ function renderTicketLine(item, order) {
   const serviceStatus = lineServiceStatus(item, order);
   const locked = item.status !== "pending";
   const canCancelFromSale = serviceStatus === "waiting";
+  // Editable mientras la comanda no haya entrado a preparación en cocina.
+  const editable = lineIsEditable(order, item);
+  const wasEdited = Boolean(item.editedAt);
   const parts = lineParts(item);
   const product = getProduct(item.productId);
   return `
@@ -2693,7 +2717,11 @@ function renderTicketLine(item, order) {
           <button data-line-qty="${item.id}" data-delta="1" ${locked ? "disabled" : ""}>${svg("plus")}</button>
         </div>
         <div class="line-action-buttons">
-          <button class="icon-button" data-open-modal="line-note" data-line-id="${item.id}" title="Nota">${svg("note")}</button>
+          ${
+            editable && item.status === "commanded"
+              ? `<button class="icon-button" data-edit-line="${item.id}" title="Editar antes de cocina (${wasEdited ? "ya editada" : "todavia a tiempo"})">${svg("note")}<small class="edit-line-dot${wasEdited ? " is-on" : ""}"></small></button>`
+              : `<button class="icon-button" data-open-modal="line-note" data-line-id="${item.id}" title="Nota">${svg("note")}</button>`
+          }
           ${
             canCancelFromSale
               ? `<button class="icon-button subtle-danger" data-open-modal="cancel-line" data-order-id="${order.id}" data-line-id="${item.id}" data-cancel-source="venta" title="Cancelar">${svg("cancel")}</button>`
@@ -2880,6 +2908,77 @@ function renderOrderSidePanel(order) {
   `;
 }
 
+// Refresca el panel de configuración del producto sin re-pintar toda la app.
+// Evita el "parpadeo" molesto que ocurría al cambiar una selección dentro de
+// un platillo mixto (cada click ya no rearma el DOM completo).
+function refreshProductConfig() {
+  if (!state.productConfig) {
+    render();
+    return;
+  }
+  const side = document.querySelector(".side-column");
+  if (!side) {
+    render();
+    return;
+  }
+  side.innerHTML = renderProductConfig();
+  bindProductConfigEvents();
+}
+
+// Registra los listeners específicos del modal de configuración.
+// Se usa tanto desde bindEvents() (render completo) como desde
+// refreshProductConfig() (render in-place).
+function bindProductConfigEvents() {
+  document.querySelectorAll("[data-select-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!state.productConfig) return;
+      const optionId = button.dataset.selectOption;
+      const choiceIdx = Number(button.dataset.choiceIndex);
+      const partAttr = button.dataset.partIndex;
+      if (partAttr !== undefined && partAttr !== "" && Array.isArray(state.productConfig.parts)) {
+        const partIdx = Number(partAttr);
+        if (state.productConfig.parts[partIdx]) {
+          state.productConfig.parts[partIdx].selections = {
+            ...(state.productConfig.parts[partIdx].selections || {}),
+            [optionId]: choiceIdx,
+          };
+        }
+      } else {
+        state.productConfig.selections[optionId] = choiceIdx;
+      }
+      persist();
+      refreshProductConfig();
+    });
+  });
+  document.querySelectorAll("[data-toggle-option]").forEach((button) => {
+    button.addEventListener("click", () => toggleMultiOption(button.dataset.toggleOption, Number(button.dataset.choiceIndex)));
+  });
+  document.querySelector("[data-split-toggle]")?.addEventListener("change", (event) => {
+    toggleSplitMode(Boolean(event.target.checked));
+  });
+  document.querySelectorAll("[data-split-parts]").forEach((button) => {
+    button.addEventListener("click", () => setSplitPartsCount(Number(button.dataset.splitParts)));
+  });
+  document.querySelectorAll("[data-config-qty]").forEach((button) => {
+    button.addEventListener("click", () => updateConfigQty(Number(button.dataset.configQty)));
+  });
+  document.querySelector("[data-config-note]")?.addEventListener("input", (event) => {
+    state.productConfig.note = event.target.value;
+    persist();
+  });
+  document.querySelector("[data-extra-item]")?.addEventListener("change", (event) => {
+    const nextQty = event.target.selectedOptions?.[0]?.dataset.defaultQty;
+    const qtyInput = document.querySelector("[data-extra-qty]");
+    if (qtyInput && nextQty) qtyInput.value = nextQty;
+  });
+  document.querySelector("[data-extra-add]")?.addEventListener("click", addProductExtra);
+  document.querySelectorAll("[data-extra-remove]").forEach((button) => {
+    button.addEventListener("click", () => removeProductExtra(Number(button.dataset.extraRemove)));
+  });
+  document.querySelector("[data-add-configured]")?.addEventListener("click", addConfiguredProduct);
+  document.querySelector("[data-close-config]")?.addEventListener("click", closeProductConfig);
+}
+
 function renderProductConfig() {
   const product = getProduct(state.productConfig.productId);
   if (!product) return "";
@@ -2902,12 +3001,15 @@ function renderProductConfig() {
   const commonOptions = (product.options || []).filter(
     (option) => !isMixto || !splitIds.has(option.id),
   );
+  const isEditing = Boolean(state.productConfig.editingLineId);
+  const submitLabel = isEditing ? "Guardar cambios" : "Agregar al ticket";
+  const submitIcon = isEditing ? "check" : "plus";
   return `
-    <section class="panel detail-panel">
+    <section class="panel detail-panel${isEditing ? " is-editing" : ""}">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">${escapeHtml(product.name)}${isMixto ? ` <span class="mixto-title-badge">Mixto ×${state.productConfig.parts.length}</span>` : ""}</h2>
-          <p class="panel-kicker">${escapeHtml(product.section)} · ${escapeHtml(product.subsection)}</p>
+          <h2 class="panel-title">${escapeHtml(product.name)}${isMixto ? ` <span class="mixto-title-badge">Mixto ×${state.productConfig.parts.length}</span>` : ""}${isEditing ? ` <span class="editing-title-badge">Editando</span>` : ""}</h2>
+          <p class="panel-kicker">${isEditing ? "La cocina recibirá un aviso visual con el cambio." : `${escapeHtml(product.section)} · ${escapeHtml(product.subsection)}`}</p>
         </div>
         <button class="icon-button" data-close-config title="Cerrar">${svg("minus")}</button>
       </div>
@@ -2937,7 +3039,7 @@ function renderProductConfig() {
             <small data-config-unit>${money.format(price)} c/u</small>
           </div>
         </div>
-        <button class="primary-button" data-add-configured ${canServe ? "" : "disabled"}>${svg("plus")}Agregar al ticket</button>
+        <button class="primary-button" data-add-configured ${canServe ? "" : "disabled"}>${svg(submitIcon)}${submitLabel}</button>
       </div>
     </section>
   `;
@@ -3862,12 +3964,13 @@ function renderKitchenCard(command) {
     if (minutes >= 15) urgency = "is-late";
     else if (minutes >= 10) urgency = "is-warn";
   }
+  const wasEdited = Boolean(command.hasEdits || command.editedAt);
   return `
-    <article class="kitchen-card status-${command.status} ${urgency}">
+    <article class="kitchen-card status-${command.status} ${urgency}${wasEdited ? " is-edited" : ""}">
       <div class="kitchen-card-head">
         <div>
-          <h4>${escapeHtml(command.label)}</h4>
-          <p>${formatTime(command.createdAt)} · ${escapeHtml(waiterName(command.createdBy))}</p>
+          <h4>${escapeHtml(command.label)}${wasEdited ? ` <span class="kitchen-edit-badge">${svg("note")}Editada</span>` : ""}</h4>
+          <p>${formatTime(command.createdAt)} · ${escapeHtml(waiterName(command.createdBy))}${wasEdited && command.editedAt ? ` · editado ${elapsed(command.editedAt)} atras` : ""}</p>
           <span class="kitchen-card-timer">${svg("clock")}${timeLabel}</span>
         </div>
         <strong>${command.lines.reduce((sum, line) => sum + line.qty, 0)} pzas</strong>
@@ -6027,64 +6130,16 @@ function bindEvents() {
   document.querySelectorAll("[data-configure-product]").forEach((button) => {
     button.addEventListener("click", () => startProductConfig(button.dataset.configureProduct));
   });
-  document.querySelector("[data-close-config]")?.addEventListener("click", () => {
-    state.productConfig = null;
-    state.modal = null;
-    persist();
-    render();
-  });
-  document.querySelectorAll("[data-select-option]").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!state.productConfig) return;
-      const optionId = button.dataset.selectOption;
-      const choiceIdx = Number(button.dataset.choiceIndex);
-      const partAttr = button.dataset.partIndex;
-      if (partAttr !== undefined && partAttr !== "" && Array.isArray(state.productConfig.parts)) {
-        const partIdx = Number(partAttr);
-        if (state.productConfig.parts[partIdx]) {
-          state.productConfig.parts[partIdx].selections = {
-            ...(state.productConfig.parts[partIdx].selections || {}),
-            [optionId]: choiceIdx,
-          };
-        }
-      } else {
-        state.productConfig.selections[optionId] = choiceIdx;
-      }
-      persist();
-      render();
-    });
-  });
-  document.querySelectorAll("[data-toggle-option]").forEach((button) => {
-    button.addEventListener("click", () => toggleMultiOption(button.dataset.toggleOption, Number(button.dataset.choiceIndex)));
-  });
-  document.querySelector("[data-split-toggle]")?.addEventListener("change", (event) => {
-    toggleSplitMode(Boolean(event.target.checked));
-  });
-  document.querySelectorAll("[data-split-parts]").forEach((button) => {
-    button.addEventListener("click", () => setSplitPartsCount(Number(button.dataset.splitParts)));
-  });
-  document.querySelectorAll("[data-config-qty]").forEach((button) => {
-    button.addEventListener("click", () => updateConfigQty(Number(button.dataset.configQty)));
-  });
-  document.querySelector("[data-config-note]")?.addEventListener("input", (event) => {
-    state.productConfig.note = event.target.value;
-    persist();
-  });
-  document.querySelector("[data-extra-item]")?.addEventListener("change", (event) => {
-    const nextQty = event.target.selectedOptions?.[0]?.dataset.defaultQty;
-    const qtyInput = document.querySelector("[data-extra-qty]");
-    if (qtyInput && nextQty) qtyInput.value = nextQty;
-  });
-  document.querySelector("[data-extra-add]")?.addEventListener("click", addProductExtra);
-  document.querySelectorAll("[data-extra-remove]").forEach((button) => {
-    button.addEventListener("click", () => removeProductExtra(Number(button.dataset.extraRemove)));
-  });
-  document.querySelector("[data-add-configured]")?.addEventListener("click", addConfiguredProduct);
+  // Eventos específicos del modal de configuración (incluido cerrar).
+  if (state.productConfig) bindProductConfigEvents();
   document.querySelectorAll("[data-line-qty]").forEach((button) => {
     button.addEventListener("click", () => updateLineQty(button.dataset.lineQty, Number(button.dataset.delta)));
   });
   document.querySelectorAll("[data-remove-line]").forEach((button) => {
     button.addEventListener("click", () => removeLine(button.dataset.removeLine));
+  });
+  document.querySelectorAll("[data-edit-line]").forEach((button) => {
+    button.addEventListener("click", () => startEditLineConfig(button.dataset.editLine));
   });
   document.querySelectorAll("[data-command-mode]").forEach((button) => {
     button.addEventListener("click", () => commandPending(button.dataset.commandMode, button));
@@ -6963,7 +7018,7 @@ function toggleSplitMode(enabled) {
     state.productConfig.parts = null;
   }
   persist();
-  render();
+  refreshProductConfig();
 }
 
 function setSplitPartsCount(target) {
@@ -6983,6 +7038,38 @@ function setSplitPartsCount(target) {
   } else {
     state.productConfig.parts = current.slice(0, next);
   }
+  persist();
+  refreshProductConfig();
+}
+
+function closeProductConfig() {
+  state.productConfig = null;
+  state.modal = null;
+  persist();
+  render();
+}
+
+// Abre el modal de configuración con los datos actuales de la línea para
+// permitir editarla mientras la comanda no haya entrado a preparación.
+function startEditLineConfig(lineId) {
+  const order = getActiveOrder();
+  if (!order) return;
+  const line = order.items.find((item) => item.id === lineId);
+  if (!line) return;
+  if (!lineIsEditable(order, line)) {
+    showToast("La cocina ya empezó a preparar esta línea. Ya no se puede editar.");
+    return;
+  }
+  state.productConfig = {
+    productId: line.productId,
+    qty: line.qty,
+    selections: structuredClone(line.selections || {}),
+    parts: lineParts(line) ? structuredClone(line.parts) : null,
+    extras: structuredClone(line.extras || []),
+    note: line.note || "",
+    editingLineId: line.id,
+  };
+  state.modal = null;
   persist();
   render();
 }
@@ -7014,7 +7101,7 @@ function addProductExtra() {
   }
   state.productConfig.extras = extras;
   persist();
-  render();
+  refreshProductConfig();
 }
 
 function removeProductExtra(index) {
@@ -7024,7 +7111,7 @@ function removeProductExtra(index) {
   extras.splice(index, 1);
   state.productConfig.extras = extras;
   persist();
-  render();
+  refreshProductConfig();
 }
 
 function toggleMultiOption(optionId, index) {
@@ -7033,7 +7120,7 @@ function toggleMultiOption(optionId, index) {
     ? current.filter((item) => item !== index)
     : [...current, index];
   persist();
-  render();
+  refreshProductConfig();
 }
 
 function updateConfigQty(delta) {
@@ -7100,6 +7187,74 @@ function addConfiguredProduct() {
   const note = String(state.productConfig.note || "").trim();
   const requestedQty = state.productConfig.qty;
   const stock = estimateProductStock(product, selections, extras, rawParts);
+  // ====== Modo edición: actualizar línea existente y notificar a cocina ======
+  if (state.productConfig.editingLineId) {
+    const editingId = state.productConfig.editingLineId;
+    const existingLine = order.items.find((item) => item.id === editingId);
+    if (!existingLine) {
+      showToast("La linea ya no existe.");
+      state.productConfig = null;
+      persist();
+      render();
+      return;
+    }
+    if (!lineIsEditable(order, existingLine)) {
+      showToast("La cocina ya empezó a preparar esta línea.");
+      state.productConfig = null;
+      persist();
+      render();
+      return;
+    }
+    // Devolver al inventario lo que descontaba la versión vieja y descontar
+    // lo nuevo. Si la línea aún era pending no había consumo; en ese caso
+    // el restore es 0 (inventoryUsageForLine devuelve 0 para items pending).
+    const hadDeducted = existingLine.status !== "pending";
+    if (hadDeducted) {
+      restoreInventoryForLines([existingLine], order, "Edición de orden");
+    }
+    Object.assign(existingLine, {
+      qty: state.productConfig.qty,
+      unitPrice,
+      selections,
+      parts: rawParts,
+      extras,
+      costSnapshot,
+      unitCostSnapshot: costSnapshot.total,
+      optionKey,
+      optionsText,
+      note,
+      editedAt: new Date().toISOString(),
+      editedBy: currentUser()?.id || "",
+    });
+    if (hadDeducted) {
+      deductInventoryForLines([existingLine], order);
+    }
+    // Sincronizar el batch que contiene esta línea (si está en cocina)
+    const batch = findBatchContainingLine(order, existingLine.id);
+    if (batch) {
+      const batchLine = (batch.lines || []).find((bl) => bl.lineId === existingLine.id);
+      if (batchLine) {
+        Object.assign(batchLine, {
+          name: existingLine.name,
+          qty: existingLine.qty,
+          selections: existingLine.selections,
+          parts: lineParts(existingLine) ? structuredClone(existingLine.parts) : null,
+          optionsText: existingLine.optionsText,
+          note: existingLine.note,
+        });
+      }
+      batch.editedAt = new Date().toISOString();
+      batch.editedBy = currentUser()?.id || "";
+      batch.hasEdits = true;
+    }
+    state.productConfig = null;
+    state.modal = null;
+    persist();
+    showToast(batch ? "Orden actualizada. Cocina verá el cambio." : "Línea actualizada.");
+    render();
+    return;
+  }
+  // ====== Flujo normal: nueva línea pending ======
   const existing = order.items.find(
     (item) =>
       item.status === "pending" &&
