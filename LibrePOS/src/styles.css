@@ -3060,6 +3060,270 @@ button:disabled {
   color: #78350f;
 }
 
+/* ====================== Mixto (split) ====================== */
+
+.split-toggle {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.split-toggle.is-active {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+}
+
+.split-toggle-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.split-toggle-label {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.split-toggle-label strong {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.split-toggle-label small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.split-toggle-label .icon {
+  color: var(--teal);
+}
+
+.split-toggle input[type="checkbox"] {
+  width: 44px;
+  height: 24px;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  position: relative;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.split-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  transition: transform 160ms cubic-bezier(0.2, 0, 0.2, 1), background 160ms ease;
+}
+
+.split-toggle input[type="checkbox"]:checked {
+  border-color: var(--teal);
+  background: var(--teal);
+}
+
+.split-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(20px);
+  background: #fff;
+}
+
+.split-parts-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.split-parts-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.split-parts-pill:not(:disabled):hover {
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+.split-parts-pill.is-active {
+  border-color: var(--teal);
+  background: var(--teal);
+  color: #fff;
+}
+
+.split-parts-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.split-parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.split-part-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--teal-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  position: relative;
+  overflow: hidden;
+}
+
+.split-part-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--teal);
+}
+
+.split-part-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.split-part-head strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.split-part-head span {
+  color: var(--teal);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* Badges para líneas mixtas */
+.mixto-badge,
+.mixto-title-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-left: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--teal);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.mixto-title-badge {
+  background: var(--teal-tint);
+  color: var(--teal);
+  border: 1px solid var(--teal-soft);
+}
+
+.mixto-detail {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 4px;
+}
+
+.mixto-parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.mixto-parts li {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  line-height: 1.3;
+}
+
+.mixto-parts li strong {
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--teal);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.mixto-common {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  font-style: italic;
+}
+
+.ticket-line.is-mixto::before {
+  width: 8px;
+}
+
+.kitchen-line-row.is-mixto {
+  background: var(--teal-tint);
+}
+
+.sale-detail-line.is-mixto {
+  background: var(--teal-tint);
+  border-color: var(--teal-soft);
+}
+
+@media (max-width: 620px) {
+  .split-parts {
+    grid-template-columns: 1fr;
+  }
+  .split-toggle-label {
+    grid-template-columns: auto 1fr;
+  }
+  .split-toggle-label small {
+    grid-column: 1 / -1;
+  }
+}
+
 /* ====================== Option groups (config) ====================== */
 
 .option-group {

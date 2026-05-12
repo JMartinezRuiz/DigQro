@@ -967,6 +967,10 @@ function normalizeMenuProducts(products) {
         recipeHistory: normalizeProductHistory(product.recipeHistory),
         priceHistory: normalizeProductHistory(product.priceHistory),
         active: product.active !== false,
+        // Configuración de mixto (split). Por defecto: heredada del producto si existe.
+        splittable: product.splittable === false ? false : undefined,
+        splitMaxParts: Number.isFinite(Number(product.splitMaxParts)) ? Math.min(Math.max(Number(product.splitMaxParts), 2), 6) : undefined,
+        splitPricePolicy: ["base", "max", "average"].includes(product.splitPricePolicy) ? product.splitPricePolicy : undefined,
         createdAt: product.createdAt || new Date().toISOString(),
         createdBy: product.createdBy || "",
         updatedAt: product.updatedAt || "",
@@ -986,6 +990,9 @@ function normalizeProductOptions(options = []) {
         label,
         type: option.type === "multi" ? "multi" : "single",
         required: option.required !== false,
+        // splittable explícito sólo cuando se desactiva. Si no, por defecto las
+        // opciones single se consideran divisibles automáticamente en runtime.
+        splittable: option.splittable === false ? false : undefined,
         choices: (Array.isArray(option.choices) ? option.choices : [])
           .map((choice) => {
             const source = choice && typeof choice === "object" ? choice : {};
@@ -1725,6 +1732,154 @@ function defaultSelectionsFor(product) {
     selections[option.id] = firstActiveChoiceIndex(option);
   });
   return selections;
+}
+
+/* ===== Mixto (split) =================================================
+   Un platillo puede prepararse "mixto" cuando tiene >=2 opciones single
+   y no se desactivó explícitamente. Cada parte (1/N) lleva su propia
+   selección para las opciones divisibles; las opciones no divisibles
+   y los extras son comunes para todas las partes.
+===================================================================== */
+
+function singleOptions(product) {
+  return (product?.options || []).filter((option) => option?.type === "single");
+}
+
+function splittableOptions(product) {
+  return singleOptions(product).filter((option) => option.splittable !== false);
+}
+
+function productIsSplittable(product) {
+  if (!product || product.splittable === false) return false;
+  return splittableOptions(product).length >= 2;
+}
+
+function splitMaxParts(product) {
+  const max = Math.min(Math.max(Number(product?.splitMaxParts) || 4, 2), 6);
+  return max;
+}
+
+function splitPricePolicy(product) {
+  const allowed = ["base", "max", "average"];
+  const policy = String(product?.splitPricePolicy || "base").toLowerCase();
+  return allowed.includes(policy) ? policy : "base";
+}
+
+function lineParts(line) {
+  return Array.isArray(line?.parts) && line.parts.length >= 2 ? line.parts : null;
+}
+
+function partWeight(parts, index) {
+  if (!Array.isArray(parts) || !parts.length) return 1;
+  const part = parts[index];
+  if (part && Number.isFinite(Number(part.weight))) return Number(part.weight);
+  return 1 / parts.length;
+}
+
+// Combina selecciones comunes (line.selections) con las de una parte
+// específica para alimentar a las recetas/precio existentes sin tocarlas.
+function selectionsForPart(line, partIndex) {
+  const baseSelections = line?.selections || {};
+  const parts = lineParts(line);
+  if (!parts) return baseSelections;
+  const partSelections = parts[partIndex]?.selections || {};
+  return { ...baseSelections, ...partSelections };
+}
+
+function roundQty(value) {
+  return Math.round((Number(value) || 0) * 1000000) / 1000000;
+}
+
+// Receta del producto combinando todas las partes, ponderada por weight.
+// Si no hay parts, devuelve la receta normal con selecciones completas.
+function combinedRecipeForLine(product, line) {
+  const parts = lineParts(line);
+  if (!parts) {
+    return inventoryRecipeForSelections(product, line?.selections || defaultSelectionsFor(product));
+  }
+  const aggregate = new Map();
+  parts.forEach((_, idx) => {
+    const sel = selectionsForPart(line, idx);
+    const weight = partWeight(parts, idx);
+    const recipe = inventoryRecipeForSelections(product, sel);
+    recipe.forEach((item) => {
+      const key = item.name;
+      const prev = aggregate.get(key) || { name: item.name, qty: 0 };
+      prev.qty += Number(item.qty) * weight;
+      aggregate.set(key, prev);
+    });
+  });
+  return Array.from(aggregate.values()).map((item) => ({ name: item.name, qty: roundQty(item.qty) }));
+}
+
+// Precio unitario considerando parts y política configurada.
+function combinedUnitPrice(product, line, extras = []) {
+  const parts = lineParts(line);
+  if (!parts) {
+    return configuredUnitPrice(product, line?.selections || {}, extras);
+  }
+  const policy = splitPricePolicy(product);
+  let core;
+  if (policy === "max") {
+    core = Math.max(
+      ...parts.map((_, idx) => configuredUnitPrice(product, selectionsForPart(line, idx), [])),
+    );
+  } else if (policy === "average") {
+    const prices = parts.map((_, idx) => configuredUnitPrice(product, selectionsForPart(line, idx), []));
+    core = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+  } else {
+    // "base": el plato cuesta exactamente como el producto base, sin recargo.
+    core = Number(product.price) || 0;
+  }
+  return Math.round((core + extraUnitTotal(extras)) * 100) / 100;
+}
+
+// Resumen legible para tickets, cocina y reportes: comunes + cada parte.
+function combinedOptionSummary(product, line, extras = []) {
+  const parts = lineParts(line);
+  if (!parts) {
+    return optionSummary(product, line?.selections || {}, extras);
+  }
+  const splitIds = new Set(splittableOptions(product).map((opt) => opt.id));
+  const partsText = parts.map((_, idx) => {
+    const sel = parts[idx]?.selections || {};
+    const labels = [];
+    splittableOptions(product).forEach((option) => {
+      const choice = option.choices[sel[option.id]];
+      if (choice) labels.push(`${option.label}: ${choice.label}`);
+    });
+    return `Parte ${idx + 1} → ${labels.join(" · ") || "—"}`;
+  });
+  const commonParts = [];
+  (product.options || []).forEach((option) => {
+    if (splitIds.has(option.id)) return;
+    if (option.type === "single") {
+      const choice = option.choices[line?.selections?.[option.id]];
+      if (choice) commonParts.push(`${option.label}: ${choice.label}`);
+    } else if (option.type === "multi") {
+      const selected = line?.selections?.[option.id];
+      if (Array.isArray(selected) && selected.length) {
+        const labels = selected.map((i) => option.choices[i]?.label).filter(Boolean);
+        if (labels.length) commonParts.push(`${option.label}: ${labels.join(", ")}`);
+      }
+    }
+  });
+  const extraParts = normalizeExtras(extras).map(
+    (extra) => `${extra.name} ${formatNumber(extra.qty)} ${extra.unit} (+${money.format(extra.total)})`,
+  );
+  return [
+    `Mixto ×${parts.length}`,
+    ...partsText,
+    ...commonParts,
+    ...(extraParts.length ? [`Extras: ${extraParts.join(", ")}`] : []),
+  ].join(" · ");
+}
+
+// ¿Todas las partes tienen selecciones válidas?
+function lineHasAvailableParts(product, line) {
+  const parts = lineParts(line);
+  if (!parts) return productHasAvailableSelections(product, line?.selections || defaultSelectionsFor(product));
+  return parts.every((_, idx) => productHasAvailableSelections(product, selectionsForPart(line, idx)));
 }
 
 function firstActiveChoiceIndex(option) {
@@ -2518,12 +2673,14 @@ function renderTicketLine(item, order) {
   const serviceStatus = lineServiceStatus(item, order);
   const locked = item.status !== "pending";
   const canCancelFromSale = serviceStatus === "waiting";
+  const parts = lineParts(item);
+  const product = getProduct(item.productId);
   return `
-    <article class="ticket-line is-${serviceStatus}">
+    <article class="ticket-line is-${serviceStatus}${parts ? " is-mixto" : ""}">
       <div class="ticket-line-main">
         <div>
-          <h3>${escapeHtml(item.name)}</h3>
-          <p>${escapeHtml(item.optionsText || item.subsection)}</p>
+          <h3>${escapeHtml(item.name)}${parts ? ` <span class="mixto-badge">Mixto ×${parts.length}</span>` : ""}</h3>
+          ${parts && product ? renderMixtoBreakdown(product, item) : `<p>${escapeHtml(item.optionsText || item.subsection)}</p>`}
           ${item.note ? `<p class="line-note">${escapeHtml(item.note)}</p>` : ""}
           <span class="line-status status-${serviceStatus}">${lineStatusLabel(serviceStatus)}</span>
         </div>
@@ -2546,6 +2703,44 @@ function renderTicketLine(item, order) {
         </div>
       </div>
     </article>
+  `;
+}
+
+// Detalle visual de un item mixto: muestra cada parte con su selección.
+function renderMixtoBreakdown(product, item) {
+  const parts = lineParts(item);
+  if (!parts || !product) return "";
+  const splittables = splittableOptions(product);
+  const splitIds = new Set(splittables.map((opt) => opt.id));
+  const partItems = parts.map((part, idx) => {
+    const sel = part?.selections || {};
+    const labels = splittables
+      .map((option) => {
+        const choice = option.choices[sel[option.id]];
+        return choice ? choice.label : "—";
+      })
+      .join(" · ");
+    return `<li><strong>${idx + 1}.</strong> ${escapeHtml(labels)}</li>`;
+  });
+  const commonLabels = [];
+  (product.options || []).forEach((option) => {
+    if (splitIds.has(option.id)) return;
+    if (option.type === "single") {
+      const choice = option.choices[item.selections?.[option.id]];
+      if (choice) commonLabels.push(`${option.label}: ${choice.label}`);
+    } else if (option.type === "multi") {
+      const selected = item.selections?.[option.id];
+      if (Array.isArray(selected) && selected.length) {
+        const labels = selected.map((i) => option.choices[i]?.label).filter(Boolean);
+        if (labels.length) commonLabels.push(`${option.label}: ${labels.join(", ")}`);
+      }
+    }
+  });
+  return `
+    <div class="mixto-detail">
+      <ul class="mixto-parts">${partItems.join("")}</ul>
+      ${commonLabels.length ? `<p class="mixto-common">${escapeHtml(commonLabels.join(" · "))}</p>` : ""}
+    </div>
   `;
 }
 
@@ -2689,22 +2884,39 @@ function renderProductConfig() {
   const product = getProduct(state.productConfig.productId);
   if (!product) return "";
   const extras = normalizeExtras(state.productConfig.extras);
-  const price = configuredUnitPrice(product, state.productConfig.selections, extras);
+  const isMixto = Array.isArray(state.productConfig.parts) && state.productConfig.parts.length >= 2;
+  const fakeLine = {
+    productId: product.id,
+    selections: state.productConfig.selections,
+    parts: isMixto ? state.productConfig.parts : null,
+    qty: state.productConfig.qty,
+    extras,
+  };
+  const price = combinedUnitPrice(product, fakeLine, extras);
   const total = price * state.productConfig.qty;
-  const stock = estimateProductStock(product, state.productConfig.selections, extras);
-  const canServe = productHasAvailableSelections(product, state.productConfig.selections);
+  const stock = estimateProductStock(product, state.productConfig.selections, extras, isMixto ? state.productConfig.parts : null);
+  const canServe = lineHasAvailableParts(product, fakeLine);
+  const splittable = productIsSplittable(product);
+  const maxParts = splitMaxParts(product);
+  const splitIds = new Set(splittableOptions(product).map((opt) => opt.id));
+  const commonOptions = (product.options || []).filter(
+    (option) => !isMixto || !splitIds.has(option.id),
+  );
   return `
     <section class="panel detail-panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">${escapeHtml(product.name)}</h2>
+          <h2 class="panel-title">${escapeHtml(product.name)}${isMixto ? ` <span class="mixto-title-badge">Mixto ×${state.productConfig.parts.length}</span>` : ""}</h2>
           <p class="panel-kicker">${escapeHtml(product.section)} · ${escapeHtml(product.subsection)}</p>
         </div>
         <button class="icon-button" data-close-config title="Cerrar">${svg("minus")}</button>
       </div>
       <div class="panel-body field-grid">
         <p class="detail-description">${escapeHtml(product.description)}</p>
-        ${product.options.map((option) => renderOptionGroup(product, option)).join("")}
+        ${splittable ? renderSplitToggle(product, isMixto, maxParts) : ""}
+        ${isMixto ? renderSplitParts(product) : ""}
+        ${commonOptions.length && isMixto ? `<p class="mini-title">Comun para todas las partes</p>` : ""}
+        ${commonOptions.map((option) => renderOptionGroup(product, option)).join("")}
         ${renderExtrasEditor(extras)}
         <div data-config-stock-panel>
           ${renderProductStockPanel(stock, state.productConfig.qty)}
@@ -2728,6 +2940,64 @@ function renderProductConfig() {
         <button class="primary-button" data-add-configured ${canServe ? "" : "disabled"}>${svg("plus")}Agregar al ticket</button>
       </div>
     </section>
+  `;
+}
+
+function renderSplitToggle(product, isMixto, maxParts) {
+  const partsCount = isMixto ? state.productConfig.parts.length : 2;
+  const partOptions = [];
+  for (let n = 2; n <= maxParts; n += 1) {
+    partOptions.push(`
+      <button
+        class="split-parts-pill ${isMixto && partsCount === n ? "is-active" : ""}"
+        data-split-parts="${n}"
+        type="button"
+        ${isMixto ? "" : "disabled"}
+      >${n} partes</button>
+    `);
+  }
+  return `
+    <section class="split-toggle ${isMixto ? "is-active" : ""}">
+      <label class="split-toggle-row">
+        <span class="split-toggle-label">
+          ${svg("transfer")}
+          <strong>Mixto</strong>
+          <small>Divide el platillo en partes con distintas selecciones</small>
+        </span>
+        <input type="checkbox" data-split-toggle ${isMixto ? "checked" : ""} />
+      </label>
+      <div class="split-parts-row">
+        ${partOptions.join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderSplitParts(product) {
+  const parts = state.productConfig.parts || [];
+  const splittables = splittableOptions(product);
+  const weightLabel = (idx) => {
+    const fraction = `1/${parts.length}`;
+    return parts.length === 2 ? (idx === 0 ? "½ (mitad 1)" : "½ (mitad 2)") : `${fraction} (parte ${idx + 1})`;
+  };
+  return `
+    <div class="split-parts">
+      ${parts
+        .map(
+          (_, idx) => `
+            <article class="split-part-card">
+              <header class="split-part-head">
+                <strong>Parte ${idx + 1}</strong>
+                <span>${weightLabel(idx)}</span>
+              </header>
+              ${splittables
+                .map((option) => renderOptionGroup(product, option, { partIndex: idx }))
+                .join("")}
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
   `;
 }
 
@@ -2793,10 +3063,18 @@ function renderExtrasEditor(extras = []) {
   `;
 }
 
-function renderOptionGroup(product, option) {
-  const selected = state.productConfig.selections[option.id];
+function renderOptionGroup(product, option, scope = null) {
+  // scope = null → opción común (state.productConfig.selections)
+  // scope = { partIndex: i } → opción dentro de la parte i de productConfig.parts
+  const isPart = scope && Number.isInteger(scope.partIndex);
+  const selectionStore = isPart
+    ? state.productConfig.parts?.[scope.partIndex]?.selections || {}
+    : state.productConfig.selections || {};
+  const selected = selectionStore[option.id];
   const choices = activeChoiceEntries(option);
+  const partAttr = isPart ? ` data-part-index="${scope.partIndex}"` : "";
   if (option.type === "multi") {
+    // Las opciones multi sólo se manejan a nivel común (no se dividen).
     const values = Array.isArray(selected) ? selected : [];
     return `
       <fieldset class="option-group">
@@ -2827,10 +3105,10 @@ function renderOptionGroup(product, option) {
           ? choices
               .map(
                 ({ choice, index }) => `
-            <button class="option-pill ${selected === index ? "is-active" : ""}" data-select-option="${option.id}" data-choice-index="${index}" type="button">
+            <button class="option-pill ${selected === index ? "is-active" : ""}" data-select-option="${option.id}" data-choice-index="${index}"${partAttr} type="button">
               <span>${escapeHtml(choice.label)}</span>
               ${choice.price ? `<strong>${money.format(choice.price)}</strong>` : ""}
-              ${renderVariantStockBadge(product, option, index)}
+              ${renderVariantStockBadge(product, option, index, scope)}
             </button>
           `,
               )
@@ -2841,11 +3119,25 @@ function renderOptionGroup(product, option) {
   `;
 }
 
-function renderVariantStockBadge(product, option, index) {
+function renderVariantStockBadge(product, option, index, scope = null) {
   if (!state.productConfig || !variantAffectsInventory(product, option.id)) return "";
+  // Cuando estamos previsualizando dentro de una "parte" del mixto, ajustamos
+  // solo esa parte para que la badge refleje el stock realmente disponible.
+  const isPart = scope && Number.isInteger(scope.partIndex);
+  if (isPart) {
+    const parts = (state.productConfig.parts || []).map((part) => ({
+      ...part,
+      selections: { ...(part?.selections || {}) },
+    }));
+    if (!parts[scope.partIndex]) return "";
+    parts[scope.partIndex].selections[option.id] = index;
+    const stock = estimateProductStock(product, state.productConfig.selections, state.productConfig.extras, parts);
+    if (!stock.known) return "";
+    return `<small class="variant-stock ${stock.tone}">~${stock.orderable}</small>`;
+  }
   const selections = structuredClone(state.productConfig.selections);
   selections[option.id] = option.type === "multi" ? toggleSelectionPreview(selections[option.id], index) : index;
-  const stock = estimateProductStock(product, selections, state.productConfig.extras);
+  const stock = estimateProductStock(product, selections, state.productConfig.extras, state.productConfig.parts);
   if (!stock.known) return "";
   return `<small class="variant-stock ${stock.tone}">~${stock.orderable}</small>`;
 }
@@ -3367,19 +3659,21 @@ function renderSaleDetailModal(sale) {
           ${
             items.length
               ? items
-                  .map(
-                    (item) => `
-                      <div class="sale-detail-line">
+                  .map((item) => {
+                    const product = getProduct(item.productId);
+                    const isMixto = Boolean(lineParts(item));
+                    return `
+                      <div class="sale-detail-line${isMixto ? " is-mixto" : ""}">
                         <div>
-                          <strong>${Number(item.qty) || 0} x ${escapeHtml(item.name || "Producto")}</strong>
-                          ${item.optionsText ? `<small>${escapeHtml(item.optionsText)}</small>` : ""}
+                          <strong>${Number(item.qty) || 0} x ${escapeHtml(item.name || "Producto")}${isMixto ? ` <span class="mixto-badge">Mixto ×${lineParts(item).length}</span>` : ""}</strong>
+                          ${isMixto && product ? renderMixtoBreakdown(product, item) : (item.optionsText ? `<small>${escapeHtml(item.optionsText)}</small>` : "")}
                           ${item.note ? `<small>Nota: ${escapeHtml(item.note)}</small>` : ""}
                         </div>
                         <span>${money.format(Number(item.unitPrice) || 0)} c/u</span>
                         <strong>${money.format(saleLineTotal(item))}</strong>
                       </div>
-                    `,
-                  )
+                    `;
+                  })
                   .join("")
               : `<div class="empty-state compact">Esta venta no tiene articulos registrados.</div>`
           }
@@ -3581,11 +3875,14 @@ function renderKitchenCard(command) {
       <div class="kitchen-lines">
         ${command.lines
           .map(
-            (line) => `
-              <div class="kitchen-line-row">
+            (line) => {
+              const product = getProduct(line.productId);
+              const isMixto = Boolean(lineParts(line));
+              return `
+              <div class="kitchen-line-row${isMixto ? " is-mixto" : ""}">
                 <div class="kitchen-line-copy">
-                  <strong>${line.qty} x ${escapeHtml(line.name)}</strong>
-                  ${line.optionsText ? `<span>${escapeHtml(line.optionsText)}</span>` : ""}
+                  <strong>${line.qty} x ${escapeHtml(line.name)}${isMixto ? ` <span class="mixto-badge">Mixto ×${lineParts(line).length}</span>` : ""}</strong>
+                  ${isMixto && product ? renderMixtoBreakdown(product, line) : (line.optionsText ? `<span>${escapeHtml(line.optionsText)}</span>` : "")}
                   ${line.note ? `<em>${svg("note")}${escapeHtml(line.note)}</em>` : ""}
                 </div>
                 <button
@@ -3598,7 +3895,8 @@ function renderKitchenCard(command) {
                   title="Cancelar producto"
                 >${svg("cancel")}</button>
               </div>
-            `,
+            `;
+            },
           )
           .join("")}
       </div>
@@ -5737,13 +6035,33 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-select-option]").forEach((button) => {
     button.addEventListener("click", () => {
-      state.productConfig.selections[button.dataset.selectOption] = Number(button.dataset.choiceIndex);
+      if (!state.productConfig) return;
+      const optionId = button.dataset.selectOption;
+      const choiceIdx = Number(button.dataset.choiceIndex);
+      const partAttr = button.dataset.partIndex;
+      if (partAttr !== undefined && partAttr !== "" && Array.isArray(state.productConfig.parts)) {
+        const partIdx = Number(partAttr);
+        if (state.productConfig.parts[partIdx]) {
+          state.productConfig.parts[partIdx].selections = {
+            ...(state.productConfig.parts[partIdx].selections || {}),
+            [optionId]: choiceIdx,
+          };
+        }
+      } else {
+        state.productConfig.selections[optionId] = choiceIdx;
+      }
       persist();
       render();
     });
   });
   document.querySelectorAll("[data-toggle-option]").forEach((button) => {
     button.addEventListener("click", () => toggleMultiOption(button.dataset.toggleOption, Number(button.dataset.choiceIndex)));
+  });
+  document.querySelector("[data-split-toggle]")?.addEventListener("change", (event) => {
+    toggleSplitMode(Boolean(event.target.checked));
+  });
+  document.querySelectorAll("[data-split-parts]").forEach((button) => {
+    button.addEventListener("click", () => setSplitPartsCount(Number(button.dataset.splitParts)));
   });
   document.querySelectorAll("[data-config-qty]").forEach((button) => {
     button.addEventListener("click", () => updateConfigQty(Number(button.dataset.configQty)));
@@ -6598,8 +6916,73 @@ function startProductConfig(productId) {
     showToast("Este articulo no tiene variantes activas para vender.");
     return;
   }
-  state.productConfig = { productId, qty: 1, selections, note: "", extras: [] };
+  state.productConfig = { productId, qty: 1, selections, note: "", extras: [], parts: null };
   state.modal = null;
+  persist();
+  render();
+}
+
+// Construye el set inicial de "parts" cuando el usuario activa Mixto.
+// Cada parte hereda las selecciones actuales de las opciones divisibles
+// para que el cambio sea reversible sin perder elecciones.
+function buildInitialSplitParts(product, baseSelections, count) {
+  const splittables = splittableOptions(product);
+  const parts = [];
+  for (let i = 0; i < count; i += 1) {
+    const partSelections = {};
+    splittables.forEach((option) => {
+      const fromBase = baseSelections?.[option.id];
+      partSelections[option.id] = Number.isInteger(fromBase) ? fromBase : firstActiveChoiceIndex(option);
+    });
+    parts.push({ selections: partSelections });
+  }
+  return parts;
+}
+
+function toggleSplitMode(enabled) {
+  if (!state.productConfig) return;
+  const product = getProduct(state.productConfig.productId);
+  if (!product || !productIsSplittable(product)) return;
+  if (enabled) {
+    const baseSelections = { ...(state.productConfig.selections || {}) };
+    const splittables = splittableOptions(product);
+    const parts = buildInitialSplitParts(product, baseSelections, 2);
+    // Quitamos las opciones divisibles de las comunes (ahora viven en parts).
+    splittables.forEach((option) => {
+      delete baseSelections[option.id];
+    });
+    state.productConfig.selections = baseSelections;
+    state.productConfig.parts = parts;
+  } else {
+    // Al desactivar, recuperamos las selecciones de la primera parte como comunes.
+    const firstPart = state.productConfig.parts?.[0]?.selections || {};
+    state.productConfig.selections = {
+      ...(state.productConfig.selections || {}),
+      ...firstPart,
+    };
+    state.productConfig.parts = null;
+  }
+  persist();
+  render();
+}
+
+function setSplitPartsCount(target) {
+  if (!state.productConfig || !Array.isArray(state.productConfig.parts)) return;
+  const product = getProduct(state.productConfig.productId);
+  if (!product) return;
+  const max = splitMaxParts(product);
+  const next = Math.max(2, Math.min(Number(target) || 2, max));
+  const current = state.productConfig.parts;
+  if (current.length === next) return;
+  if (next > current.length) {
+    // Agregar partes nuevas heredando la última como base sensata.
+    const lastSelections = current[current.length - 1]?.selections || {};
+    while (state.productConfig.parts.length < next) {
+      state.productConfig.parts.push({ selections: { ...lastSelections } });
+    }
+  } else {
+    state.productConfig.parts = current.slice(0, next);
+  }
   persist();
   render();
 }
@@ -6697,22 +7080,26 @@ function addConfiguredProduct() {
     render();
     return;
   }
-  const selections = structuredClone(state.productConfig.selections);
-  if (!productHasAvailableSelections(product, selections)) {
-    showToast("Selecciona una variante activa.");
+  const selections = structuredClone(state.productConfig.selections || {});
+  const rawParts = Array.isArray(state.productConfig.parts) && state.productConfig.parts.length >= 2
+    ? structuredClone(state.productConfig.parts)
+    : null;
+  const lineDraft = { productId: product.id, selections, parts: rawParts };
+  if (!lineHasAvailableParts(product, lineDraft)) {
+    showToast("Selecciona una variante activa en todas las partes.");
     state.productConfig = null;
     persist();
     render();
     return;
   }
   const extras = normalizeExtras(state.productConfig.extras);
-  const unitPrice = configuredUnitPrice(product, selections, extras);
-  const costSnapshot = productCostSnapshot(product, selections, extras);
-  const optionsText = optionSummary(product, selections, extras);
-  const optionKey = JSON.stringify({ selections, extras });
+  const unitPrice = combinedUnitPrice(product, lineDraft, extras);
+  const costSnapshot = productCostSnapshot(product, selections, extras, rawParts);
+  const optionsText = combinedOptionSummary(product, lineDraft, extras);
+  const optionKey = JSON.stringify({ selections, extras, parts: rawParts });
   const note = String(state.productConfig.note || "").trim();
   const requestedQty = state.productConfig.qty;
-  const stock = estimateProductStock(product, selections, extras);
+  const stock = estimateProductStock(product, selections, extras, rawParts);
   const existing = order.items.find(
     (item) =>
       item.status === "pending" &&
@@ -6734,6 +7121,7 @@ function addConfiguredProduct() {
       qty: state.productConfig.qty,
       unitPrice,
       selections,
+      parts: rawParts,
       extras,
       costSnapshot,
       unitCostSnapshot: costSnapshot.total,
@@ -6847,9 +7235,14 @@ function commandPending(mode, source) {
     createdBy: currentUser().id,
     lines: pending.map((item) => ({
       lineId: item.id,
+      productId: item.productId,
       name: item.name,
       qty: item.qty,
       station: item.station,
+      selections: item.selections || {},
+      // Replicamos parts en el batch para que cocina pueda mostrar el desglose
+      // visual del platillo mixto sin depender solo del texto.
+      parts: lineParts(item) ? structuredClone(item.parts) : null,
       optionsText: item.optionsText,
       note: item.note || "",
     })),
@@ -7996,7 +8389,12 @@ function inventoryUsageForLine(line) {
       ...extras.map((extra) => ({ name: extra.name, qty: extra.qty * line.qty })),
     ];
   }
-  return [...configuredRecipeForProduct(product, line.selections || defaultSelectionsFor(product)), ...extras].map((item) => ({
+  // Si la línea es mixta, combinamos la receta de cada parte con su peso.
+  // Si no, comportamiento idéntico al anterior.
+  const baseRecipe = lineParts(line)
+    ? combinedRecipeForLine(product, line)
+    : configuredRecipeForProduct(product, line.selections || defaultSelectionsFor(product));
+  return [...baseRecipe, ...extras].map((item) => ({
     name: item.name,
     qty: item.qty * line.qty,
   }));
@@ -8229,8 +8627,17 @@ function pendingInventoryUsage() {
   return usage;
 }
 
-function estimateProductStock(product, selections = defaultSelectionsFor(product), extras = []) {
-  const recipe = inventoryUsageForProduct(product, selections, extras).filter((item) => Number(item.qty) > 0);
+function estimateProductStock(product, selections = defaultSelectionsFor(product), extras = [], parts = null) {
+  // Si la configuración es mixto (varias partes), combinamos la receta de cada
+  // parte ponderada y sumamos los extras, igual que haría inventoryUsageForLine.
+  let recipeSource;
+  if (Array.isArray(parts) && parts.length >= 2) {
+    const fakeLine = { selections, extras, parts, qty: 1, productId: product.id };
+    recipeSource = inventoryUsageForLine(fakeLine);
+  } else {
+    recipeSource = inventoryUsageForProduct(product, selections, extras);
+  }
+  const recipe = recipeSource.filter((item) => Number(item.qty) > 0);
   if (!recipe.length) {
     return { known: false, tone: "unknown", orderable: 0, items: [] };
   }
@@ -8408,9 +8815,14 @@ function configuredRecipeForProduct(product, selections = defaultSelectionsFor(p
   return inventoryRecipeForSelections(product, selections);
 }
 
-function productCostSnapshot(product, selections = defaultSelectionsFor(product), extras = []) {
+function productCostSnapshot(product, selections = defaultSelectionsFor(product), extras = [], parts = null) {
   const inventory = currentInventory();
-  const recipeItems = configuredRecipeForProduct(product, selections).map((recipeItem) => {
+  // Cuando hay parts, generamos receta combinada ponderada para que el costo
+  // congelado refleje exactamente lo que se descuenta de inventario.
+  const baseRecipe = Array.isArray(parts) && parts.length >= 2
+    ? combinedRecipeForLine(product, { selections, parts })
+    : configuredRecipeForProduct(product, selections);
+  const recipeItems = baseRecipe.map((recipeItem) => {
     const inventoryItem = inventory.find((entry) => normalize(entry.name) === normalize(recipeItem.name));
     const unitCost = Number(inventoryItem?.unitCost) || 0;
     const qty = Number(recipeItem.qty) || 0;
