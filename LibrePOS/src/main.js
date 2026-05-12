@@ -1816,7 +1816,7 @@ function showToast(message) {
   toast.hidden = false;
   toastTimer = setTimeout(() => {
     toast.hidden = true;
-  }, 3000);
+  }, 2200);
 }
 
 function celebrateAction(type = "success", source, label = "") {
@@ -1877,6 +1877,10 @@ function celebrateAction(type = "success", source, label = "") {
 
 function render() {
   setTheme();
+  // Sanitiza fichajes abandonados antes de pintar.
+  if (autoCloseStaleShifts()) {
+    persist();
+  }
   if (!currentUser()) {
     app.innerHTML = renderLogin();
     syncScrollLock();
@@ -2082,6 +2086,9 @@ function renderActiveTableSwitcher(activeOrder) {
     return new Date(a.openedAt) - new Date(b.openedAt);
   });
   if (!activeOrders.length) return "";
+  // Si solo hay una orden activa y es justamente la que se está viendo,
+  // el switcher es redundante y solo ocupa espacio.
+  if (activeOrders.length === 1 && activeOrders[0].id === activeOrder?.id) return "";
   return `
     <section class="table-switcher" aria-label="Ordenes activas">
       <div class="table-switcher-head">
@@ -2424,8 +2431,8 @@ function renderTakeoutForm() {
     <form class="panel-body field-grid" data-open-takeout-form>
       ${cashOpen ? "" : renderCashClosedNotice()}
       <label class="field">
-        <span>Cliente</span>
-        <input name="customerName" placeholder="Mostrador" />
+        <span>Cliente (opcional — si lo dejas vacío se nombra "Mostrador")</span>
+        <input name="customerName" placeholder="Ej. Juan, Mesa de pedidos" />
       </label>
       <label class="field">
         <span>Responsable</span>
@@ -3236,12 +3243,12 @@ function renderCheckoutModal(order) {
               <input name="cashReceived" data-cash-received type="number" min="0" step="0.01" value="${cashDue.toFixed(2)}" />
             </label>
             <div class="cash-change-box">
-              <span>A recibir en efectivo</span>
+              <span>Total efectivo</span>
               <strong data-cash-due>${money.format(cashDue)}</strong>
-              <span>Propina</span>
+              <span>Propina efectivo</span>
               <strong data-cash-tip>${money.format(0)}</strong>
-              <span>Cambio</span>
-              <strong data-cash-change>${money.format(0)}</strong>
+              <span class="grand">Cambio a entregar</span>
+              <strong data-cash-change class="grand">${money.format(0)}</strong>
             </div>
           </div>
         </section>
@@ -3393,6 +3400,15 @@ function renderSaleDetailModal(sale) {
             : ""
         }
         ${sale.comments ? `<div class="sale-detail-note"><strong>Nota</strong><p>${escapeHtml(sale.comments)}</p></div>` : ""}
+        ${
+          isAdminUser() || sale.cashierId === currentUser()?.id || sale.waiterId === currentUser()?.id
+            ? `
+              <section class="sale-detail-actions">
+                <button class="secondary-button" data-open-modal="adjust-tip" data-sale-id="${escapeAttr(sale.id || sale.orderId || "")}">${svg("cash")}Ajustar propina</button>
+              </section>
+            `
+            : ""
+        }
       </div>
     </section>
   `;
@@ -3532,18 +3548,33 @@ function renderKitchenColumn(status, commands) {
 }
 
 function renderKitchenCard(command) {
+  const reference =
+    command.status === "preparing"
+      ? command.startedAt || command.updatedAt || command.createdAt
+      : command.status === "ready"
+        ? command.readyAt || command.updatedAt || command.createdAt
+        : command.createdAt;
+  const minutes = minutesSince(reference);
   const timeLabel =
     command.status === "preparing"
-      ? `Prep. ${elapsed(command.startedAt || command.updatedAt || command.createdAt)}`
+      ? `Prep. ${elapsed(reference)}`
       : command.status === "ready"
-        ? `Lista hace ${elapsed(command.readyAt || command.updatedAt || command.createdAt)}`
-        : `Espera ${elapsed(command.createdAt)}`;
+        ? `Lista hace ${elapsed(reference)}`
+        : `Espera ${elapsed(reference)}`;
+  // Alerta visual cuando una comanda lleva demasiado tiempo en su estado actual.
+  // new/preparing >= 10m: warn; >= 15m: late
+  let urgency = "";
+  if (command.status !== "ready") {
+    if (minutes >= 15) urgency = "is-late";
+    else if (minutes >= 10) urgency = "is-warn";
+  }
   return `
-    <article class="kitchen-card status-${command.status}">
+    <article class="kitchen-card status-${command.status} ${urgency}">
       <div class="kitchen-card-head">
         <div>
           <h4>${escapeHtml(command.label)}</h4>
-          <p>${formatTime(command.createdAt)} · ${escapeHtml(waiterName(command.createdBy))} · ${timeLabel}</p>
+          <p>${formatTime(command.createdAt)} · ${escapeHtml(waiterName(command.createdBy))}</p>
+          <span class="kitchen-card-timer">${svg("clock")}${timeLabel}</span>
         </div>
         <strong>${command.lines.reduce((sum, line) => sum + line.qty, 0)} pzas</strong>
       </div>
@@ -3583,13 +3614,15 @@ function renderInventory() {
   const inventory = currentInventory();
   const total = inventory.reduce((sum, item) => sum + item.totalCost, 0);
   const categories = [...new Set(inventory.map((item) => item.category))];
+  const lowStockCount = inventory.filter((item) => Number(item.qty) <= 1).length;
+  const lowStockTone = lowStockCount === 0 ? "ok" : lowStockCount <= 5 ? "warn" : "danger";
   return `
     <div class="inventory-layout">
       <section class="summary-grid">
         ${renderSummaryCard("Valor inventario", money.format(total))}
         ${renderSummaryCard("Categorias", String(categories.length))}
         ${renderSummaryCard("Insumos", String(inventory.length))}
-        ${renderSummaryCard("Bajo stock", String(inventory.filter((item) => Number(item.qty) <= 1).length))}
+        ${renderSummaryCard("Bajo stock", String(lowStockCount), lowStockTone)}
       </section>
       <section class="inventory-controls">
         <section class="panel panel-body field-grid admin-tools">
@@ -4427,7 +4460,7 @@ function renderCashClosePanel(session, totals) {
           <span>Nota opcional</span>
           <input name="note" placeholder="Faltante, sobrante o terminal bancaria" />
         </label>
-        <button class="primary-button" type="submit" ${openOrders ? "disabled" : ""}>${svg("check")}Cerrar caja</button>
+        <button class="cash-close-button" type="submit" ${openOrders ? "disabled" : ""}>${svg("check")}Cerrar caja y finalizar turno</button>
       </form>
     </section>
   `;
@@ -4857,17 +4890,16 @@ function renderOrderSearchData() {
 
 function renderData() {
   const metrics = buildBusinessMetrics(new Date());
+  const cancelTone = metrics.cancelCount === 0 ? "" : metrics.cancelCount <= 2 ? "warn" : "danger";
   return `
     <div class="data-layout">
       <section class="summary-grid">
-        ${renderSummaryCard("Cobrado hoy", money.format(metrics.revenue))}
-        ${renderSummaryCard("Efectivo hoy", money.format(metrics.cashRevenue))}
-        ${renderSummaryCard("Tarjeta hoy", money.format(metrics.cardRevenue))}
+        ${renderRevenueBreakdownCard(metrics)}
         ${renderSummaryCard("Propinas hoy", money.format(metrics.tips))}
         ${renderSummaryCard("Costo estimado", money.format(metrics.foodCost))}
-        ${renderSummaryCard("Ganancia bruta", money.format(metrics.grossProfit))}
+        ${renderSummaryCard("Ganancia bruta", money.format(metrics.grossProfit), "ok")}
         ${renderSummaryCard("Gastos", money.format(metrics.expenses))}
-        ${renderSummaryCard("Cancelaciones", `${metrics.cancelCount} · ${money.format(metrics.cancelAmount)}`)}
+        ${renderSummaryCard("Cancelaciones", `${metrics.cancelCount} · ${money.format(metrics.cancelAmount)}`, cancelTone)}
       </section>
       ${
         isAdminUser()
@@ -4981,11 +5013,27 @@ function renderData() {
   `;
 }
 
-function renderSummaryCard(label, value) {
+function renderSummaryCard(label, value, tone = "") {
   return `
-    <article class="summary-card">
+    <article class="summary-card${tone ? ` tone-${tone}` : ""}">
       <p class="summary-label">${label}</p>
       <p class="summary-value">${value}</p>
+    </article>
+  `;
+}
+
+function renderRevenueBreakdownCard(metrics) {
+  const cash = Number(metrics.cashRevenue) || 0;
+  const card = Number(metrics.cardRevenue) || 0;
+  const total = Number(metrics.revenue) || cash + card;
+  return `
+    <article class="summary-card summary-card-breakdown">
+      <p class="summary-label">Cobrado hoy</p>
+      <p class="summary-value">${money.format(total)}</p>
+      <div class="summary-breakdown">
+        <span><strong>${money.format(cash)}</strong>Efectivo</span>
+        <span><strong>${money.format(card)}</strong>Tarjeta</span>
+      </div>
     </article>
   `;
 }
@@ -5012,7 +5060,7 @@ function renderUserFunctionTags(user) {
   return `
     <div class="function-tags">
       ${normalizeUserFunctions(user)
-        .map((item) => `<span>${escapeHtml(functionLabel(item))}</span>`)
+        .map((item) => `<span class="function-tag fn-${escapeAttr(item)}">${escapeHtml(functionLabel(item))}</span>`)
         .join("")}
     </div>
   `;
@@ -5020,6 +5068,27 @@ function renderUserFunctionTags(user) {
 
 function currentShift(userId) {
   return (state.attendance || []).find((shift) => shift.userId === userId && !shift.clockOutAt) || null;
+}
+
+// Si un fichaje lleva más de 24h abierto el usuario probablemente olvidó marcar salida.
+// Lo cerramos automáticamente con la marca de auto-cierre para que las métricas no se rompan.
+function autoCloseStaleShifts() {
+  if (!Array.isArray(state.attendance) || !state.attendance.length) return false;
+  const MAX_HOURS = 24;
+  const cutoff = Date.now() - MAX_HOURS * 60 * 60 * 1000;
+  let changed = false;
+  state.attendance.forEach((shift) => {
+    if (shift.clockOutAt) return;
+    const start = new Date(shift.clockInAt).getTime();
+    if (!Number.isFinite(start)) return;
+    if (start <= cutoff) {
+      shift.clockOutAt = new Date(start + MAX_HOURS * 60 * 60 * 1000).toISOString();
+      shift.clockOutBy = "auto";
+      shift.autoClosed = true;
+      changed = true;
+    }
+  });
+  return changed;
 }
 
 function shiftMinutes(shift) {
@@ -5437,7 +5506,12 @@ function renderUsers() {
                         </button>
                         <button class="secondary-button compact" data-open-modal="edit-user" data-user-id="${user.id}">${svg("note")}Editar</button>
                         <button class="secondary-button compact" data-reset-password="${user.id}">${svg("transfer")}Resetear clave</button>
-                        <button class="danger-button compact" data-delete-user="${user.id}" ${canDelete ? "" : "disabled"}>${svg("trash")}Borrar</button>
+                        <details class="user-danger-menu">
+                          <summary class="ghost-button compact" title="Más acciones">${svg("minus")}</summary>
+                          <div class="user-danger-menu-body">
+                            <button class="danger-button compact" data-delete-user="${user.id}" ${canDelete ? "" : "disabled"} title="${canDelete ? `Borrar a ${escapeAttr(user.name)}` : "No se puede borrar el último admin"}">${svg("trash")}Borrar usuario</button>
+                          </div>
+                        </details>
                       </td>
                     </tr>
                   `;
@@ -6929,8 +7003,16 @@ function deleteUser(userId) {
     showToast("No se puede borrar este usuario.");
     return;
   }
-  const confirmed = window.confirm(`Borrar usuario ${user.name}? Ya no podra iniciar sesion.`);
-  if (!confirmed) return;
+  // Confirmación con texto para evitar borrar usuarios por error.
+  const typed = window.prompt(
+    `Vas a borrar a "${user.name}". Esta acción es irreversible y ya no podrá iniciar sesión.\n\nEscribe el nombre del usuario para confirmar:`,
+    "",
+  );
+  if (typed === null) return;
+  if (typed.trim().toLowerCase() !== user.name.trim().toLowerCase()) {
+    showToast("Cancelado. El nombre no coincide.");
+    return;
+  }
   const deletedAt = new Date().toISOString();
   const shift = currentShift(user.id);
   if (shift) {
@@ -6993,8 +7075,17 @@ function resetData(action) {
     "sales-data": "borrar ventas, cortes y cancelaciones",
     operations: "borrar la operacion completa del POS",
   };
-  const confirmed = window.confirm(`Confirmar: ${labels[action] || "reiniciar datos"}?`);
-  if (!confirmed) return;
+  // Confirmación con doble paso: el usuario debe ESCRIBIR la palabra para evitar clicks accidentales.
+  const challenge = action === "operations" ? "BORRAR TODO" : "ELIMINAR";
+  const typed = window.prompt(
+    `Vas a ${labels[action] || "reiniciar datos"}.\n\nEsta acción es irreversible.\nEscribe "${challenge}" para confirmar:`,
+    "",
+  );
+  if (typed === null) return;
+  if (typed.trim().toUpperCase() !== challenge) {
+    showToast("Cancelado. El texto no coincide.");
+    return;
+  }
   if (action === "inventory-zero") {
     currentInventory().forEach((item) => {
       item.qty = 0;
@@ -7086,6 +7177,16 @@ function closeCashSession(event) {
   const countedCash = Math.max(0, Number(form.get("countedCash")) || 0);
   const totals = cashSessionTotals(session);
   const difference = Math.round((countedCash - totals.expectedCash) * 100) / 100;
+  // Confirmación explícita: cerrar caja finaliza el turno (irreversible para esta sesión).
+  const diffText =
+    Math.abs(difference) < 0.005
+      ? "sin diferencia"
+      : difference > 0
+        ? `con un sobrante de ${money.format(difference)}`
+        : `con un faltante de ${money.format(Math.abs(difference))}`;
+  if (!window.confirm(`Cerrar caja: efectivo contado ${money.format(countedCash)} (${diffText}).\n\n¿Confirmas el corte?`)) {
+    return;
+  }
   const now = new Date().toISOString();
   Object.assign(session, {
     status: "closed",
@@ -8616,8 +8717,25 @@ function minutesBetween(start, end) {
   return Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 60000));
 }
 
+function minutesSince(value) {
+  if (!value) return 0;
+  return Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60000));
+}
+
 render();
 initNetworkSync();
 loadAccessInfo();
 checkForUpdates();
 window.setInterval(checkForUpdates, 10 * 60 * 1000);
+
+// Refresca la vista de cocina cada 30s para que cronómetros y alertas estén al día.
+window.setInterval(() => {
+  if (!currentUser()) return;
+  if (state.view !== "kitchen") return;
+  if (state.modal || state.productConfig) return;
+  // Solo re-renderiza si hay comandas pendientes.
+  const hasActive = state.orders.some((order) =>
+    (order.commandBatches || []).some((batch) => batch.status === "new" || batch.status === "preparing"),
+  );
+  if (hasActive) render();
+}, 30000);
