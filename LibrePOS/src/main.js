@@ -946,6 +946,10 @@ function normalizeExpenses(expenses) {
     amount: Math.max(0, Number(expense.amount) || 0),
     createdAt: expense.createdAt || expense.date || new Date().toISOString(),
     createdBy: expense.createdBy || "",
+    cashSessionId: String(expense.cashSessionId || ""),
+    source: String(expense.source || ""),
+    inventoryItemId: String(expense.inventoryItemId || ""),
+    qty: Math.max(0, Number(expense.qty) || 0),
     note: String(expense.note || "").trim(),
   }));
 }
@@ -1786,6 +1790,25 @@ function extraInventoryItem(extra) {
   const inventory = currentInventory();
   return inventory.find((item) => item.id === extra?.inventoryItemId)
     || inventory.find((item) => normalize(item.name) === normalize(extra?.inventoryItemName));
+}
+
+function inventoryItemHasEstimatedExtraUsage(item) {
+  if (!item) return false;
+  const records = [
+    ...(Array.isArray(state.orders) ? state.orders : []),
+    ...(Array.isArray(state.sales) ? state.sales : []),
+  ];
+  const usedInLines = records.some((record) =>
+    (record.items || []).some((line) =>
+      normalizeExtras(line.extras).some((extra) =>
+        extra.itemId === item.id || normalize(extra.inventoryItemName || extra.name) === normalize(item.name),
+      ),
+    ),
+  );
+  if (usedInLines) return true;
+  return (Array.isArray(state.inventoryMovements) ? state.inventoryMovements : []).some(
+    (movement) => movement.itemId === item.id && movement.estimated,
+  );
 }
 
 function getProduct(id) {
@@ -4218,6 +4241,7 @@ function renderInventory() {
   const categories = [...new Set(inventory.map((item) => item.category))];
   const lowStockCount = inventory.filter((item) => Number(item.qty) <= 1).length;
   const lowStockTone = lowStockCount === 0 ? "ok" : lowStockCount <= 5 ? "warn" : "danger";
+  const estimatedCount = inventory.filter(inventoryItemHasEstimatedExtraUsage).length;
   return `
     <div class="inventory-layout">
       <section class="summary-grid">
@@ -4225,6 +4249,7 @@ function renderInventory() {
         ${renderSummaryCard("Categorias", String(categories.length))}
         ${renderSummaryCard("Insumos", String(inventory.length))}
         ${renderSummaryCard("Bajo stock", String(lowStockCount), lowStockTone)}
+        ${renderSummaryCard("Extras estimados", String(estimatedCount), estimatedCount ? "warn" : "ok")}
       </section>
       <section class="inventory-controls">
         <section class="panel panel-body field-grid admin-tools">
@@ -4232,21 +4257,8 @@ function renderInventory() {
           <p class="muted-text">Las altas y cambios de costo se hacen en Catalogo. Esta pantalla controla existencias y movimientos.</p>
           <button class="secondary-button" data-nav="recipes">${svg("note")}Abrir Catalogo</button>
         </section>
-        <form class="panel panel-body field-grid" data-inventory-adjust-form>
-          <h2 class="panel-title">Movimiento manual</h2>
-          <label class="field">
-            <span>Insumo</span>
-            <select name="itemId">
-              ${inventory.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${formatNumber(item.qty)} ${escapeHtml(item.unit)}</option>`).join("")}
-            </select>
-          </label>
-          <div class="field-row">
-            <label class="field"><span>Cantidad</span><input name="qty" type="number" step="0.001" required value="1" /></label>
-            <label class="field"><span>Tipo</span><select name="direction"><option value="in">Entrada</option><option value="out">Salida</option></select></label>
-          </div>
-          <label class="field"><span>Motivo</span><input name="reason" placeholder="Compra, merma, ajuste" /></label>
-          <button class="secondary-button" type="submit">${svg("inventory")}Aplicar movimiento</button>
-        </form>
+        ${renderInventoryPurchaseForm(inventory)}
+        ${renderInventoryWasteForm(inventory)}
         ${
           isAdminUser()
             ? `
@@ -4304,7 +4316,106 @@ function renderInventory() {
           </table>
         </div>
       </section>
+      ${renderFullInventoryAudit(inventory)}
     </div>
+  `;
+}
+
+function inventorySelectOptions(inventory) {
+  return inventory
+    .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${formatNumber(item.qty)} ${escapeHtml(item.unit)}</option>`)
+    .join("");
+}
+
+function renderInventoryPurchaseForm(inventory) {
+  return `
+    <form class="panel panel-body field-grid" data-inventory-purchase-form>
+      <h2 class="panel-title">Movimiento de inventario</h2>
+      <p class="muted-text">Subir ticket suma inventario, actualiza costo y descuenta el importe de caja si hay caja abierta.</p>
+      <label class="field">
+        <span>Insumo</span>
+        <select name="itemId">${inventorySelectOptions(inventory)}</select>
+      </label>
+      <div class="field-row">
+        <label class="field"><span>Cantidad comprada</span><input name="qty" type="number" min="0.001" step="0.001" required /></label>
+        <label class="field"><span>Coste del ticket</span><input name="amount" type="number" min="0.01" step="0.01" required /></label>
+      </div>
+      <div class="field-row">
+        <label class="field"><span>Proveedor</span><input name="supplier" placeholder="MERCADO" /></label>
+        <label class="field"><span>Ticket / nota</span><input name="ticket" placeholder="Folio, factura o detalle" /></label>
+      </div>
+      <button class="primary-button" type="submit">${svg("plus")}Subir ticket</button>
+    </form>
+  `;
+}
+
+function renderInventoryWasteForm(inventory) {
+  return `
+    <form class="panel panel-body field-grid" data-inventory-waste-form>
+      <h2 class="panel-title">Merma</h2>
+      <p class="muted-text">Registra perdida fisica de insumos sin afectar caja.</p>
+      <label class="field">
+        <span>Insumo</span>
+        <select name="itemId">${inventorySelectOptions(inventory)}</select>
+      </label>
+      <div class="field-row">
+        <label class="field"><span>Cantidad</span><input name="qty" type="number" min="0.001" step="0.001" required /></label>
+        <label class="field"><span>Motivo</span><input name="reason" required placeholder="Caducidad, rotura, preparacion fallida" /></label>
+      </div>
+      <button class="danger-button" type="submit">${svg("minus")}Registrar merma</button>
+    </form>
+  `;
+}
+
+function renderFullInventoryAudit(inventory) {
+  const rows = [...inventory].sort((a, b) => a.category.localeCompare(b.category, "es") || a.name.localeCompare(b.name, "es"));
+  return `
+    <section class="panel data-grid-wide full-inventory-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Inventario completo</h2>
+          <p class="panel-kicker">Compara lo que debe haber contra el conteo fisico y calcula perdida o ganancia.</p>
+        </div>
+        <strong class="inventory-audit-total" data-inventory-count-total>${money.format(0)}</strong>
+      </div>
+      <form class="panel-body" data-full-inventory-form>
+        <div class="table-wrap">
+          <table class="data-table inventory-count-table">
+            <thead>
+              <tr>
+                <th>Insumo</th>
+                <th>Debe haber</th>
+                <th>Conteo fisico</th>
+                <th>Diferencia</th>
+                <th>Valor</th>
+                <th>Aviso</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map((item) => {
+                  const estimated = inventoryItemHasEstimatedExtraUsage(item);
+                  return `
+                    <tr data-inventory-count-row data-item-id="${item.id}" data-expected="${Number(item.qty) || 0}" data-unit-cost="${Number(item.unitCost) || 0}">
+                      <td><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${escapeHtml(item.unit)}</small></td>
+                      <td>${formatNumber(item.qty)} ${escapeHtml(item.unit)}</td>
+                      <td><input class="table-input" name="count:${item.id}" type="number" min="0" step="0.001" placeholder="Sin contar" /></td>
+                      <td data-count-diff>-</td>
+                      <td data-count-value>-</td>
+                      <td>${estimated ? `<span class="extra-warning is-warning">Uso por extra estimado</span>` : `<span class="extra-warning">Exacto segun recetas</span>`}</td>
+                    </tr>
+                  `;
+                })
+                .join("")}
+            </tbody>
+          </table>
+        </div>
+        <div class="inventory-audit-actions">
+          <p class="muted-text">Solo se ajustan las filas donde captures conteo fisico.</p>
+          <button class="secondary-button" type="submit">${svg("check")}Aplicar conteo completo</button>
+        </div>
+      </form>
+    </section>
   `;
 }
 
@@ -5158,6 +5269,7 @@ function renderCashRegister() {
             <div class="total-line"><span>Total cobrado</span><strong>${money.format(activeTotals.total || 0)}</strong></div>
             <div class="total-line"><span>Ventas efectivo</span><strong>${money.format(activeTotals.cash || 0)}</strong></div>
             <div class="total-line"><span>Ventas tarjeta</span><strong>${money.format(activeTotals.card || 0)}</strong></div>
+            <div class="total-line"><span>Tickets insumos</span><strong>${money.format(activeTotals.cashExpenses || 0)}</strong></div>
             <div class="total-line"><span>Propinas incluidas</span><strong>${money.format(activeTotals.tips || 0)}</strong></div>
             <div class="total-line grand"><span>Efectivo esperado</span><strong>${money.format(activeTotals.expectedCash || 0)}</strong></div>
           </div>
@@ -5185,6 +5297,7 @@ function renderCashClosePanel(session, totals) {
           <div><span>Total cobrado</span><strong>${money.format(totals.total)}</strong></div>
           <div><span>Efectivo esperado</span><strong>${money.format(totals.expectedCash)}</strong></div>
           <div><span>Tarjeta cobrada</span><strong>${money.format(totals.card)}</strong></div>
+          <div><span>Tickets insumos</span><strong>${money.format(totals.cashExpenses || 0)}</strong></div>
         </div>
         <label class="field">
           <span>Efectivo contado</span>
@@ -5934,11 +6047,20 @@ function salesForCashSession(session) {
 function cashSessionTotals(session) {
   const openingCash = Number(session?.openingCash) || 0;
   const payments = paymentTotalsForSales(salesForCashSession(session));
+  const cashExpenses = cashExpensesForSession(session);
   return {
     ...payments,
     openingCash,
-    expectedCash: openingCash + payments.cash,
+    cashExpenses,
+    expectedCash: openingCash + payments.cash - cashExpenses,
   };
+}
+
+function cashExpensesForSession(session) {
+  if (!session?.id) return 0;
+  return normalizeExpenses(state.expenses)
+    .filter((expense) => expense.cashSessionId === session.id)
+    .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
 }
 
 function lastClosedCashSession() {
@@ -6500,6 +6622,11 @@ function bindEvents() {
   });
   document.querySelector("[data-inventory-add-form]")?.addEventListener("submit", addInventoryItem);
   document.querySelector("[data-inventory-adjust-form]")?.addEventListener("submit", adjustInventoryFromForm);
+  document.querySelector("[data-inventory-purchase-form]")?.addEventListener("submit", submitInventoryPurchase);
+  document.querySelector("[data-inventory-waste-form]")?.addEventListener("submit", submitInventoryWaste);
+  const fullInventoryForm = document.querySelector("[data-full-inventory-form]");
+  fullInventoryForm?.addEventListener("input", () => updateFullInventoryPreview(fullInventoryForm));
+  fullInventoryForm?.addEventListener("submit", applyFullInventoryCount);
   const menuProductForm = document.querySelector("[data-menu-product-form]");
   menuProductForm?.addEventListener("submit", saveMenuProduct);
   menuProductForm?.addEventListener("keydown", preventMenuProductEnterSubmit);
@@ -8111,6 +8238,7 @@ function closeCashSession(event) {
     cashSales: totals.cash,
     cardSales: totals.card,
     totalSales: totals.total,
+    cashExpenses: totals.cashExpenses || 0,
     cashTips: totals.cashTips,
     cardTips: totals.cardTips,
     tips: totals.tips,
@@ -8912,7 +9040,88 @@ function adjustInventoryFromForm(event) {
   adjustInventory(String(form.get("itemId")), signedQty, String(form.get("reason") || "Movimiento manual"));
 }
 
-function adjustInventory(itemId, signedQty, reason, source = "manual") {
+function submitInventoryPurchase(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede subir tickets de inventario.");
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const item = currentInventory().find((entry) => entry.id === String(form.get("itemId") || ""));
+  const qty = Math.abs(Number(form.get("qty")) || 0);
+  const amount = roundCurrency(Math.abs(Number(form.get("amount")) || 0));
+  if (!item || qty <= 0 || amount <= 0) {
+    showToast("Captura insumo, cantidad y coste del ticket.");
+    return;
+  }
+  const now = new Date().toISOString();
+  const previousCost = Number(item.unitCost) || 0;
+  const nextUnitCost = roundCurrency(amount / qty);
+  const supplier = cleanUserText(form.get("supplier")) || item.supplier || "Sin proveedor";
+  const ticket = cleanUserText(form.get("ticket"));
+  item.supplier = supplier;
+  item.qty = Number(item.qty) + qty;
+  item.unitCost = nextUnitCost || item.unitCost;
+  item.totalCost = item.qty * item.unitCost;
+  if (roundCurrency(previousCost) !== roundCurrency(item.unitCost)) {
+    item.costHistory = normalizeCostHistory(item.costHistory);
+    item.costHistory.unshift({
+      id: safeId("cost"),
+      previousCost,
+      nextCost: item.unitCost,
+      changedAt: now,
+      changedBy: currentUser()?.id,
+      reason: ticket ? `Ticket ${ticket}` : "Ticket de inventario",
+    });
+  }
+  const activeCash = currentCashSession();
+  recordInventoryMovement(item, qty, ticket ? `Ticket ${ticket}` : "Ticket de inventario", "compra", {
+    amount,
+    unitCost: item.unitCost,
+    cashSessionId: activeCash?.id || "",
+  });
+  state.expenses = normalizeExpenses(state.expenses);
+  state.expenses.unshift({
+    id: safeId("expense"),
+    supplier,
+    name: `Compra ${item.name}`,
+    category: "Inventario",
+    amount,
+    createdAt: now,
+    createdBy: currentUser()?.id,
+    cashSessionId: activeCash?.id || "",
+    source: "inventario-ticket",
+    inventoryItemId: item.id,
+    qty,
+    note: ticket || "Subida desde inventario",
+  });
+  persist();
+  showToast(activeCash ? "Ticket registrado. Inventario subido y efectivo esperado ajustado." : "Ticket registrado. Inventario subido y gasto guardado.");
+  render();
+}
+
+function submitInventoryWaste(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede registrar merma.");
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const item = currentInventory().find((entry) => entry.id === String(form.get("itemId") || ""));
+  const qty = Math.abs(Number(form.get("qty")) || 0);
+  const reason = cleanUserText(form.get("reason"));
+  if (!item || qty <= 0 || !reason) {
+    showToast("Captura insumo, cantidad y motivo de merma.");
+    return;
+  }
+  if (qty > Number(item.qty || 0)) {
+    showToast("La merma no puede ser mayor al inventario registrado.");
+    return;
+  }
+  adjustInventory(item.id, -qty, `Merma: ${reason}`, "merma");
+}
+
+function adjustInventory(itemId, signedQty, reason, source = "manual", details = {}) {
   const item = currentInventory().find((entry) => entry.id === itemId);
   if (!item) return;
   const nextQty = Math.max(0, Number(item.qty) + signedQty);
@@ -8923,12 +9132,12 @@ function adjustInventory(itemId, signedQty, reason, source = "manual") {
   }
   item.qty = nextQty;
   item.totalCost = item.qty * item.unitCost;
-  recordInventoryMovement(item, appliedQty, reason, source);
+  recordInventoryMovement(item, appliedQty, reason, source, details);
   persist();
   render();
 }
 
-function recordInventoryMovement(item, signedQty, reason, source) {
+function recordInventoryMovement(item, signedQty, reason, source, details = {}) {
   state.inventoryMovements.unshift({
     id: safeId("mov"),
     itemId: item.id,
@@ -8939,42 +9148,154 @@ function recordInventoryMovement(item, signedQty, reason, source) {
     source,
     createdAt: new Date().toISOString(),
     userId: currentUser()?.id,
+    ...details,
   });
 }
 
-function deductInventoryForLines(lines, order) {
-  const usage = new Map();
-  lines.forEach((line) => {
-    inventoryUsageForLine(line).forEach((item) => {
-      usage.set(item.name, (usage.get(item.name) || 0) + item.qty);
-    });
+function updateFullInventoryPreview(form) {
+  let totalVariance = 0;
+  let countedRows = 0;
+  form.querySelectorAll("[data-inventory-count-row]").forEach((row) => {
+    const input = row.querySelector("input");
+    const diffCell = row.querySelector("[data-count-diff]");
+    const valueCell = row.querySelector("[data-count-value]");
+    const rawValue = String(input?.value || "").trim();
+    if (!rawValue) {
+      if (diffCell) diffCell.textContent = "-";
+      if (valueCell) valueCell.textContent = "-";
+      row.classList.remove("inventory-loss", "inventory-gain");
+      return;
+    }
+    const expected = Number(row.dataset.expected) || 0;
+    const counted = Math.max(0, Number(rawValue) || 0);
+    const unitCost = Number(row.dataset.unitCost) || 0;
+    const diff = counted - expected;
+    const value = roundCurrency(diff * unitCost);
+    totalVariance += value;
+    countedRows += 1;
+    row.classList.toggle("inventory-loss", diff < 0);
+    row.classList.toggle("inventory-gain", diff > 0);
+    if (diffCell) diffCell.textContent = `${diff > 0 ? "+" : ""}${formatNumber(diff)}`;
+    if (valueCell) valueCell.textContent = money.format(value);
   });
-  usage.forEach((qty, name) => {
-    const item = currentInventory().find((entry) => normalize(entry.name) === normalize(name));
+  const total = form.closest(".full-inventory-panel")?.querySelector("[data-inventory-count-total]");
+  if (total) {
+    const label = countedRows ? `${totalVariance >= 0 ? "Ganancia" : "Perdida"} ${money.format(Math.abs(totalVariance))}` : money.format(0);
+    total.textContent = label;
+    total.classList.toggle("inventory-loss", totalVariance < 0);
+    total.classList.toggle("inventory-gain", totalVariance > 0);
+  }
+}
+
+function applyFullInventoryCount(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede aplicar inventario completo.");
+    return;
+  }
+  const form = event.currentTarget;
+  updateFullInventoryPreview(form);
+  const adjustments = [];
+  form.querySelectorAll("[data-inventory-count-row]").forEach((row) => {
+    const input = row.querySelector("input");
+    const rawValue = String(input?.value || "").trim();
+    if (!rawValue) return;
+    const item = currentInventory().find((entry) => entry.id === row.dataset.itemId);
     if (!item) return;
+    const expected = Number(item.qty) || 0;
+    const counted = Math.max(0, Number(rawValue) || 0);
+    const diff = counted - expected;
+    if (Math.abs(diff) < 0.0005) return;
+    adjustments.push({ item, expected, counted, diff });
+  });
+  if (!adjustments.length) {
+    showToast("No hay descuadros para aplicar.");
+    return;
+  }
+  const totalVariance = roundCurrency(adjustments.reduce((sum, entry) => sum + entry.diff * (Number(entry.item.unitCost) || 0), 0));
+  const challenge = "APLICAR";
+  const typed = window.prompt(
+    `Se aplicaran ${adjustments.length} ajuste${adjustments.length === 1 ? "" : "s"} de inventario completo.\n\nResultado: ${totalVariance >= 0 ? "ganancia" : "perdida"} ${money.format(Math.abs(totalVariance))}.\n\nEscribe "${challenge}" para confirmar:`,
+    "",
+  );
+  if (typed === null) return;
+  if (typed.trim().toUpperCase() !== challenge) {
+    showToast("Cancelado. El texto no coincide.");
+    return;
+  }
+  adjustments.forEach(({ item, expected, counted, diff }) => {
+    item.qty = counted;
+    item.totalCost = item.qty * item.unitCost;
+    recordInventoryMovement(
+      item,
+      diff,
+      `Inventario completo: ${diff < 0 ? "perdida" : "ganancia"}`,
+      "conteo",
+      {
+        expectedQty: expected,
+        countedQty: counted,
+        varianceValue: roundCurrency(diff * (Number(item.unitCost) || 0)),
+        estimated: inventoryItemHasEstimatedExtraUsage(item),
+      },
+    );
+  });
+  persist();
+  showToast(`Inventario completo aplicado: ${totalVariance >= 0 ? "ganancia" : "perdida"} ${money.format(Math.abs(totalVariance))}.`);
+  render();
+}
+
+function deductInventoryForLines(lines, order) {
+  aggregateInventoryUsage(lines).forEach((usageItem) => {
+    const item = inventoryItemForUsage(usageItem);
+    if (!item) return;
+    const qty = Number(usageItem.qty) || 0;
     const nextQty = Math.max(0, Number(item.qty) - qty);
     const appliedQty = nextQty - Number(item.qty);
     if (!appliedQty) return;
     item.qty = nextQty;
     item.totalCost = item.qty * item.unitCost;
-    recordInventoryMovement(item, appliedQty, `Comanda ${orderLabel(order)}`, "comanda");
+    recordInventoryMovement(item, appliedQty, `Comanda ${orderLabel(order)}${usageItem.estimated ? " · extra estimado" : ""}`, "comanda", {
+      estimated: usageItem.estimated,
+    });
   });
 }
 
 function restoreInventoryForLines(lines, order, reason) {
+  aggregateInventoryUsage(lines).forEach((usageItem) => {
+    const item = inventoryItemForUsage(usageItem);
+    if (!item) return;
+    const qty = Number(usageItem.qty) || 0;
+    item.qty += qty;
+    item.totalCost = item.qty * item.unitCost;
+    recordInventoryMovement(item, qty, `${reason} · ${orderLabel(order)}${usageItem.estimated ? " · extra estimado" : ""}`, "cancelacion", {
+      estimated: usageItem.estimated,
+    });
+  });
+}
+
+function aggregateInventoryUsage(lines) {
   const usage = new Map();
   lines.forEach((line) => {
     inventoryUsageForLine(line).forEach((item) => {
-      usage.set(item.name, (usage.get(item.name) || 0) + item.qty);
+      const key = item.itemId || normalize(item.name);
+      const current = usage.get(key) || {
+        itemId: item.itemId || "",
+        name: item.name,
+        qty: 0,
+        estimated: false,
+      };
+      current.qty += Number(item.qty) || 0;
+      current.estimated = current.estimated || Boolean(item.estimated);
+      usage.set(key, current);
     });
   });
-  usage.forEach((qty, name) => {
-    const item = currentInventory().find((entry) => normalize(entry.name) === normalize(name));
-    if (!item) return;
-    item.qty += qty;
-    item.totalCost = item.qty * item.unitCost;
-    recordInventoryMovement(item, qty, `${reason} · ${orderLabel(order)}`, "cancelacion");
-  });
+  return [...usage.values()];
+}
+
+function inventoryItemForUsage(usageItem) {
+  const inventory = currentInventory();
+  return inventory.find((entry) => usageItem.itemId && entry.id === usageItem.itemId)
+    || inventory.find((entry) => normalize(entry.name) === normalize(usageItem.name));
 }
 
 function inventoryUsageForLine(line) {
@@ -8987,7 +9308,7 @@ function inventoryUsageForLine(line) {
     const units = choice.includes("10") ? 10 : choice.includes("5") ? 5 : 1;
     return [
       { name: product.name.toUpperCase(), qty: units * line.qty },
-      ...extras.map((extra) => ({ itemId: extra.itemId, name: extra.inventoryItemName || extra.name, qty: extra.qty * line.qty })),
+      ...extras.map((extra) => ({ itemId: extra.itemId, name: extra.inventoryItemName || extra.name, qty: extra.qty * line.qty, estimated: true })),
     ];
   }
   // Si la línea es mixta, combinamos la receta de cada parte con su peso.
@@ -8995,10 +9316,11 @@ function inventoryUsageForLine(line) {
   const baseRecipe = lineParts(line)
     ? combinedRecipeForLine(product, line)
     : configuredRecipeForProduct(product, line.selections || defaultSelectionsFor(product));
-  return [...baseRecipe, ...extras.map((extra) => ({ ...extra, name: extra.inventoryItemName || extra.name }))].map((item) => ({
+  return [...baseRecipe, ...extras.map((extra) => ({ ...extra, name: extra.inventoryItemName || extra.name, estimated: true }))].map((item) => ({
     itemId: item.itemId || "",
     name: item.name,
     qty: item.qty * line.qty,
+    estimated: Boolean(item.estimated),
   }));
 }
 
@@ -9561,7 +9883,7 @@ function exportData(kind) {
     caja: () => ({
       filename: `librepos-caja-${stamp}.csv`,
       rows: [
-        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
+        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
         ...normalizeCashSessions(state.cashSessions).map((session) => {
           const totals = session.status === "closed" ? session : cashSessionTotals(session);
           return [
@@ -9573,6 +9895,7 @@ function exportData(kind) {
             Number(totals.cashSales ?? totals.cash) || 0,
             Number(totals.cardSales ?? totals.card) || 0,
             Number(totals.totalSales ?? totals.total) || 0,
+            Number(totals.cashExpenses) || 0,
             Number(totals.expectedCash) || 0,
             Number(session.countedCash) || 0,
             Number(session.difference) || 0,
@@ -9584,13 +9907,17 @@ function exportData(kind) {
     gastos: () => ({
       filename: `librepos-gastos-${stamp}.csv`,
       rows: [
-        ["fecha", "proveedor", "categoria", "concepto", "importe", "nota"],
+        ["fecha", "proveedor", "categoria", "concepto", "importe", "origen", "caja", "insumo", "cantidad", "nota"],
         ...normalizeExpenses(state.expenses).map((expense) => [
           formatCsvDateTime(expense.createdAt),
           expense.supplier,
           expense.category,
           expense.name,
           expense.amount,
+          expense.source || "",
+          expense.cashSessionId || "",
+          expense.inventoryItemId || "",
+          expense.qty || "",
           expense.note || "",
         ]),
       ],

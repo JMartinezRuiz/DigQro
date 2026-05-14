@@ -51,7 +51,7 @@ Los datos operativos se guardan en:
 
 Archivos importantes:
 
-- `.librepos/state.json`: ventas, ordenes abiertas, usuarios, inventario, extras, gastos, cortes y configuracion.
+- `.librepos/state.json`: ventas, ordenes abiertas, usuarios, inventario, movimientos, extras, gastos, cortes y configuracion.
 - `.librepos/sync-token`: token local usado por la cookie de acceso del servidor.
 - `.librepos/app-version.json`: version tecnica instalada cuando se actualiza desde GitHub.
 
@@ -73,6 +73,14 @@ Haz dos tipos de respaldo:
 2. Respaldo completo del servidor: con LibrePOS apagado, copia toda la carpeta `.librepos/` a una USB, disco externo o carpeta sincronizada segura.
 
 El respaldo completo de `.librepos/` es el preferido para migrar o restaurar el sistema completo porque conserva hashes de contrasenas, token local y metadatos de version.
+
+## Inventario y caja
+
+- `Subir ticket` en Inventario crea un gasto de categoria `Inventario`, suma existencia y actualiza el costo unitario del insumo.
+- Si hay caja abierta, el gasto queda ligado a esa caja y baja el efectivo esperado del corte.
+- `Merma` descuenta inventario y deja movimiento con motivo, pero no afecta efectivo.
+- `Inventario completo` compara conteo fisico contra cantidad esperada. Al aplicar el conteo, cada descuadro queda como movimiento de `conteo` con perdida o ganancia.
+- Los insumos consumidos como extras se marcan como estimados porque dependen del gramaje configurado en el catalogo de extras.
 
 ## Restauracion
 

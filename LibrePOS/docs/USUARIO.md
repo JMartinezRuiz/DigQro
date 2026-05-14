@@ -76,8 +76,11 @@ Si una venta tiene pago en efectivo, LibrePOS calcula efectivo a recibir, recibi
 La vista `Inventario` es para administradores.
 
 - Revisa insumos, unidades, proveedores, costos y cantidad disponible.
-- Usa movimientos de entrada o salida para ajustar existencias.
+- Usa `Subir ticket` para registrar compras de insumos: captura insumo, cantidad y coste del ticket. LibrePOS suma inventario, actualiza el costo unitario y descuenta el importe del efectivo esperado si hay caja abierta.
+- Usa `Merma` para descontar insumos por caducidad, rotura, preparacion fallida u otro motivo operativo.
+- Usa `Inventario completo` para comparar lo que debe haber contra el conteo fisico. La diferencia se calcula como perdida o ganancia y se puede aplicar como ajuste de inventario.
 - Las recetas pueden descontar insumos estimados cuando se venden productos configurados.
+- Los insumos usados por extras muestran aviso porque el gramaje de extra es estimado.
 - La accion `Inventario a cero` es destructiva para cantidades; usala solo cuando sea intencional.
 
 ## Catalogo y recetas

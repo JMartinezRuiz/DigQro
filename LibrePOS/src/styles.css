@@ -3671,6 +3671,33 @@ button:disabled {
   color: var(--danger);
 }
 
+.inventory-audit-total {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.inventory-audit-total.inventory-loss,
+.inventory-count-table tr.inventory-loss [data-count-value] {
+  color: var(--danger);
+}
+
+.inventory-audit-total.inventory-gain,
+.inventory-count-table tr.inventory-gain [data-count-value] {
+  color: var(--success);
+}
+
+.inventory-count-table input {
+  min-width: 110px;
+}
+
+.inventory-audit-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  margin-top: 14px;
+}
+
 .inventory-controls {
   display: grid;
   grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr);
@@ -5181,6 +5208,7 @@ button:disabled {
   .cash-fields,
   .cash-cut-preview,
   .extras-add-row,
+  .inventory-audit-actions,
   .command-grid,
   .tip-options,
   .menu-grid,

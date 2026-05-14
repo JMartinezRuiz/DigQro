@@ -62,6 +62,7 @@ Detalle:
 - Persistencia local en `localStorage` con la llave `librepos:v2`.
 - Sincronizacion con `/api/state` y `/api/events`.
 - Exportacion CSV/JSON.
+- Movimientos de inventario por compra, merma, comanda, cancelacion y conteo completo.
 
 `sync-store.js` contiene el servidor local:
 
@@ -108,6 +109,14 @@ Cuando la API local esta disponible:
 5. Otros clientes aplican el nuevo estado y lo guardan en su `localStorage`.
 
 Si el servidor no esta disponible, el navegador sigue funcionando con `localStorage`, pero no sincroniza con otros dispositivos.
+
+## Inventario
+
+Las compras desde `Subir ticket` registran entrada de inventario, actualizan costo vigente, crean gasto con `source: inventario-ticket` y enlazan `cashSessionId` cuando hay caja abierta. `cashSessionTotals()` resta esos gastos del efectivo esperado.
+
+Las mermas registran salida con `source: merma`. El conteo completo registra ajustes con `source: conteo`, `expectedQty`, `countedQty` y `varianceValue`.
+
+Los consumos de extras llegan al inventario como uso estimado para que el conteo completo pueda avisar que el descuadro puede depender del gramaje configurado.
 
 ## Conflictos
 
