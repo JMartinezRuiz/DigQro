@@ -1,8 +1,15 @@
 # LibrePOS
 
-POS sencillo para restaurante, con venta por mesas y para llevar, comandas digitales, cocina, inventario, usuarios, fichaje, datos diarios y sincronizacion local por red WiFi.
+LibrePOS es un punto de venta local para restaurante. Incluye venta por mesas y para llevar, comandas digitales, cocina, caja, inventario, catalogo, usuarios, fichaje, exportacion de datos y sincronizacion por red WiFi.
 
-## Instalar con doble click
+## Documentacion
+
+- [Guia de usuario](docs/USUARIO.md): flujo diario para meseros, cocina, caja y administradores.
+- [Administracion y mantenimiento](docs/ADMINISTRACION.md): instalacion, datos locales, respaldos, restauracion, actualizaciones y seguridad.
+- [Desarrollo](docs/DESARROLLO.md): estructura del proyecto, comandos, arquitectura y checklist de release.
+- [API local](docs/API_LOCAL.md): endpoints internos usados por la app para sincronizacion, login y actualizaciones.
+
+## Inicio rapido
 
 ### macOS
 
@@ -18,6 +25,15 @@ POS sencillo para restaurante, con venta por mesas y para llevar, comandas digit
 
 Los archivos `.bat` de Windows no dependen de Python. Funcionan con Node.js/npm directamente, asi que no importa si tienes Python 3.14.4 u otra version instalada.
 
+## Login inicial
+
+```text
+Usuario: admin
+Contrasena: admin
+```
+
+Cambia la contrasena desde `Usuarios` antes de usar LibrePOS en operacion real.
+
 ## Acceso desde telefono o tablet
 
 El equipo que corre LibrePOS actua como servidor local. En otros dispositivos de la misma red WiFi no uses `localhost`; usa la IP que muestra la ventana al arrancar, por ejemplo:
@@ -26,27 +42,7 @@ El equipo que corre LibrePOS actua como servidor local. En otros dispositivos de
 http://192.168.1.73:5173/
 ```
 
-## Login inicial
-
-```text
-Usuario: admin
-Contrasena: admin
-```
-
-Cambia la contrasena desde la seccion de usuarios cuando empieces a usarlo en serio.
-
-## Dependencias incluidas
-
-El repositorio incluye:
-
-- `package.json`
-- `package-lock.json`
-- Scripts Python opcionales de instalacion y arranque en `scripts/`
-- Launchers point-and-click para macOS y Windows
-
-No se sube `node_modules/` porque es una carpeta generada. El instalador ejecuta `npm install` usando `package-lock.json`, por lo que instala exactamente las dependencias del proyecto.
-
-No hay dependencias `pip`; Python se usa solo para los scripts de ayuda.
+La red debe permitir conexiones al puerto `5173` del equipo servidor.
 
 ## Instalacion manual
 
@@ -58,6 +54,15 @@ npm run build
 npm start
 ```
 
+Comandos disponibles:
+
+```bash
+npm start      # servidor local Vite en 0.0.0.0:5173
+npm run build  # compilacion de produccion en dist/
+npm run preview
+npm run update # actualizacion desde GitHub
+```
+
 ## Datos locales
 
 Los datos reales del restaurante se guardan localmente en:
@@ -66,7 +71,7 @@ Los datos reales del restaurante se guardan localmente en:
 .librepos/state.json
 ```
 
-Esa carpeta esta ignorada por Git para no publicar ventas, usuarios, tokens ni informacion de operacion. Si migras el POS a otro equipo y quieres conservar datos, copia manualmente la carpeta `.librepos/`.
+La carpeta `.librepos/` esta ignorada por Git para no publicar ventas, usuarios, tokens ni informacion de operacion. Para migrar el POS a otro equipo y conservar datos completos, copia la carpeta `.librepos/` con el servidor detenido.
 
 ## Actualizaciones
 
@@ -74,18 +79,8 @@ LibrePOS consulta `https://github.com/JMartinezRuiz/DigQro` y muestra el boton `
 
 Al actualizar se descargan los archivos del proyecto, se ejecuta `npm install` y se conserva completa la carpeta `.librepos/`, por lo que ventas, mesas, usuarios, inventario, fichajes y datos locales no se borran. Tras actualizar, cierra y vuelve a abrir LibrePOS para cargar tambien los cambios del servidor local.
 
-## Version visible
-
-La version visible en la pantalla sale de `package.json` y se muestra junto a `Los Tatas` como `vX.Y.Z`. Cada update publicado debe aumentar el campo `version` en `package.json` y `package-lock.json` antes de subirlo a GitHub.
-
-Tambien se puede actualizar desde la consola dentro de la carpeta LibrePOS:
-
-```bash
-npm run update
-```
-
-El actualizador escribe logs en la consola donde corre `npm start` y tambien en la consola cuando se usa `npm run update`.
+La version visible en la pantalla sale de `package.json` y se muestra como `vX.Y.Z`. Cada update publicado debe aumentar el campo `version` en `package.json` y `package-lock.json` antes de subirlo a GitHub.
 
 ## Seguridad local
 
-La sincronizacion usa una API local servida por Vite. No esta pensada para internet publico. Usala solo dentro de una red WiFi de confianza.
+LibrePOS esta pensado para uso local en una red WiFi de confianza. No lo expongas a internet publico. Protege el equipo servidor, cambia la contrasena inicial de `admin` y guarda los respaldos fuera del equipo donde corre el POS.

@@ -3426,7 +3426,7 @@ button:disabled {
 
 .extras-add-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 124px auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: end;
 }
@@ -3652,6 +3652,23 @@ button:disabled {
 
 .data-table tr.non-recipe-row td {
   background: #fff8ec;
+}
+
+.extra-warning {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.extra-warning.is-warning {
+  background: var(--danger-tint);
+  color: var(--danger);
 }
 
 .inventory-controls {

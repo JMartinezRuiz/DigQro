@@ -197,6 +197,7 @@ function validateStatePayload(state) {
     "inventoryMovements",
     "expenses",
     "menuProducts",
+    "extraCatalog",
     "attendance",
     "cashSessions",
   ];

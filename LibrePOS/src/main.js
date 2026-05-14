@@ -17,6 +17,7 @@ const SHARED_STATE_KEYS = [
   "inventoryMovements",
   "expenses",
   "menuProducts",
+  "extraCatalog",
   "attendance",
   "cashSessions",
 ];
@@ -624,6 +625,7 @@ const defaultState = {
   ingredientsCategoryScroll: 0,
   ingredientsCategorySearch: "",
   ingredientsSearch: "",
+  extrasSearch: "",
   dataOrderSearch: "",
   dataOrderFrom: "",
   dataOrderTo: "",
@@ -647,6 +649,7 @@ const defaultState = {
   inventoryMovements: [],
   expenses: fixedExpenses,
   menuProducts: [],
+  extraCatalog: [],
   attendance: [],
   cashSessions: [],
 };
@@ -741,6 +744,7 @@ function loadState() {
       inventoryMovements: Array.isArray(saved.inventoryMovements) ? saved.inventoryMovements : [],
       expenses: normalizeExpenses(saved.expenses),
       menuProducts: normalizeMenuProducts(saved.menuProducts),
+      extraCatalog: normalizeExtraCatalog(saved.extraCatalog, inventory),
       attendance: Array.isArray(saved.attendance) ? saved.attendance : [],
       cashSessions: normalizeCashSessions(saved.cashSessions),
     };
@@ -981,6 +985,37 @@ function normalizeMenuProducts(products) {
     .filter((product) => product.name && product.price >= 0);
 }
 
+function normalizeExtraCatalog(extras = [], inventory = []) {
+  const seen = new Set();
+  return (Array.isArray(extras) ? extras : [])
+    .map((extra, index) => {
+      const name = cleanUserText(extra.name || extra.extra || `Extra ${index + 1}`);
+      if (!name) return null;
+      const inventoryItemId = String(extra.inventoryItemId || extra.itemId || "");
+      const inventoryItem = inventory.find((item) => item.id === inventoryItemId)
+        || inventory.find((item) => normalize(item.name) === normalize(extra.inventoryItemName || extra.itemName || extra.name));
+      const id = String(extra.id || `extra-${index}-${slugify(name)}`);
+      const key = normalize(id || name);
+      if (seen.has(key)) return null;
+      seen.add(key);
+      return {
+        id,
+        name,
+        price: roundCurrency(Math.max(0, Number(extra.price ?? extra.total ?? extra.priceDelta) || 0)),
+        inventoryItemId: inventoryItem?.id || inventoryItemId,
+        inventoryItemName: inventoryItem?.name || String(extra.inventoryItemName || extra.itemName || "").trim().toUpperCase(),
+        unit: inventoryItem?.unit || String(extra.unit || "PZ").trim().toUpperCase(),
+        qty: Math.max(0, Number(extra.qty ?? extra.gramaje ?? extra.grams) || 0),
+        active: extra.active !== false,
+        createdAt: extra.createdAt || new Date().toISOString(),
+        createdBy: extra.createdBy || "",
+        updatedAt: extra.updatedAt || "",
+        updatedBy: extra.updatedBy || "",
+      };
+    })
+    .filter((extra) => extra && extra.name && extra.price >= 0 && extra.qty >= 0);
+}
+
 function normalizeProductOptions(options = []) {
   return (Array.isArray(options) ? options : [])
     .map((option, optionIndex) => {
@@ -1142,17 +1177,19 @@ function sharedStateFromCurrent() {
 }
 
 function normalizeSharedState(shared = {}) {
+  const inventory = normalizeInventory(shared.inventory);
   return {
     settings: { ...defaultState.settings, ...(shared.settings || {}) },
     users: normalizeUsers(shared.users),
     orders: Array.isArray(shared.orders) ? shared.orders : [],
     sales: Array.isArray(shared.sales) ? shared.sales : [],
     cancellations: Array.isArray(shared.cancellations) ? shared.cancellations : [],
-    inventory: normalizeInventory(shared.inventory),
-    ingredientCategories: normalizeIngredientCategories(shared.ingredientCategories, shared.inventory),
+    inventory,
+    ingredientCategories: normalizeIngredientCategories(shared.ingredientCategories, inventory),
     inventoryMovements: Array.isArray(shared.inventoryMovements) ? shared.inventoryMovements : [],
     expenses: normalizeExpenses(shared.expenses),
     menuProducts: normalizeMenuProducts(shared.menuProducts),
+    extraCatalog: normalizeExtraCatalog(shared.extraCatalog, inventory),
     attendance: Array.isArray(shared.attendance) ? shared.attendance : [],
     cashSessions: normalizeCashSessions(shared.cashSessions),
   };
@@ -1176,6 +1213,7 @@ function applySharedState(shared) {
     ingredientsCategoryScroll: state.ingredientsCategoryScroll,
     ingredientsCategorySearch: state.ingredientsCategorySearch,
     ingredientsSearch: state.ingredientsSearch,
+    extrasSearch: state.extrasSearch,
     dataOrderSearch: state.dataOrderSearch,
     dataOrderFrom: state.dataOrderFrom,
     dataOrderTo: state.dataOrderTo,
@@ -1731,6 +1769,25 @@ function activeMenuProducts() {
   return menuProducts().filter((item) => item.active !== false);
 }
 
+function extraCatalog({ includeInactive = false } = {}) {
+  state.extraCatalog = normalizeExtraCatalog(state.extraCatalog, currentInventory());
+  return state.extraCatalog.filter((extra) => includeInactive || extra.active !== false);
+}
+
+function activeExtras() {
+  return extraCatalog().filter((extra) => extra.active !== false);
+}
+
+function getExtraDefinition(id) {
+  return extraCatalog({ includeInactive: true }).find((extra) => extra.id === id);
+}
+
+function extraInventoryItem(extra) {
+  const inventory = currentInventory();
+  return inventory.find((item) => item.id === extra?.inventoryItemId)
+    || inventory.find((item) => normalize(item.name) === normalize(extra?.inventoryItemName));
+}
+
 function getProduct(id) {
   return menuProducts({ includeInactive: true }).find((item) => item.id === id);
 }
@@ -1893,7 +1950,7 @@ function combinedOptionSummary(product, line, extras = []) {
     }
   });
   const extraParts = normalizeExtras(extras).map(
-    (extra) => `${extra.name} ${formatNumber(extra.qty)} ${extra.unit} (+${money.format(extra.total)})`,
+    (extra) => `${extra.name}${extra.count > 1 ? ` x${formatNumber(extra.count)}` : ""} (+${money.format(extra.total)})`,
   );
   return [
     `Mixto ×${parts.length}`,
@@ -1935,13 +1992,20 @@ function normalizeExtras(extras) {
     .map((extra) => {
       const qty = Math.max(0, Number(extra.qty) || 0);
       const unitCost = Math.max(0, Number(extra.unitCost) || 0);
+      const price = roundCurrency(Math.max(0, Number(extra.price ?? extra.total ?? extra.priceDelta) || 0));
+      const count = Math.max(1, Number(extra.count) || 1);
       return {
-        itemId: String(extra.itemId || extra.id || ""),
+        extraId: String(extra.extraId || ""),
+        itemId: String(extra.itemId || extra.inventoryItemId || ""),
         name: String(extra.name || "").trim().toUpperCase(),
+        inventoryItemName: String(extra.inventoryItemName || extra.itemName || extra.inventoryName || extra.name || "").trim().toUpperCase(),
         unit: String(extra.unit || "PZ").trim().toUpperCase(),
         qty,
+        count,
+        price,
         unitCost,
-        total: Math.round(qty * unitCost * 100) / 100,
+        costTotal: roundCurrency(qty * unitCost),
+        total: price,
       };
     })
     .filter((extra) => extra.name && extra.qty > 0);
@@ -1951,11 +2015,8 @@ function extraUnitTotal(extras = []) {
   return normalizeExtras(extras).reduce((sum, extra) => sum + extra.total, 0);
 }
 
-function defaultExtraQty(item) {
-  const unit = normalize(item?.unit);
-  if (unit.includes("kilo") || unit === "kg" || unit.includes("litro")) return 0.1;
-  if (unit.includes("rollo") || unit.includes("bolsa")) return 0.25;
-  return 1;
+function extraUnitCostTotal(extras = []) {
+  return normalizeExtras(extras).reduce((sum, extra) => sum + extra.costTotal, 0);
 }
 
 function calculateTotals(order) {
@@ -3041,13 +3102,11 @@ function refreshProductConfig() {
   const active = document.activeElement;
   let focusInfo = null;
   if (active && host.contains(active)) {
-    if (active.matches("[data-config-note], [data-extra-qty], [data-extra-item]")) {
+    if (active.matches("[data-config-note], [data-extra-id]")) {
       focusInfo = {
         selector: active.matches("[data-config-note]")
           ? "[data-config-note]"
-          : active.matches("[data-extra-qty]")
-            ? "[data-extra-qty]"
-            : "[data-extra-item]",
+          : "[data-extra-id]",
         selStart: active.selectionStart,
         selEnd: active.selectionEnd,
       };
@@ -3114,11 +3173,6 @@ function bindProductConfigEvents() {
   document.querySelector("[data-config-note]")?.addEventListener("input", (event) => {
     state.productConfig.note = event.target.value;
     persist();
-  });
-  document.querySelector("[data-extra-item]")?.addEventListener("change", (event) => {
-    const nextQty = event.target.selectedOptions?.[0]?.dataset.defaultQty;
-    const qtyInput = document.querySelector("[data-extra-qty]");
-    if (qtyInput && nextQty) qtyInput.value = nextQty;
   });
   document.querySelector("[data-extra-add]")?.addEventListener("click", addProductExtra);
   document.querySelectorAll("[data-extra-remove]").forEach((button) => {
@@ -3253,9 +3307,7 @@ function renderSplitParts(product) {
 }
 
 function renderExtrasEditor(extras = []) {
-  const inventory = [...recipeInventoryItems()].sort((a, b) => a.name.localeCompare(b.name, "es"));
-  const selectedItem = inventory[0];
-  const defaultQty = defaultExtraQty(selectedItem);
+  const catalog = [...activeExtras()].sort((a, b) => a.name.localeCompare(b.name, "es"));
   const extrasTotal = extraUnitTotal(extras);
   return `
     <details class="extras-editor" ${extras.length ? "open" : ""}>
@@ -3266,28 +3318,25 @@ function renderExtrasEditor(extras = []) {
       <div class="extras-body">
         <div class="extras-add-row">
           <label class="field">
-            <span>Insumo</span>
-            <select data-extra-item ${inventory.length ? "" : "disabled"}>
-              ${inventory
-                .map((item) => {
-                  const qty = defaultExtraQty(item);
+            <span>Extra</span>
+            <select data-extra-id ${catalog.length ? "" : "disabled"}>
+              ${catalog
+                .map((extra) => {
+                  const item = extraInventoryItem(extra);
                   return `
-                    <option value="${item.id}" data-default-qty="${qty}">
-                      ${escapeHtml(item.name)} · ${money.format(item.unitCost)}/${escapeHtml(item.unit)}
+                    <option value="${extra.id}">
+                      ${escapeHtml(extra.name)} · +${money.format(extra.price)} · descuenta ${formatNumber(extra.qty)} ${escapeHtml(item?.unit || extra.unit)}
                     </option>
                   `;
                 })
                 .join("")}
             </select>
           </label>
-          <label class="field">
-            <span>Cantidad</span>
-            <input data-extra-qty type="number" min="0.001" step="0.001" value="${defaultQty}" ${inventory.length ? "" : "disabled"} />
-          </label>
-          <button class="secondary-button compact" data-extra-add type="button" ${inventory.length ? "" : "disabled"}>
+          <button class="secondary-button compact" data-extra-add type="button" ${catalog.length ? "" : "disabled"}>
             ${svg("plus")}Agregar
           </button>
         </div>
+        ${catalog.length ? "" : `<p class="muted-text compact-text">Define extras desde Catalogo > Extras para poder agregarlos aqui.</p>`}
         ${
           extras.length
             ? `
@@ -3297,8 +3346,8 @@ function renderExtrasEditor(extras = []) {
                     (extra, index) => `
                       <div class="extra-row">
                         <span>
-                          <strong>${escapeHtml(extra.name)}</strong>
-                          <small>${formatNumber(extra.qty)} ${escapeHtml(extra.unit)} · +${money.format(extra.total)}</small>
+                          <strong>${escapeHtml(extra.name)}${extra.count > 1 ? ` x${formatNumber(extra.count)}` : ""}</strong>
+                          <small>Descuenta ${formatNumber(extra.qty)} ${escapeHtml(extra.unit)} · +${money.format(extra.total)}</small>
                         </span>
                         <button class="icon-button compact" data-extra-remove="${index}" title="Quitar extra" type="button">${svg("trash")}</button>
                       </div>
@@ -3536,6 +3585,7 @@ function renderModal() {
   const saleTarget = state.modal.saleId ? state.sales.find((sale) => sale.id === state.modal.saleId) : null;
   const productTarget = state.modal.productId ? getProduct(state.modal.productId) : null;
   const ingredientTarget = state.modal.ingredientId ? currentInventory().find((item) => item.id === state.modal.ingredientId) : null;
+  const extraTarget = state.modal.extraId ? getExtraDefinition(state.modal.extraId) : null;
   const modalContent = {
     "open-table": renderOpenTableModal(),
     takeout: renderTakeoutModal(),
@@ -3546,6 +3596,8 @@ function renderModal() {
     "new-ingredient-category": isAdminUser() ? renderIngredientCategoryModal() : "",
     "new-ingredient": isAdminUser() ? renderIngredientModal(null, state.modal.ingredientCategory) : "",
     "edit-ingredient": isAdminUser() && ingredientTarget ? renderIngredientModal(ingredientTarget) : "",
+    "new-extra": isAdminUser() ? renderExtraModal() : "",
+    "edit-extra": isAdminUser() && extraTarget ? renderExtraModal(extraTarget) : "",
     command: order ? renderCommandModal(order) : "",
     price: order ? renderPriceModal(order) : "",
     checkout: modalOrder ? renderCheckoutModal(modalOrder) : "",
@@ -4353,30 +4405,34 @@ function renderRecipes() {
   if (!isAdminUser()) return "";
   const products = menuProducts({ includeInactive: true });
   const inventory = currentInventory();
+  const extras = extraCatalog({ includeInactive: true });
   const categories = [...new Set(products.map((product) => product.section))];
   const customCount = products.filter((product) => product.custom).length;
   const editedCount = products.filter((product) => product.edited && !product.custom).length;
-  const mode = state.recipesMode === "ingredients" ? "ingredients" : "products";
+  const mode = ["products", "ingredients", "extras"].includes(state.recipesMode) ? state.recipesMode : "products";
+  const newModal = mode === "ingredients" ? "new-ingredient" : mode === "extras" ? "new-extra" : "new-product";
+  const newLabel = mode === "ingredients" ? "Nuevo insumo" : mode === "extras" ? "Nuevo extra" : "Nuevo platillo";
   return `
     <div class="recipes-layout">
       <section class="board-header">
         <div>
           <h2>Catalogo</h2>
-          <p>Catalogo de articulos, variantes, recetas y costos de insumos</p>
+          <p>Catalogo de articulos, extras, recetas y costos de insumos</p>
         </div>
         <div class="header-actions">
           <button class="secondary-button ${mode === "products" ? "is-active" : ""}" data-recipes-mode="products">${svg("sale")}Articulos</button>
           <button class="secondary-button ${mode === "ingredients" ? "is-active" : ""}" data-recipes-mode="ingredients">${svg("inventory")}Insumos</button>
-          <button class="primary-button" data-open-modal="${mode === "ingredients" ? "new-ingredient" : "new-product"}">${svg("plus")}${mode === "ingredients" ? "Nuevo insumo" : "Nuevo platillo"}</button>
+          <button class="secondary-button ${mode === "extras" ? "is-active" : ""}" data-recipes-mode="extras">${svg("plus")}Extras</button>
+          <button class="primary-button" data-open-modal="${newModal}">${svg("plus")}${newLabel}</button>
         </div>
       </section>
       <section class="summary-grid">
         ${renderSummaryCard("Articulos", String(products.length))}
         ${renderSummaryCard("En menu", String(products.filter((product) => product.active !== false).length))}
         ${renderSummaryCard("Insumos", String(inventory.length))}
-        ${renderSummaryCard("Editados/Nuevos", `${editedCount}/${customCount}`)}
+        ${renderSummaryCard("Extras", String(extras.filter((extra) => extra.active !== false).length))}
       </section>
-      ${mode === "ingredients" ? renderIngredientsCatalog(inventory) : renderRecipeProductCatalog(products, categories)}
+      ${mode === "ingredients" ? renderIngredientsCatalog(inventory) : mode === "extras" ? renderExtrasCatalog(extras) : renderRecipeProductCatalog(products, categories)}
     </div>
   `;
 }
@@ -4590,6 +4646,79 @@ function renderIngredientCatalogRow(item) {
       <td>${normalizeCostHistory(item.costHistory).length} cambio${normalizeCostHistory(item.costHistory).length === 1 ? "" : "s"}</td>
       <td class="row-actions">
         <button class="secondary-button compact" data-open-modal="edit-ingredient" data-ingredient-id="${item.id}">${svg("note")}Editar</button>
+      </td>
+    </tr>
+  `;
+}
+
+function renderExtrasCatalog(extras) {
+  const query = normalize(state.extrasSearch);
+  const filtered = extras
+    .filter((extra) => normalize(`${extra.name} ${extra.inventoryItemName}`).includes(query))
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return `
+    <section class="panel data-grid-wide">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Catalogo de extras</h2>
+          <p class="panel-kicker">Precio de venta y gramaje/cantidad que descuenta del inventario.</p>
+        </div>
+        <div class="ingredient-catalog-actions">
+          <div class="search-wrap compact-search">
+            ${svg("search")}
+            <input class="search-input" data-extras-search value="${escapeAttr(state.extrasSearch)}" placeholder="Buscar extra" />
+          </div>
+          <button class="primary-button compact" data-open-modal="new-extra">${svg("plus")}Nuevo extra</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Extra</th>
+                <th>Precio</th>
+                <th>Descuento inventario</th>
+                <th>Aviso</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.length ? filtered.map(renderExtraCatalogRow).join("") : `<tr><td colspan="6">No hay extras definidos.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderExtraCatalogRow(extra) {
+  const item = extraInventoryItem(extra);
+  const warning = !item
+    ? "Insumo no encontrado"
+    : Number(item.qty) <= 0
+      ? "Inventario en cero"
+      : `Descuenta ${formatNumber(extra.qty)} ${item.unit}`;
+  const warningClass = !item || Number(item.qty) <= 0 ? "is-warning" : "";
+  return `
+    <tr class="${extra.active === false ? "is-cancelled" : ""}">
+      <td><strong>${escapeHtml(extra.name)}</strong></td>
+      <td><strong>${money.format(extra.price)}</strong></td>
+      <td>
+        <strong>${escapeHtml(item?.name || extra.inventoryItemName || "Sin insumo")}</strong>
+        <small>${formatNumber(extra.qty)} ${escapeHtml(item?.unit || extra.unit)}</small>
+      </td>
+      <td><span class="extra-warning ${warningClass}">${escapeHtml(warning)}</span></td>
+      <td>
+        <label class="check-toggle compact">
+          <input type="checkbox" data-extra-active="${extra.id}" ${extra.active === false ? "" : "checked"} />
+          <span>${extra.active === false ? "Oculto" : "Activo"}</span>
+        </label>
+      </td>
+      <td class="row-actions">
+        <button class="secondary-button compact" data-open-modal="edit-extra" data-extra-id="${extra.id}">${svg("note")}Editar</button>
       </td>
     </tr>
   `;
@@ -4880,6 +5009,61 @@ function renderIngredientModal(item = null, presetCategory = "") {
             : ""
         }
         <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar insumo" : "Crear insumo"}</button>
+      </form>
+    </section>
+  `;
+}
+
+function renderExtraModal(extra = null) {
+  const isEdit = Boolean(extra);
+  const inventory = [...currentInventory()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const selectedItem = extra ? extraInventoryItem(extra) : inventory[0];
+  return `
+    <section class="panel modal-panel menu-product-modal">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">${isEdit ? "Editar extra" : "Nuevo extra"}</h2>
+          <p class="panel-kicker">${isEdit ? escapeHtml(extra.name) : "Precio de venta y descuento de inventario"}</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-extra-form data-extra-id="${extra?.id || ""}">
+        <label class="field">
+          <span>Extra</span>
+          <input name="name" required value="${escapeAttr(extra?.name || "")}" placeholder="Queso extra, salsa, crema" />
+        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>Precio venta</span>
+            <input name="price" type="number" min="0" step="0.01" required value="${extra ? formatPlainNumber(extra.price) : ""}" />
+          </label>
+          <label class="field">
+            <span>Gramaje/cantidad</span>
+            <input name="qty" type="number" min="0.001" step="0.001" required value="${extra ? formatPlainNumber(extra.qty) : ""}" placeholder="0.050" />
+          </label>
+        </div>
+        <label class="field">
+          <span>Insumo que descuenta</span>
+          <select name="inventoryItemId" required ${inventory.length ? "" : "disabled"}>
+            ${inventory
+              .map(
+                (item) => `
+                  <option value="${item.id}" ${item.id === selectedItem?.id ? "selected" : ""}>
+                    ${escapeHtml(item.name)} · ${formatNumber(item.qty)} ${escapeHtml(item.unit)} · ${money.format(item.unitCost)}/${escapeHtml(item.unit)}
+                  </option>
+                `,
+              )
+              .join("")}
+          </select>
+        </label>
+        <div class="checkout-warning">
+          ${svg("alert")}Aviso: cada vez que se venda este extra, LibrePOS descontara la cantidad indicada del insumo seleccionado.
+        </div>
+        <label class="check-toggle">
+          <input name="active" type="checkbox" ${extra?.active === false ? "" : "checked"} />
+          <span>Disponible para venta</span>
+        </label>
+        <button class="primary-button" type="submit" ${inventory.length ? "" : "disabled"}>${svg("check")}${isEdit ? "Guardar extra" : "Crear extra"}</button>
       </form>
     </section>
   `;
@@ -6173,6 +6357,7 @@ function bindEvents() {
       if (button.dataset.productId) modal.productId = button.dataset.productId;
       if (button.dataset.ingredientId) modal.ingredientId = button.dataset.ingredientId;
       if (button.dataset.ingredientCategory) modal.ingredientCategory = button.dataset.ingredientCategory;
+      if (button.dataset.extraId) modal.extraId = button.dataset.extraId;
       state.modal = modal;
       persist();
       render();
@@ -6334,6 +6519,7 @@ function bindEvents() {
   });
   document.querySelector("[data-ingredient-form]")?.addEventListener("submit", saveIngredient);
   document.querySelector("[data-ingredient-category-form]")?.addEventListener("submit", createIngredientCategory);
+  document.querySelector("[data-extra-form]")?.addEventListener("submit", saveExtraDefinition);
   document.querySelectorAll("[data-ingredient-category-field]").forEach((input) => {
     input.addEventListener("change", () => updateIngredientCategory(input.dataset.ingredientCategoryField, input.value));
   });
@@ -6348,6 +6534,11 @@ function bindEvents() {
   document.querySelectorAll("[data-menu-product-active]").forEach((input) => {
     input.addEventListener("change", (event) => {
       setMenuProductActive(input.dataset.menuProductActive, event.target.checked);
+    });
+  });
+  document.querySelectorAll("[data-extra-active]").forEach((input) => {
+    input.addEventListener("change", (event) => {
+      setExtraActive(input.dataset.extraActive, event.target.checked);
     });
   });
   document.querySelectorAll("[data-recipes-mode]").forEach((button) => {
@@ -6414,6 +6605,16 @@ function bindEvents() {
     persist();
     render();
     const restored = document.querySelector("[data-ingredients-search]");
+    restored?.focus();
+    restored?.setSelectionRange(caret, caret);
+  });
+  const extrasSearch = document.querySelector("[data-extras-search]");
+  extrasSearch?.addEventListener("input", (event) => {
+    const caret = event.target.selectionStart || event.target.value.length;
+    state.extrasSearch = event.target.value;
+    persist();
+    render();
+    const restored = document.querySelector("[data-extras-search]");
     restored?.focus();
     restored?.setSelectionRange(caret, caret);
   });
@@ -7225,31 +7426,47 @@ function startEditLineConfig(lineId) {
 
 function addProductExtra() {
   if (!state.productConfig) return;
-  const itemId = document.querySelector("[data-extra-item]")?.value;
-  const qty = Math.max(0, Number(document.querySelector("[data-extra-qty]")?.value) || 0);
-  const item = currentInventory().find((entry) => entry.id === itemId);
-  if (!item || qty <= 0) {
-    showToast("Selecciona un insumo y cantidad para el extra.");
+  const extraId = document.querySelector("[data-extra-id]")?.value;
+  const definition = getExtraDefinition(extraId);
+  const item = extraInventoryItem(definition);
+  if (!definition || definition.active === false) {
+    showToast("Selecciona un extra activo.");
+    return;
+  }
+  if (!item || Number(definition.qty) <= 0) {
+    showToast("Este extra necesita un insumo de inventario y gramaje valido.");
     return;
   }
   const extras = normalizeExtras(state.productConfig.extras);
-  const existing = extras.find((extra) => extra.itemId === item.id || normalize(extra.name) === normalize(item.name));
+  const existing = extras.find((extra) => extra.extraId === definition.id || normalize(extra.name) === normalize(definition.name));
   if (existing) {
-    existing.qty += qty;
+    existing.count += 1;
+    existing.qty += Number(definition.qty) || 0;
+    existing.price = roundCurrency(existing.price + (Number(definition.price) || 0));
+    existing.itemId = item.id;
+    existing.inventoryItemName = item.name;
+    existing.unit = item.unit;
     existing.unitCost = Number(item.unitCost) || existing.unitCost;
-    existing.total = Math.round(existing.qty * existing.unitCost * 100) / 100;
+    existing.costTotal = roundCurrency(existing.qty * existing.unitCost);
+    existing.total = existing.price;
   } else {
     extras.push({
+      extraId: definition.id,
       itemId: item.id,
-      name: item.name,
+      name: definition.name,
+      inventoryItemName: item.name,
       unit: item.unit,
-      qty,
+      qty: Number(definition.qty) || 0,
+      count: 1,
+      price: Number(definition.price) || 0,
       unitCost: Number(item.unitCost) || 0,
-      total: Math.round(qty * (Number(item.unitCost) || 0) * 100) / 100,
+      costTotal: roundCurrency((Number(definition.qty) || 0) * (Number(item.unitCost) || 0)),
+      total: Number(definition.price) || 0,
     });
   }
   state.productConfig.extras = extras;
   persist();
+  if ((Number(item.qty) || 0) <= 0) showToast("Aviso: el insumo vinculado al extra esta en cero.");
   refreshProductConfig();
 }
 
@@ -7483,7 +7700,7 @@ function optionSummary(product, selections, extras = []) {
     }
   });
   const extraParts = normalizeExtras(extras).map(
-    (extra) => `${extra.name} ${formatNumber(extra.qty)} ${extra.unit} (+${money.format(extra.total)})`,
+    (extra) => `${extra.name}${extra.count > 1 ? ` x${formatNumber(extra.count)}` : ""} (+${money.format(extra.total)})`,
   );
   if (extraParts.length) parts.push(`Extras: ${extraParts.join(", ")}`);
   return parts.join(" · ");
@@ -8184,6 +8401,86 @@ function setIngredientRecipeEligible(itemId, recipeEligible) {
   render();
 }
 
+function saveExtraDefinition(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede crear o editar extras.");
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const extras = extraCatalog({ includeInactive: true });
+  const extraId = event.currentTarget.dataset.extraId;
+  const existing = extraId ? extras.find((extra) => extra.id === extraId) : null;
+  const name = cleanUserText(form.get("name"));
+  const price = Math.max(0, Number(form.get("price")) || 0);
+  const qty = Math.max(0, Number(form.get("qty")) || 0);
+  const inventoryItem = currentInventory().find((item) => item.id === String(form.get("inventoryItemId") || ""));
+  if (!name || price <= 0 || qty <= 0 || !inventoryItem) {
+    showToast("Captura extra, precio, gramaje e insumo.");
+    return;
+  }
+  const duplicate = extras.find((extra) => extra.id !== existing?.id && normalize(extra.name) === normalize(name));
+  if (duplicate) {
+    showToast("Ya existe un extra con ese nombre.");
+    return;
+  }
+  const now = new Date().toISOString();
+  const payload = {
+    ...(existing || {}),
+    id: existing?.id || uniqueExtraId(name),
+    name,
+    price: roundCurrency(price),
+    inventoryItemId: inventoryItem.id,
+    inventoryItemName: inventoryItem.name,
+    unit: inventoryItem.unit,
+    qty,
+    active: form.get("active") === "on",
+    createdAt: existing?.createdAt || now,
+    createdBy: existing?.createdBy || currentUser()?.id,
+    updatedAt: existing ? now : "",
+    updatedBy: existing ? currentUser()?.id : "",
+  };
+  if (existing) {
+    Object.assign(existing, payload);
+    showToast("Extra actualizado.");
+  } else {
+    state.extraCatalog.unshift(payload);
+    showToast("Extra creado.");
+  }
+  state.recipesMode = "extras";
+  state.modal = null;
+  persist();
+  if (Number(inventoryItem.qty) <= 0) showToast("Extra guardado. Aviso: el insumo vinculado esta en cero.");
+  render();
+}
+
+function uniqueExtraId(name) {
+  const base = `extra-${slugify(name)}`;
+  const existingIds = new Set(extraCatalog({ includeInactive: true }).map((extra) => extra.id));
+  if (!existingIds.has(base)) return base;
+  for (let index = 2; index < 1000; index += 1) {
+    const id = `${base}-${index}`;
+    if (!existingIds.has(id)) return id;
+  }
+  return safeId(base);
+}
+
+function setExtraActive(extraId, active) {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede editar extras.");
+    render();
+    return;
+  }
+  const extra = getExtraDefinition(extraId);
+  if (!extra) return;
+  extra.active = Boolean(active);
+  extra.updatedAt = new Date().toISOString();
+  extra.updatedBy = currentUser()?.id;
+  persist();
+  showToast(active ? "Extra activado." : "Extra oculto de venta.");
+  render();
+}
+
 function uniqueMenuProductId(name) {
   const base = `custom-${slugify(name)}`;
   const existingIds = new Set(menuProducts({ includeInactive: true }).map((product) => product.id));
@@ -8690,7 +8987,7 @@ function inventoryUsageForLine(line) {
     const units = choice.includes("10") ? 10 : choice.includes("5") ? 5 : 1;
     return [
       { name: product.name.toUpperCase(), qty: units * line.qty },
-      ...extras.map((extra) => ({ name: extra.name, qty: extra.qty * line.qty })),
+      ...extras.map((extra) => ({ itemId: extra.itemId, name: extra.inventoryItemName || extra.name, qty: extra.qty * line.qty })),
     ];
   }
   // Si la línea es mixta, combinamos la receta de cada parte con su peso.
@@ -8698,7 +8995,8 @@ function inventoryUsageForLine(line) {
   const baseRecipe = lineParts(line)
     ? combinedRecipeForLine(product, line)
     : configuredRecipeForProduct(product, line.selections || defaultSelectionsFor(product));
-  return [...baseRecipe, ...extras].map((item) => ({
+  return [...baseRecipe, ...extras.map((extra) => ({ ...extra, name: extra.inventoryItemName || extra.name }))].map((item) => ({
+    itemId: item.itemId || "",
     name: item.name,
     qty: item.qty * line.qty,
   }));
@@ -9140,12 +9438,17 @@ function productCostSnapshot(product, selections = defaultSelectionsFor(product)
     };
   });
   const extraItems = normalizeExtras(extras).map((extra) => ({
+    extraId: extra.extraId,
     itemId: extra.itemId,
     name: extra.name,
+    inventoryItemName: extra.inventoryItemName,
     unit: extra.unit,
     qty: extra.qty,
+    count: extra.count,
+    price: extra.price,
     unitCost: extra.unitCost,
-    total: roundCurrency(extra.total),
+    total: roundCurrency(extra.costTotal),
+    saleTotal: roundCurrency(extra.total),
     extra: true,
   }));
   const items = [...recipeItems, ...extraItems];
@@ -9163,7 +9466,7 @@ function productCostSnapshot(product, selections = defaultSelectionsFor(product)
 function lineUnitCost(line) {
   const snapshotCost = Number(line.costSnapshot?.total ?? line.unitCostSnapshot);
   if (Number.isFinite(snapshotCost) && snapshotCost >= 0) return snapshotCost;
-  return productCost(line.productId) + extraUnitTotal(line.extras);
+  return productCost(line.productId) + extraUnitCostTotal(line.extras);
 }
 
 function buildBusinessMetrics(day = null) {
