@@ -105,6 +105,12 @@ La vista `Datos` concentra ventas, cortes, gastos e inventario. Los administrado
 
 Los CSV sirven para revision en Excel. El respaldo JSON contiene el estado compartido de operacion y se debe guardar fuera del equipo servidor.
 
+## Impresora
+
+La vista `Impresora` aparece solo para administradores. Permite seleccionar una impresora instalada en el equipo servidor y enviar un ticket de prueba con el texto `test`.
+
+Si la impresora no aparece en la lista, captura su nombre exacto en `Nombre manual` y pulsa `Seleccionar impresora`. Las impresoras Bluetooth deben estar vinculadas e instaladas en el sistema operativo del laptop para aparecer automaticamente.
+
 ## Usuarios
 
 Desde `Usuarios`, el admin puede crear, activar o desactivar usuarios, cambiar contrasenas y asignar funciones.

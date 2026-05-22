@@ -18,6 +18,8 @@ LibrePOS expone una API local desde el mismo servidor Vite. Esta API esta pensad
 | `GET` | `/api/state` | Devuelve version y estado compartido actual. |
 | `POST` | `/api/state` | Guarda estado compartido con control de version. |
 | `GET` | `/api/events` | Stream SSE para notificar cambios a otros clientes. |
+| `GET` | `/api/printers` | Lista impresoras instaladas en el equipo servidor. Requiere usuario admin. |
+| `POST` | `/api/printers/test` | Envia un ticket de prueba a una impresora seleccionada. Requiere usuario admin. |
 | `GET` | `/api/update/status` | Consulta si hay actualizacion disponible en GitHub. |
 | `POST` | `/api/update/apply` | Descarga y aplica actualizacion desde GitHub. |
 
@@ -141,6 +143,62 @@ Eventos:
 - `ping`: latido cada 20 segundos.
 
 El cliente usa polling a `/api/state` si `EventSource` no esta disponible o si el stream falla.
+
+## `GET /api/printers`
+
+Solicitud:
+
+```text
+/api/printers?userId=admin
+```
+
+Respuesta:
+
+```json
+{
+  "printers": [
+    {
+      "name": "EPSON_TM_T20",
+      "isDefault": true,
+      "isTicketLikely": true,
+      "source": "cups"
+    }
+  ],
+  "platform": "darwin"
+}
+```
+
+La lista sale del sistema operativo del equipo servidor. En macOS/Linux usa CUPS (`lpstat`) y en Windows usa PowerShell (`Win32_Printer`). Las impresoras Bluetooth aparecen si estan instaladas como impresoras del sistema.
+
+Errores relevantes:
+
+- `403 admin-required`
+
+## `POST /api/printers/test`
+
+Solicitud:
+
+```json
+{
+  "userId": "admin",
+  "printerName": "EPSON_TM_T20"
+}
+```
+
+Respuesta exitosa:
+
+```json
+{
+  "ok": true,
+  "printerName": "EPSON_TM_T20",
+  "printedAt": "2026-01-01T00:00:00.000Z"
+}
+```
+
+Errores relevantes:
+
+- `403 admin-required`
+- `500 printer-print-failed`
 
 ## `GET /api/update/status`
 

@@ -4559,6 +4559,12 @@ button:disabled {
   gap: 10px;
 }
 
+.printer-action-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .expense-layout {
   display: grid;
   gap: 18px;
@@ -5217,6 +5223,7 @@ button:disabled {
   .sale-detail-hero,
   .sale-detail-totals,
   .sale-detail-line,
+  .printer-action-row,
   .summary-grid {
     grid-template-columns: 1fr;
   }

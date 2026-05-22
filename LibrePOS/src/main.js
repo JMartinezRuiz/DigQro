@@ -4,6 +4,7 @@ import qrcode from "./vendor/qrcode-generator.js";
 
 const STORAGE_KEY = "librepos:v2";
 const CLIENT_ID_KEY = "librepos:client-id";
+const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
 const SHARED_STATE_KEYS = [
@@ -665,6 +666,16 @@ let syncClientId = loadClientId();
 let syncPushTimer;
 let syncLastPayload = "";
 let accessInfo = { preferredUrl: "", urls: [] };
+let printerRuntime = {
+  loaded: false,
+  loading: false,
+  printing: false,
+  printers: [],
+  selectedName: loadPrinterName(),
+  manualName: "",
+  error: "",
+  lastPrintedAt: "",
+};
 
 const app = document.querySelector("#app");
 
@@ -824,6 +835,27 @@ function loadClientId() {
     return next;
   } catch {
     return safeId("client");
+  }
+}
+
+function loadPrinterName() {
+  try {
+    return localStorage.getItem(PRINTER_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function savePrinterName(name) {
+  printerRuntime.selectedName = String(name || "").trim();
+  try {
+    if (printerRuntime.selectedName) {
+      localStorage.setItem(PRINTER_STORAGE_KEY, printerRuntime.selectedName);
+    } else {
+      localStorage.removeItem(PRINTER_STORAGE_KEY);
+    }
+  } catch {
+    showToast("No se pudo guardar la impresora en este navegador.");
   }
 }
 
@@ -2168,6 +2200,7 @@ function render() {
       ${state.view === "inventory" ? renderInventory() : ""}
       ${state.view === "recipes" ? renderRecipes() : ""}
         ${state.view === "cash" ? renderCashRegister() : ""}
+        ${state.view === "printer" ? renderPrinterTest() : ""}
         ${state.view === "data" ? renderData() : ""}
         ${state.view === "users" ? renderUsers() : ""}
       </section>
@@ -2205,7 +2238,13 @@ function availableNavItems() {
   if (hasUserFunction(user, "cocina")) items.push(["kitchen", "Cocina", "kitchen"]);
   if (hasCashAccess(user)) items.push(["cash", "Caja", "cash"]);
   if (isAdminUser(user)) {
-    items.push(["inventory", "Inventario", "inventory"], ["recipes", "Catalogo", "note"], ["data", "Datos", "data"], ["users", "Usuarios", "users"]);
+    items.push(
+      ["inventory", "Inventario", "inventory"],
+      ["recipes", "Catalogo", "note"],
+      ["printer", "Impresora", "print"],
+      ["data", "Datos", "data"],
+      ["users", "Usuarios", "users"],
+    );
   }
   return items;
 }
@@ -5583,6 +5622,180 @@ function renderCashClosuresData() {
   `;
 }
 
+function printerChoiceName() {
+  const select = document.querySelector("[data-printer-select]");
+  return String(select?.value || "").trim();
+}
+
+function manualPrinterName() {
+  const input = document.querySelector("[data-printer-manual]");
+  return cleanUserText(input?.value || printerRuntime.manualName);
+}
+
+function printerCandidateName() {
+  return manualPrinterName() || printerChoiceName();
+}
+
+function renderedPrinterValue() {
+  if (printerRuntime.selectedName) return printerRuntime.selectedName;
+  const ticketPrinter = printerRuntime.printers.find((printer) => printer.isTicketLikely);
+  const defaultPrinter = printerRuntime.printers.find((printer) => printer.isDefault);
+  return ticketPrinter?.name || defaultPrinter?.name || printerRuntime.printers[0]?.name || "";
+}
+
+function renderPrinterOptions() {
+  const selected = renderedPrinterValue();
+  const options = [];
+  if (printerRuntime.selectedName && !printerRuntime.printers.some((printer) => printer.name === printerRuntime.selectedName)) {
+    options.push(`<option value="${escapeAttr(printerRuntime.selectedName)}" selected>${escapeHtml(printerRuntime.selectedName)} (guardada)</option>`);
+  }
+  printerRuntime.printers.forEach((printer) => {
+    options.push(`
+      <option value="${escapeAttr(printer.name)}" ${printer.name === selected ? "selected" : ""}>
+        ${escapeHtml(printer.name)}${printer.isTicketLikely ? " (sugerida)" : printer.isDefault ? " (predeterminada)" : ""}
+      </option>
+    `);
+  });
+  if (options.length) return options.join("");
+  if (printerRuntime.loading) return `<option value="">Buscando impresoras...</option>`;
+  return `<option value="">Sin impresoras detectadas</option>`;
+}
+
+function renderPrinterTest() {
+  if (!isAdminUser()) return "";
+  const printersCount = printerRuntime.printers.length;
+  const selectedLabel = printerRuntime.selectedName || "Pendiente";
+  const status = printerRuntime.error
+    ? printerRuntime.error
+    : printerRuntime.loading
+      ? "Buscando impresoras"
+      : `${printersCount} impresora${printersCount === 1 ? "" : "s"}`;
+  return `
+    <div class="data-layout printer-layout" data-printer-panel>
+      <section class="summary-grid">
+        ${renderSummaryCard("Impresoras", String(printersCount))}
+        ${renderSummaryCard("Seleccionada", escapeHtml(selectedLabel))}
+        ${renderSummaryCard("Ultima prueba", printerRuntime.lastPrintedAt ? formatDateTime(printerRuntime.lastPrintedAt) : "Sin prueba")}
+      </section>
+      <section class="panel data-grid-wide printer-panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Test de impresora</h2>
+            <p class="panel-kicker">${escapeHtml(status)}</p>
+          </div>
+        </div>
+        <div class="panel-body field-grid">
+          <label class="field">
+            <span>Impresora</span>
+            <select data-printer-select ${printerRuntime.loading ? "disabled" : ""}>
+              ${renderPrinterOptions()}
+            </select>
+          </label>
+          <label class="field">
+            <span>Nombre manual</span>
+            <input data-printer-manual value="${escapeAttr(printerRuntime.manualName)}" placeholder="Nombre exacto de la impresora" ${printerRuntime.loading ? "disabled" : ""} />
+          </label>
+          ${printerRuntime.error ? `<div class="checkout-warning">${svg("alert")}${escapeHtml(printerRuntime.error)}</div>` : ""}
+          <div class="printer-action-row">
+            <button class="secondary-button" data-select-printer type="button" ${printerRuntime.loading ? "disabled" : ""}>
+              ${svg("print")}Seleccionar impresora
+            </button>
+            <button class="primary-button" data-print-test type="button" ${printerRuntime.printing || !printerRuntime.selectedName ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.printing ? "Imprimiendo" : "Imprimir ticket de prueba"}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function printerErrorMessage(error) {
+  const value = String(error || "");
+  const normalized = normalize(value);
+  if (normalized.includes("admin-required")) return "Solo admin puede usar el test de impresora.";
+  if (normalized.includes("printer-required")) return "Selecciona una impresora.";
+  if (normalized.includes("printer-print-failed")) return "No se pudo enviar el ticket a la impresora.";
+  if (normalized.includes("not-found") || normalized.includes("enoent")) return "No se encontro el servicio de impresion del sistema.";
+  if (normalized.includes("lp:") || normalized.includes("out-printer")) return "No se pudo enviar el ticket a la impresora.";
+  return value || "No se pudo completar la accion de impresora.";
+}
+
+async function loadPrinterList(force = false) {
+  if (!isAdminUser()) return;
+  if (printerRuntime.loading || (printerRuntime.loaded && !force)) return;
+  printerRuntime = { ...printerRuntime, loading: true, error: "" };
+  render();
+  try {
+    const userId = encodeURIComponent(currentUser()?.id || "");
+    const response = await fetch(`/api/printers?userId=${userId}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "printer-list-error");
+    printerRuntime.printers = Array.isArray(payload.printers) ? payload.printers : [];
+    printerRuntime.error = payload.error ? printerErrorMessage(payload.error) : "";
+    printerRuntime.loaded = true;
+  } catch (error) {
+    printerRuntime.printers = [];
+    printerRuntime.error = printerErrorMessage(error.message);
+    printerRuntime.loaded = true;
+  } finally {
+    printerRuntime.loading = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
+async function selectPrinterFromList() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede seleccionar impresora.");
+    return;
+  }
+  if (!printerRuntime.loaded && !printerRuntime.loading) {
+    await loadPrinterList(true);
+  }
+  const printerName = printerCandidateName();
+  if (!printerName) {
+    showToast("Selecciona una impresora o escribe el nombre manual.");
+    return;
+  }
+  savePrinterName(printerName);
+  printerRuntime.manualName = "";
+  printerRuntime.error = "";
+  showToast(`Impresora seleccionada: ${printerName}`);
+  render();
+}
+
+async function sendPrinterTest() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede imprimir pruebas.");
+    return;
+  }
+  const printerName = printerRuntime.selectedName;
+  if (!printerName) {
+    showToast("Selecciona una impresora.");
+    return;
+  }
+  printerRuntime.printing = true;
+  printerRuntime.error = "";
+  render();
+  try {
+    const response = await fetch("/api/printers/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || payload.detail || "printer-test-error");
+    printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
+    showToast("Ticket de prueba enviado.");
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.printing = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
 function localDateValue(value) {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) return "";
@@ -6784,6 +6997,19 @@ function bindEvents() {
   document.querySelectorAll("[data-export-data]").forEach((button) => {
     button.addEventListener("click", () => exportData(button.dataset.exportData));
   });
+  if (document.querySelector("[data-printer-panel]")) {
+    loadPrinterList();
+    document.querySelector("[data-printer-manual]")?.addEventListener("input", (event) => {
+      printerRuntime.manualName = event.target.value;
+    });
+    document.querySelector("[data-printer-manual]")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      selectPrinterFromList();
+    });
+    document.querySelector("[data-select-printer]")?.addEventListener("click", selectPrinterFromList);
+    document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
+  }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);
   document.querySelector("[data-cash-close-form]")?.addEventListener("submit", closeCashSession);
   document.querySelectorAll("[data-inventory-quick]").forEach((button) => {

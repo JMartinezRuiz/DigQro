@@ -2,7 +2,7 @@ import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypt
 import { execFile as execFileCallback } from "node:child_process";
 import https from "node:https";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { networkInterfaces } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -427,6 +427,209 @@ function compactError(error) {
   return String(error?.message || error || "unknown").replace(/\s+/g, " ").slice(0, 280);
 }
 
+function stripAccents(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function serverUserIsAdmin(user) {
+  if (!user || user.active === false) return false;
+  const functions = Array.isArray(user.functions) ? user.functions.map((item) => String(item).toLowerCase()) : [];
+  const role = stripAccents(user.role).toLowerCase();
+  return functions.includes("admin") || role.includes("admin");
+}
+
+async function requireAdminUser(res, userId) {
+  await loadSharedState();
+  const user = (sharedState?.users || []).find((item) => item.id === userId);
+  if (!serverUserIsAdmin(user)) {
+    sendJson(res, 403, { error: "admin-required" });
+    return false;
+  }
+  return true;
+}
+
+function printerLines(stdout) {
+  return String(stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+const TICKET_PRINTER_TERMS = [
+  "ticket",
+  "receipt",
+  "thermal",
+  "termica",
+  "termico",
+  "pos",
+  "epson",
+  "star",
+  "bixolon",
+  "xprinter",
+  "x-printer",
+  "citizen",
+  "zebra",
+  "tm-t",
+  "tmt",
+  "80mm",
+  "58mm",
+];
+
+function compactPrinterText(value) {
+  return stripAccents(value).toLowerCase();
+}
+
+function ticketPrinterScore(printer) {
+  const haystack = compactPrinterText([
+    printer.name,
+    printer.driverName,
+    printer.portName,
+    printer.deviceUri,
+  ].filter(Boolean).join(" "));
+  return TICKET_PRINTER_TERMS.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+function decoratePrinter(printer) {
+  const score = ticketPrinterScore(printer);
+  return {
+    name: String(printer.name || "").trim(),
+    isDefault: Boolean(printer.isDefault),
+    isTicketLikely: score > 0,
+    source: printer.source || "system",
+    driverName: printer.driverName || "",
+    portName: printer.portName || "",
+    deviceUri: printer.deviceUri || "",
+  };
+}
+
+function sortPrinters(printers) {
+  return printers
+    .map(decoratePrinter)
+    .filter((printer) => printer.name)
+    .sort((left, right) => {
+      if (left.isTicketLikely !== right.isTicketLikely) return left.isTicketLikely ? -1 : 1;
+      if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+      return left.name.localeCompare(right.name, "es");
+    });
+}
+
+function defaultPrinterFromLpstat(stdout) {
+  const text = String(stdout || "").trim();
+  return text.match(/:\s*(.+)$/)?.[1]?.trim() || "";
+}
+
+function cupsPrinterDevices(stdout) {
+  const devices = new Map();
+  printerLines(stdout).forEach((line) => {
+    const match = line.match(/^(?:device|dispositivo)\s+(?:for|para)\s+(.+?):\s*(.+)$/i);
+    if (match) devices.set(match[1].trim(), match[2].trim());
+  });
+  return devices;
+}
+
+async function listCupsPrinters() {
+  const [printerResult, defaultResult, deviceResult] = await Promise.allSettled([
+    execFile("lpstat", ["-e"], { timeout: 5000, maxBuffer: 128 * 1024 }),
+    execFile("lpstat", ["-d"], { timeout: 5000, maxBuffer: 128 * 1024 }),
+    execFile("lpstat", ["-v"], { timeout: 5000, maxBuffer: 256 * 1024 }),
+  ]);
+  if (printerResult.status === "rejected") throw printerResult.reason;
+  const defaultName = defaultResult.status === "fulfilled" ? defaultPrinterFromLpstat(defaultResult.value.stdout) : "";
+  const devices = deviceResult.status === "fulfilled" ? cupsPrinterDevices(deviceResult.value.stdout) : new Map();
+  return sortPrinters(printerLines(printerResult.value.stdout).map((name) => ({
+    name,
+    isDefault: Boolean(defaultName && name === defaultName),
+    deviceUri: devices.get(name) || "",
+    source: "cups",
+  })));
+}
+
+async function runPowerShell(script, args = []) {
+  const commands = ["powershell.exe", "pwsh"];
+  let lastError = null;
+  for (const command of commands) {
+    try {
+      return await execFile(command, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, ...args], {
+        timeout: 10000,
+        maxBuffer: 512 * 1024,
+      });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("powershell-not-found");
+}
+
+async function listWindowsPrinters() {
+  const { stdout } = await runPowerShell("Get-CimInstance Win32_Printer | Select-Object Name,Default,DriverName,PortName | ConvertTo-Json -Compress");
+  if (!stdout.trim()) return [];
+  const parsed = JSON.parse(stdout);
+  return sortPrinters((Array.isArray(parsed) ? parsed : [parsed]).map((printer) => ({
+    name: String(printer.Name || "").trim(),
+    isDefault: Boolean(printer.Default),
+    driverName: String(printer.DriverName || "").trim(),
+    portName: String(printer.PortName || "").trim(),
+    source: "windows",
+  })));
+}
+
+export async function listSystemPrinters() {
+  try {
+    const printers = process.platform === "win32" ? await listWindowsPrinters() : await listCupsPrinters();
+    return { printers, platform: process.platform };
+  } catch (error) {
+    return { printers: [], platform: process.platform, error: compactError(error) };
+  }
+}
+
+function testTicketText(printerName) {
+  return [
+    "LibrePOS",
+    "------------------------",
+    "test",
+    "------------------------",
+    `Impresora: ${printerName}`,
+    new Date().toLocaleString("es-MX"),
+    "",
+    "",
+  ].join("\n");
+}
+
+async function printWithCups(printerName, filePath) {
+  await execFile("lp", ["-d", printerName, "-t", "LibrePOS test", filePath], {
+    timeout: 20000,
+    maxBuffer: 128 * 1024,
+  });
+}
+
+async function printWithWindows(printerName, filePath) {
+  const script = [
+    "$printer = $args[0]",
+    "$file = $args[1]",
+    "Get-Content -LiteralPath $file -Raw | Out-Printer -Name $printer",
+  ].join("; ");
+  await runPowerShell(script, [printerName, filePath]);
+}
+
+export async function printTestTicket(printerName) {
+  const cleanName = String(printerName || "").trim();
+  if (!cleanName) throw new Error("printer-required");
+  const filePath = path.join(tmpdir(), `librepos-test-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+  await writeFile(filePath, testTicketText(cleanName), "utf8");
+  try {
+    if (process.platform === "win32") {
+      await printWithWindows(cleanName, filePath);
+    } else {
+      await printWithCups(cleanName, filePath);
+    }
+  } finally {
+    await rm(filePath, { force: true });
+  }
+  return { ok: true, printerName: cleanName, printedAt: new Date().toISOString() };
+}
+
 function updateLog(message, details = null) {
   const suffix = details ? ` ${JSON.stringify(details)}` : "";
   console.log(`[LibrePOS update ${new Date().toISOString()}] ${message}${suffix}`);
@@ -648,6 +851,24 @@ export function createSyncMiddleware() {
 
       if (url.pathname === "/api/access-info" && req.method === "GET") {
         sendJson(res, 200, lanAccessUrls(req));
+        return;
+      }
+
+      if (url.pathname === "/api/printers" && req.method === "GET") {
+        if (!(await requireAdminUser(res, url.searchParams.get("userId")))) return;
+        sendJson(res, 200, await listSystemPrinters());
+        return;
+      }
+
+      if (url.pathname === "/api/printers/test" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requireAdminUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printTestTicket(payload.printerName));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-print-failed", detail: compactError(error) });
+        }
         return;
       }
 
