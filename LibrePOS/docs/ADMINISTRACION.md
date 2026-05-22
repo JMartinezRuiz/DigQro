@@ -181,6 +181,14 @@ npm run update
 
 Revisa el mensaje de la consola, confirma que hay internet y vuelve a intentar. Si la app indica que ya escribio archivos nuevos pero fallo `npm install`, cierra LibrePOS y vuelve a abrirlo; el marcador de version se guarda antes de instalar dependencias para evitar que el boton de actualizar quede atorado.
 
+En Windows, si el boton queda en `Actualizando` y no termina, cierra LibrePOS, abre PowerShell dentro de la carpeta `LibrePOS` y ejecuta el reparador publicado en GitHub:
+
+```powershell
+irm https://raw.githubusercontent.com/JMartinezRuiz/DigQro/main/LibrePOS/scripts/repair-update.ps1 | iex
+```
+
+El reparador descarga el ZIP del ultimo commit, conserva `.librepos/`, escribe el marcador local de version y vuelve a intentar `npm install`.
+
 ### El login falla despues de una restauracion manual
 
 Si se restauro desde un JSON incompleto, pueden faltar datos de contrasenas. Restaura desde copia completa de `.librepos/` siempre que sea posible.
