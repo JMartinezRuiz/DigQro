@@ -179,7 +179,7 @@ Ejecuta:
 npm run update
 ```
 
-Revisa el mensaje de la consola, confirma que hay internet y vuelve a intentar. Si el problema ocurre despues de descargar archivos, restaura la carpeta del proyecto y `.librepos/` desde respaldo.
+Revisa el mensaje de la consola, confirma que hay internet y vuelve a intentar. Si la app indica que ya escribio archivos nuevos pero fallo `npm install`, cierra LibrePOS y vuelve a abrirlo; el marcador de version se guarda antes de instalar dependencias para evitar que el boton de actualizar quede atorado.
 
 ### El login falla despues de una restauracion manual
 

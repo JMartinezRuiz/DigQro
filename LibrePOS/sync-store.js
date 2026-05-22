@@ -24,6 +24,8 @@ const UPDATE_PROJECT_PREFIX = "LibrePOS/";
 const UPDATE_REPO_URL = `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`;
 const PRESERVED_UPDATE_DIRS = new Set([".git", ".librepos", ".vite", "node_modules", "dist"]);
 const PRESERVED_UPDATE_FILES = new Set([".DS_Store", ".env", ".env.local"]);
+const IGNORED_LOCAL_UPDATE_DIRS = new Set(["__pycache__"]);
+const IGNORED_LOCAL_UPDATE_EXTENSIONS = new Set([".pyc", ".pyo"]);
 const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
   "User-Agent": "LibrePOS-Updater",
@@ -351,6 +353,28 @@ async function readLocalAppVersion() {
   return { commitSha: null, source: "unknown", updatedAt: "" };
 }
 
+async function readLocalPackageVersion() {
+  try {
+    const data = JSON.parse(await readFile(path.join(ROOT_DIR, "package.json"), "utf8"));
+    return typeof data.version === "string" ? data.version.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+async function fetchRemotePackageVersion() {
+  try {
+    const buffer = await requestGithub(githubRawUrl(`${UPDATE_PROJECT_PREFIX}package.json`), {
+      json: false,
+      headers: { Accept: "application/octet-stream" },
+    });
+    const data = JSON.parse(buffer.toString("utf8"));
+    return typeof data.version === "string" ? data.version.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 async function writeLocalAppVersion(commitSha) {
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(
@@ -388,6 +412,8 @@ export async function getUpdateStatus() {
   const [storedLocal, remote] = await Promise.all([readLocalAppVersion(), fetchLatestRemoteVersion()]);
   let local = storedLocal;
   let localIncludesRemote = false;
+  let localPackageVersion = "";
+  let remotePackageVersion = "";
   if (remote?.commitSha && storedLocal.source === "git" && !sameCommit(storedLocal.commitSha, remote.commitSha)) {
     localIncludesRemote = await gitCommitIncludes(remote.commitSha, storedLocal.commitSha);
   }
@@ -397,6 +423,19 @@ export async function getUpdateStatus() {
       local = (await readLocalVersionFromFiles(remoteFiles, remote.commitSha)) || storedLocal;
     } catch {
       local = storedLocal;
+    }
+    if (!sameCommit(local.commitSha, remote.commitSha)) {
+      [localPackageVersion, remotePackageVersion] = await Promise.all([readLocalPackageVersion(), fetchRemotePackageVersion()]);
+      if (localPackageVersion && remotePackageVersion && localPackageVersion === remotePackageVersion) {
+        local = { commitSha: remote.commitSha, source: "package-version", updatedAt: "", packageVersion: localPackageVersion };
+      }
+    }
+    if (sameCommit(local.commitSha, remote.commitSha) && local.source !== "version-file") {
+      try {
+        await writeLocalAppVersion(remote.commitSha);
+      } catch (error) {
+        updateLog("No se pudo escribir marcador local de version", { error: compactError(error) });
+      }
     }
   }
   const available = Boolean(remote?.commitSha && !localIncludesRemote && (!local.commitSha || !sameCommit(local.commitSha, remote.commitSha)));
@@ -409,6 +448,8 @@ export async function getUpdateStatus() {
     localSource: local.source,
     localIncludesRemote,
     localUpdatedAt: local.updatedAt,
+    localPackageVersion: localPackageVersion || local.packageVersion || "",
+    remotePackageVersion,
     remoteCommit: remote?.commitSha || null,
     remoteUrl: remote?.htmlUrl || UPDATE_REPO_URL,
     remoteDate: remote?.date || "",
@@ -680,6 +721,12 @@ function safeRemoteRelativePath(githubPath) {
   return normalized;
 }
 
+function shouldIgnoreLocalProjectPath(relativePath) {
+  const parts = relativePath.split("/");
+  if (parts.some((part) => IGNORED_LOCAL_UPDATE_DIRS.has(part))) return true;
+  return IGNORED_LOCAL_UPDATE_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
+}
+
 async function fetchRemoteProjectFiles() {
   const commit = await requestGithub(githubApiUrl(`/commits/${UPDATE_BRANCH}`));
   const treeSha = commit?.commit?.tree?.sha;
@@ -722,6 +769,7 @@ async function listLocalProjectFiles(baseDir = ROOT_DIR, prefix = "") {
     const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
     const rootName = relativePath.split("/")[0];
     if (PRESERVED_UPDATE_DIRS.has(rootName) || PRESERVED_UPDATE_FILES.has(relativePath)) continue;
+    if (shouldIgnoreLocalProjectPath(relativePath)) continue;
     const absolutePath = path.join(baseDir, entry.name);
     if (entry.isDirectory()) {
       files.push(...await listLocalProjectFiles(absolutePath, relativePath));
@@ -807,8 +855,15 @@ async function applyGithubRepositoryUpdate(status) {
   updateLog("Archivos obsoletos removidos");
   await writeDownloadedProjectFiles(downloadedFiles);
   updateLog("Archivos nuevos escritos");
-  const installResult = await installDependencies();
   await writeLocalAppVersion(status.remoteCommit);
+  let installResult = { stdout: "", stderr: "" };
+  let installError = "";
+  try {
+    installResult = await installDependencies();
+  } catch (error) {
+    installError = compactError(error);
+    updateLog("npm install fallo despues de escribir archivos", { error: installError });
+  }
   updateLog("Actualizacion completada. Cierra y abre LibrePOS para cargar la nueva version.", {
     remoteCommit: status.remoteCommit,
   });
@@ -817,6 +872,7 @@ async function applyGithubRepositoryUpdate(status) {
     updated: true,
     filesUpdated: downloadedFiles.length,
     installRan: true,
+    installError,
     installLog: installResult.stderr || installResult.stdout,
     restartRequired: true,
     updatedAt: new Date().toISOString(),

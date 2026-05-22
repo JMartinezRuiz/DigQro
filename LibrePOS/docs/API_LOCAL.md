@@ -230,9 +230,12 @@ Respuesta cuando actualiza:
   "updated": true,
   "filesUpdated": 25,
   "installRan": true,
+  "installError": "",
   "restartRequired": true
 }
 ```
+
+Si los archivos ya se escribieron pero `npm install` falla, la respuesta sigue marcando `updated: true`, incluye `installError` y pide reiniciar. Esto evita que una actualizacion aplicada quede mostrando el boton por no haber escrito el marcador local de version.
 
 Respuesta cuando ya esta actualizado:
 

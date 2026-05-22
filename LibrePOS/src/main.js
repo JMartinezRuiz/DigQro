@@ -1499,7 +1499,9 @@ async function applyUpdate() {
     };
     persistLocal();
     showToast(
-      payload.updated
+      payload.installError
+        ? "LibrePOS actualizado. Cierra y abre; si no arranca, ejecuta Instalar LibrePOS."
+        : payload.updated
         ? "LibrePOS actualizado desde GitHub. Cierra y abre LibrePOS."
         : "LibrePOS ya estaba actualizado.",
     );
