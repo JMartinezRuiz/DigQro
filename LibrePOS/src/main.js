@@ -2249,9 +2249,9 @@ function availableNavItems() {
     items.push(
       ["inventory", "Inventario", "inventory"],
       ["recipes", "Catalogo", "note"],
-      ["printer", "Impresora", "print"],
       ["data", "Datos", "data"],
       ["users", "Usuarios", "users"],
+      ["printer", "Impresora", "print"],
     );
   }
   return items;
