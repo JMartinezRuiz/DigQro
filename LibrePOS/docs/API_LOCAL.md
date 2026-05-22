@@ -237,6 +237,8 @@ Respuesta cuando actualiza:
 
 Si los archivos ya se escribieron pero `npm install` falla, la respuesta sigue marcando `updated: true`, incluye `installError` y pide reiniciar. Esto evita que una actualizacion aplicada quede mostrando el boton por no haber escrito el marcador local de version.
 
+Las descargas se hacen contra el SHA exacto del commit remoto y cada archivo se valida contra el hash reportado por GitHub para evitar contenido cacheado de una version anterior.
+
 Respuesta cuando ya esta actualizado:
 
 ```json

@@ -267,9 +267,10 @@ function githubApiUrl(pathname) {
   return `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}${pathname}`;
 }
 
-function githubRawUrl(githubPath) {
+function githubRawUrl(githubPath, ref = UPDATE_BRANCH) {
+  const encodedRef = String(ref || UPDATE_BRANCH).split("/").map(encodeURIComponent).join("/");
   const encodedPath = githubPath.split("/").map(encodeURIComponent).join("/");
-  return `https://raw.githubusercontent.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/${UPDATE_BRANCH}/${encodedPath}`;
+  return `https://raw.githubusercontent.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/${encodedRef}/${encodedPath}`;
 }
 
 function requestUrl(url, { json = true, headers = {}, timeout = 25000 } = {}, redirects = 0) {
@@ -362,9 +363,9 @@ async function readLocalPackageVersion() {
   }
 }
 
-async function fetchRemotePackageVersion() {
+async function fetchRemotePackageVersion(ref = UPDATE_BRANCH) {
   try {
-    const buffer = await requestGithub(githubRawUrl(`${UPDATE_PROJECT_PREFIX}package.json`), {
+    const buffer = await requestGithub(githubRawUrl(`${UPDATE_PROJECT_PREFIX}package.json`, ref), {
       json: false,
       headers: { Accept: "application/octet-stream" },
     });
@@ -419,13 +420,13 @@ export async function getUpdateStatus() {
   }
   if (remote?.commitSha && !localIncludesRemote && !sameCommit(storedLocal.commitSha, remote.commitSha)) {
     try {
-      const remoteFiles = await fetchRemoteProjectFiles();
+      const remoteFiles = await fetchRemoteProjectFiles(remote.commitSha);
       local = (await readLocalVersionFromFiles(remoteFiles, remote.commitSha)) || storedLocal;
     } catch {
       local = storedLocal;
     }
     if (!sameCommit(local.commitSha, remote.commitSha)) {
-      [localPackageVersion, remotePackageVersion] = await Promise.all([readLocalPackageVersion(), fetchRemotePackageVersion()]);
+      [localPackageVersion, remotePackageVersion] = await Promise.all([readLocalPackageVersion(), fetchRemotePackageVersion(remote.commitSha)]);
       if (localPackageVersion && remotePackageVersion && localPackageVersion === remotePackageVersion) {
         local = { commitSha: remote.commitSha, source: "package-version", updatedAt: "", packageVersion: localPackageVersion };
       }
@@ -727,8 +728,8 @@ function shouldIgnoreLocalProjectPath(relativePath) {
   return IGNORED_LOCAL_UPDATE_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
 }
 
-async function fetchRemoteProjectFiles() {
-  const commit = await requestGithub(githubApiUrl(`/commits/${UPDATE_BRANCH}`));
+async function fetchRemoteProjectFiles(ref = UPDATE_BRANCH) {
+  const commit = await requestGithub(githubApiUrl(`/commits/${encodeURIComponent(ref)}`));
   const treeSha = commit?.commit?.tree?.sha;
   if (!treeSha) throw new Error("github-tree-not-found");
   const treeUrl = new URL(githubApiUrl(`/git/trees/${treeSha}`));
@@ -750,13 +751,16 @@ function assertInsideRoot(targetPath) {
   }
 }
 
-async function downloadRemoteProjectFiles(files) {
+async function downloadRemoteProjectFiles(files, ref = UPDATE_BRANCH) {
   const downloaded = [];
   for (const file of files) {
-    const buffer = await requestGithub(githubRawUrl(file.githubPath), {
+    const buffer = await requestGithub(githubRawUrl(file.githubPath, ref), {
       json: false,
       headers: { Accept: "application/octet-stream" },
     });
+    if (file.sha && gitBlobSha(buffer) !== file.sha) {
+      throw new Error(`download-sha-mismatch:${file.relativePath}`);
+    }
     downloaded.push({ ...file, buffer });
   }
   return downloaded;
@@ -846,9 +850,9 @@ async function applyGithubRepositoryUpdate(status) {
     remoteCommit: status.remoteCommit,
     remoteUrl: status.remoteUrl,
   });
-  const remoteFiles = await fetchRemoteProjectFiles();
+  const remoteFiles = await fetchRemoteProjectFiles(status.remoteCommit);
   updateLog("Lista de archivos recibida desde GitHub", { files: remoteFiles.length });
-  const downloadedFiles = await downloadRemoteProjectFiles(remoteFiles);
+  const downloadedFiles = await downloadRemoteProjectFiles(remoteFiles, status.remoteCommit);
   updateLog("Archivos descargados desde GitHub", { files: downloadedFiles.length });
   const remoteFileSet = new Set(downloadedFiles.map((file) => file.relativePath));
   await removeStaleProjectFiles(remoteFileSet);
