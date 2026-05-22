@@ -750,6 +750,7 @@ function loadState() {
       orders: Array.isArray(saved.orders) ? saved.orders : [],
       sales: Array.isArray(saved.sales) ? saved.sales : [],
       cancellations: Array.isArray(saved.cancellations) ? saved.cancellations : [],
+      updateBusy: false,
       inventory,
       ingredientCategories: normalizeIngredientCategories(saved.ingredientCategories, inventory),
       inventoryMovements: Array.isArray(saved.inventoryMovements) ? saved.inventoryMovements : [],
@@ -1487,8 +1488,10 @@ async function applyUpdate() {
   if (state.updateBusy) return;
   state.updateBusy = true;
   render();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 360000);
   try {
-    const response = await fetch("/api/update/apply", { method: "POST" });
+    const response = await fetch("/api/update/apply", { method: "POST", signal: controller.signal });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "update-failed");
     state.updateInfo = {
@@ -1497,7 +1500,6 @@ async function applyUpdate() {
       available: false,
       localCommit: payload.remoteCommit || state.updateInfo?.remoteCommit || state.updateInfo?.localCommit,
     };
-    persistLocal();
     showToast(
       payload.installError
         ? "LibrePOS actualizado. Cierra y abre; si no arranca, ejecuta Instalar LibrePOS."
@@ -1507,7 +1509,9 @@ async function applyUpdate() {
     );
   } catch (error) {
     const message = String(error?.message || "");
-    if (message.includes("update-in-progress")) {
+    if (error?.name === "AbortError") {
+      showToast("La actualizacion tardo demasiado. Cierra y abre LibrePOS antes de reintentar.");
+    } else if (message.includes("update-in-progress")) {
       showToast("Ya hay una actualizacion en curso.");
     } else if (message.includes("github") || message.includes("download")) {
       showToast("No se pudo conectar a GitHub. Revisa la conexion.");
@@ -1515,7 +1519,9 @@ async function applyUpdate() {
       showToast("No se pudo actualizar LibrePOS.");
     }
   } finally {
+    window.clearTimeout(timeoutId);
     state.updateBusy = false;
+    persistLocal();
     render();
   }
 }

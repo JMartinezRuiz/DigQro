@@ -40,10 +40,33 @@ function Get-LatestLibrePosCommit {
   return [string]$commits[0].sha
 }
 
-function Copy-ProjectFiles($source, $destination) {
+function Copy-DirectoryContents($source, $destination) {
+  New-Item -ItemType Directory -Force -Path $destination | Out-Null
   Get-ChildItem -LiteralPath $source -Force | ForEach-Object {
     $target = Join-Path $destination $_.Name
-    Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force
+    if ($_.PSIsContainer) {
+      Copy-DirectoryContents -source $_.FullName -destination $target
+    } else {
+      Copy-Item -LiteralPath $_.FullName -Destination $target -Force
+    }
+  }
+}
+
+function Copy-ProjectFiles($source, $destination) {
+  Copy-DirectoryContents -source $source -destination $destination
+}
+
+function Remove-BrokenNestedCopies($root) {
+  @(
+    "assets\assets",
+    "docs\docs",
+    "scripts\scripts",
+    "src\src"
+  ) | ForEach-Object {
+    $target = Join-Path $root $_
+    if (Test-Path $target) {
+      Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
 }
 
@@ -107,6 +130,7 @@ try {
 
   Write-Step "Copiando archivos del programa..."
   Copy-ProjectFiles -source $sourceProject -destination $root
+  Remove-BrokenNestedCopies -root $root
 
   $pycache = Join-Path $root "scripts\__pycache__"
   if (Test-Path $pycache) {
