@@ -815,6 +815,16 @@ function cleanTicketMarginMm(value) {
   return Math.max(0, Math.min(20, margin));
 }
 
+function ticketMarginsFromOptions(options = {}) {
+  const fallback = typeof options === "object" && options !== null ? options.marginMm : options;
+  const leftSource = typeof options === "object" && options !== null && options.marginLeftMm !== undefined ? options.marginLeftMm : fallback;
+  const rightSource = typeof options === "object" && options !== null && options.marginRightMm !== undefined ? options.marginRightMm : fallback;
+  return {
+    leftMm: cleanTicketMarginMm(leftSource),
+    rightMm: cleanTicketMarginMm(rightSource),
+  };
+}
+
 function cleanTicketLogoWidthMm(value) {
   const width = Math.round(Number(value));
   if (!Number.isFinite(width)) return DEFAULT_TICKET_LOGO_WIDTH_MM;
@@ -825,16 +835,16 @@ function cleanTicketLogoPosition(value) {
   return value === "above-title" ? "above-title" : DEFAULT_TICKET_LOGO_POSITION;
 }
 
-function marginMmToHundredthsInch(value) {
-  return Math.round(cleanTicketMarginMm(value) * 100 / 25.4);
+function marginMmToHundredthsInchRaw(value) {
+  return Math.round(value * 100 / 25.4);
 }
 
 function logoWidthMmToHundredthsInch(value) {
   return Math.round(cleanTicketLogoWidthMm(value) * 100 / 25.4);
 }
 
-function marginMmToPoints(value) {
-  return Math.round(cleanTicketMarginMm(value) * 72 / 25.4);
+function marginMmToPointsRaw(value) {
+  return value * 72 / 25.4;
 }
 
 async function resolveTicketLogoFile(logoDataUrl = "") {
@@ -950,11 +960,16 @@ function windowsTicketPayload(printerName) {
   ]);
 }
 
-async function printWithCups(printerName, filePath, { marginMm = null } = {}) {
+async function printWithCups(printerName, filePath, { marginMm = null, marginLeftMm = null, marginRightMm = null } = {}) {
   const args = ["-d", printerName, "-t", "LibrePOS test"];
-  if (marginMm !== null) {
-    const points = marginMmToPoints(marginMm);
-    args.push("-o", `page-left=${points}`, "-o", `page-right=${points}`);
+  if (marginLeftMm !== null || marginRightMm !== null || marginMm !== null) {
+    const margins = ticketMarginsFromOptions({ marginMm, marginLeftMm, marginRightMm });
+    args.push(
+      "-o",
+      `page-left=${Math.round(marginMmToPointsRaw(margins.leftMm))}`,
+      "-o",
+      `page-right=${Math.round(marginMmToPointsRaw(margins.rightMm))}`,
+    );
   }
   args.push(filePath);
   await execFile("lp", args, {
@@ -1068,16 +1083,19 @@ async function resolveTicketLogoJpeg(logoDataUrl = "") {
   }
 }
 
-async function createReceiptPdfFile(text, { marginMm = DEFAULT_TICKET_MARGIN_MM, logoDataUrl = "", logoWidthMm = DEFAULT_TICKET_LOGO_WIDTH_MM } = {}) {
+async function createReceiptPdfFile(text, options = {}) {
+  const { logoDataUrl = "", logoWidthMm = DEFAULT_TICKET_LOGO_WIDTH_MM } = options;
+  const margins = ticketMarginsFromOptions(options);
   const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const logo = lines.some((line) => line === RECEIPT_LOGO_MARKER) ? await resolveTicketLogoJpeg(logoDataUrl) : null;
   const paperWidth = 58 * 72 / 25.4;
-  const sideMargin = marginMmToPoints(marginMm);
-  const availableWidth = Math.max(1, paperWidth - (sideMargin * 2));
+  const leftMargin = marginMmToPointsRaw(margins.leftMm);
+  const rightMargin = marginMmToPointsRaw(margins.rightMm);
+  const availableWidth = Math.max(1, paperWidth - leftMargin - rightMargin);
   const logoWidth = Math.min(logoWidthMmToHundredthsInch(logoWidthMm) * 72 / 100, availableWidth);
   const logoHeight = logo ? Math.max(1, logoWidth * (logo.height / logo.width)) : 0;
-  const fontSize = 7;
-  const lineHeight = 9;
+  const fontSize = Math.min(7, Math.max(5.4, availableWidth / (RECEIPT_WIDTH * 0.6)));
+  const lineHeight = Math.ceil(fontSize + 2);
   const topMargin = 8;
   const bottomMargin = 18;
   const contentHeight = lines.reduce((height, line) => {
@@ -1090,7 +1108,7 @@ async function createReceiptPdfFile(text, { marginMm = DEFAULT_TICKET_MARGIN_MM,
   lines.forEach((line) => {
     if (line === RECEIPT_LOGO_MARKER) {
       if (logo) {
-        const x = Math.max(sideMargin, (paperWidth - logoWidth) / 2);
+        const x = leftMargin + Math.max(0, (availableWidth - logoWidth) / 2);
         const y = cursorTop - logoHeight;
         contentCommands.push(`q ${pdfNumber(logoWidth)} 0 0 ${pdfNumber(logoHeight)} ${pdfNumber(x)} ${pdfNumber(y)} cm /Im1 Do Q`);
         cursorTop -= logoHeight + 6;
@@ -1098,7 +1116,7 @@ async function createReceiptPdfFile(text, { marginMm = DEFAULT_TICKET_MARGIN_MM,
       return;
     }
     const y = cursorTop - fontSize;
-    contentCommands.push(`BT /F1 ${fontSize} Tf 1 0 0 1 ${pdfNumber(sideMargin)} ${pdfNumber(y)} Tm (${pdfEscapeText(line)}) Tj ET`);
+    contentCommands.push(`BT /F1 ${pdfNumber(fontSize)} Tf 1 0 0 1 ${pdfNumber(leftMargin)} ${pdfNumber(y)} Tm (${pdfEscapeText(line)}) Tj ET`);
     cursorTop -= lineHeight;
   });
   const content = Buffer.from(`${contentCommands.join("\n")}\n`, "binary");
@@ -1126,13 +1144,19 @@ async function createReceiptPdfFile(text, { marginMm = DEFAULT_TICKET_MARGIN_MM,
 
 async function printReceiptWithCupsDocument(printerName, text, options = {}) {
   const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
+  const marginLeftMm = typeof options === "object" && options !== null ? options.marginLeftMm : null;
+  const marginRightMm = typeof options === "object" && options !== null ? options.marginRightMm : null;
   const hasLogoMarker = String(text || "").split(/\r\n|\r|\n/).some((line) => line === RECEIPT_LOGO_MARKER);
   const filePath = hasLogoMarker
     ? await createReceiptPdfFile(text, options)
     : path.join(tmpdir(), `librepos-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
   if (!hasLogoMarker) await writeFile(filePath, text, "utf8");
   try {
-    const result = await printWithCups(printerName, filePath, { marginMm: hasLogoMarker ? null : marginMm });
+    const result = await printWithCups(printerName, filePath, {
+      marginMm: hasLogoMarker ? null : marginMm,
+      marginLeftMm: hasLogoMarker ? null : marginLeftMm,
+      marginRightMm: hasLogoMarker ? null : marginRightMm,
+    });
     return { method: hasLogoMarker ? "cups-lp-pdf-logo" : result.method };
   } finally {
     await rm(filePath, { force: true });
@@ -1265,10 +1289,11 @@ async function printWithWindowsLegacy(printerName) {
 }
 
 async function printReceiptWithWindowsDocument(printerName, text, options = {}) {
-  const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
   const logoDataUrl = typeof options === "object" && options !== null ? options.logoDataUrl : "";
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
-  const sideMargin = marginMmToHundredthsInch(marginMm);
+  const margins = ticketMarginsFromOptions(options);
+  const leftMargin = marginMmToHundredthsInchRaw(margins.leftMm);
+  const rightMargin = marginMmToHundredthsInchRaw(margins.rightMm);
   const logoWidth = logoWidthMmToHundredthsInch(logoWidthMm);
   const hasLogoMarker = String(text || "").split(/\r\n|\r|\n/).some((line) => line === RECEIPT_LOGO_MARKER);
   const logoFile = hasLogoMarker ? await resolveTicketLogoFile(logoDataUrl) : { filePath: "", cleanup: async () => {} };
@@ -1279,13 +1304,14 @@ async function printReceiptWithWindowsDocument(printerName, text, options = {}) 
     "$text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[1]))",
     "$lines = $text -replace \"`r`n\", \"`n\" -replace \"`r\", \"`n\" -split \"`n\"",
     "$paperWidth = 228",
-    "$sideMargin = [int]$args[2]",
-    "$logoPath = [string]$args[3]",
-    "$logoWidthTarget = [int]$args[4]",
+    "$leftMargin = [int]$args[2]",
+    "$rightMargin = [int]$args[3]",
+    "$logoPath = [string]$args[4]",
+    "$logoWidthTarget = [int]$args[5]",
     `$logoMarker = '${RECEIPT_LOGO_MARKER}'`,
     "$logo = $null",
     "if ($logoPath -and (Test-Path -LiteralPath $logoPath)) { $logo = [System.Drawing.Image]::FromFile($logoPath) }",
-    "$availableWidth = [Math]::Max(1, $paperWidth - ($sideMargin * 2))",
+    "$availableWidth = [Math]::Max(1, $paperWidth - $leftMargin - $rightMargin)",
     "$targetLogoWidth = [Math]::Max(1, [Math]::Min($logoWidthTarget, $availableWidth))",
     "$targetLogoHeight = 0",
     "if ($logo -ne $null) { $targetLogoHeight = [Math]::Max(1, [Math]::Round($targetLogoWidth * ([double]$logo.Height / [double]$logo.Width))) }",
@@ -1296,13 +1322,14 @@ async function printReceiptWithWindowsDocument(printerName, text, options = {}) 
     "if (-not $doc.PrinterSettings.IsValid) { throw \"printer-not-valid:$printer\" }",
     "$doc.DocumentName = 'LibrePOS cuenta 58mm'",
     "$doc.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('LibrePOS 58mm', $paperWidth, $paperHeight)",
-    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins($sideMargin, $sideMargin, 2, 2)",
-    "$font = New-Object System.Drawing.Font('Courier New', 7.0, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)",
+    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins($leftMargin, $rightMargin, 2, 2)",
+    `$fontSize = [Math]::Min(7.0, [Math]::Max(5.4, (($availableWidth * 72.0 / 100.0) / (${RECEIPT_WIDTH} * 0.6))))`,
+    "$font = New-Object System.Drawing.Font('Courier New', $fontSize, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)",
     "$brush = [System.Drawing.Brushes]::Black",
     "$script:lineIndex = 0",
     "$doc.add_PrintPage({",
     "  param($sender, $event)",
-    "  $x = $sideMargin",
+    "  $x = $leftMargin",
     "  $y = 2",
     "  $lineHeight = [Math]::Ceiling($font.GetHeight($event.Graphics)) + 1",
     "  $bottom = $event.PageBounds.Height - 4",
@@ -1314,7 +1341,7 @@ async function printReceiptWithWindowsDocument(printerName, text, options = {}) 
     "          $event.HasMorePages = $true",
     "          return",
     "        }",
-    "        $logoX = [Math]::Max($sideMargin, [Math]::Round(($paperWidth - $targetLogoWidth) / 2))",
+    "        $logoX = $leftMargin + [Math]::Max(0, [Math]::Round(($availableWidth - $targetLogoWidth) / 2))",
     "        $rect = [System.Drawing.RectangleF]::new([float]$logoX, [float]$y, [float]$targetLogoWidth, [float]$targetLogoHeight)",
     "        $event.Graphics.DrawImage($logo, $rect)",
     "        $y += $targetLogoHeight + 6",
@@ -1338,7 +1365,8 @@ async function printReceiptWithWindowsDocument(printerName, text, options = {}) 
     await runPowerShell(script, [
       printerName,
       Buffer.from(text, "utf8").toString("base64"),
-      String(sideMargin),
+      String(leftMargin),
+      String(rightMargin),
       logoFile.filePath,
       String(logoWidth),
     ], { timeout: 30000, maxBuffer: 1024 * 1024 });
@@ -1349,10 +1377,11 @@ async function printReceiptWithWindowsDocument(printerName, text, options = {}) 
 }
 
 async function printLogoWithWindowsDocument(printerName, options = {}) {
-  const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
   const logoDataUrl = typeof options === "object" && options !== null ? options.logoDataUrl : "";
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
-  const sideMargin = marginMmToHundredthsInch(marginMm);
+  const margins = ticketMarginsFromOptions(options);
+  const leftMargin = marginMmToHundredthsInchRaw(margins.leftMm);
+  const rightMargin = marginMmToHundredthsInchRaw(margins.rightMm);
   const logoWidth = logoWidthMmToHundredthsInch(logoWidthMm);
   const logoFile = await resolveTicketLogoFile(logoDataUrl);
   const script = [
@@ -1360,8 +1389,9 @@ async function printLogoWithWindowsDocument(printerName, options = {}) {
     "Add-Type -AssemblyName System.Drawing",
     "$printer = $args[0]",
     "$imagePath = $args[1]",
-    "$sideMargin = [int]$args[2]",
-    "$logoWidthTarget = [int]$args[3]",
+    "$leftMargin = [int]$args[2]",
+    "$rightMargin = [int]$args[3]",
+    "$logoWidthTarget = [int]$args[4]",
     "if (-not (Test-Path -LiteralPath $imagePath)) { throw \"logo-not-found:$imagePath\" }",
     "$image = [System.Drawing.Image]::FromFile($imagePath)",
     "$doc = New-Object System.Drawing.Printing.PrintDocument",
@@ -1369,15 +1399,15 @@ async function printLogoWithWindowsDocument(printerName, options = {}) {
     "if (-not $doc.PrinterSettings.IsValid) { throw \"printer-not-valid:$printer\" }",
     "$doc.DocumentName = 'LibrePOS logo'",
     "$paperWidth = 228",
-    "$availableWidth = $paperWidth - ($sideMargin * 2)",
+    "$availableWidth = [Math]::Max(1, $paperWidth - $leftMargin - $rightMargin)",
     "$targetWidth = [Math]::Max(1, [Math]::Min($logoWidthTarget, $availableWidth))",
     "$imageHeight = [Math]::Max(1, [Math]::Round($targetWidth * ([double]$image.Height / [double]$image.Width)))",
     "$paperHeight = [Math]::Max(260, $imageHeight + 28)",
     "$doc.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('LibrePOS logo', $paperWidth, $paperHeight)",
-    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins($sideMargin, $sideMargin, 2, 2)",
+    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins($leftMargin, $rightMargin, 2, 2)",
     "$doc.add_PrintPage({",
     "  param($sender, $event)",
-    "  $x = [Math]::Max($sideMargin, [Math]::Round(($paperWidth - $targetWidth) / 2))",
+    "  $x = $leftMargin + [Math]::Max(0, [Math]::Round(($availableWidth - $targetWidth) / 2))",
     "  $y = 8",
     "  $rect = [System.Drawing.RectangleF]::new([float]$x, [float]$y, [float]$targetWidth, [float]$imageHeight)",
     "  $event.Graphics.DrawImage($image, $rect)",
@@ -1386,7 +1416,7 @@ async function printLogoWithWindowsDocument(printerName, options = {}) {
     "try { $doc.Print(); Write-Output ('windows-print-logo:' + $printer) } finally { $image.Dispose(); $doc.Dispose() }",
   ].join("\n");
   try {
-    await runPowerShell(script, [printerName, logoFile.filePath, String(sideMargin), String(logoWidth)], { timeout: 30000, maxBuffer: 1024 * 1024 });
+    await runPowerShell(script, [printerName, logoFile.filePath, String(leftMargin), String(rightMargin), String(logoWidth)], { timeout: 30000, maxBuffer: 1024 * 1024 });
     return { method: "windows-print-logo" };
   } finally {
     await logoFile.cleanup();
@@ -1451,22 +1481,25 @@ export function previewFakeReceiptTicket() {
 
 export async function printFakeReceiptTicket(printerName, ticketText = "", options = {}) {
   const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
+  const margins = ticketMarginsFromOptions(options);
   const logoDataUrl = typeof options === "object" && options !== null ? options.logoDataUrl : "";
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
   const text = cleanReceiptPayload(ticketText) || fakeReceiptText();
+  const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
-    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
+    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, printOptions);
   } else {
-    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
+    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, printOptions);
   }
-  return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: cleanTicketMarginMm(marginMm), printedAt: new Date().toISOString(), ticketText: text };
+  return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: margins.leftMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, printedAt: new Date().toISOString(), ticketText: text };
 }
 
 export async function printReceiptHeaderTicket(printerName, options = {}) {
   const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
+  const margins = ticketMarginsFromOptions(options);
   const logoDataUrl = typeof options === "object" && options !== null ? options.logoDataUrl : "";
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
   const includeLogo = Boolean(typeof options === "object" && options !== null && options.includeLogo);
@@ -1474,28 +1507,30 @@ export async function printReceiptHeaderTicket(printerName, options = {}) {
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
   const text = replaceLibrePosLineWithLogoMarker(receiptHeaderText(), includeLogo, logoPosition);
+  const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
-    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
+    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, printOptions);
   } else {
-    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
+    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, printOptions);
   }
-  return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: cleanTicketMarginMm(marginMm), printedAt: new Date().toISOString(), ticketText: text };
+  return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: margins.leftMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, printedAt: new Date().toISOString(), ticketText: text };
 }
 
 export async function printLogoTestTicket(printerName, options = {}) {
   const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
+  const margins = ticketMarginsFromOptions(options);
   const logoDataUrl = typeof options === "object" && options !== null ? options.logoDataUrl : "";
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
   let result = null;
   if (process.platform === "win32") {
-    result = await printLogoWithWindowsDocument(cleanName, { marginMm, logoDataUrl, logoWidthMm });
+    result = await printLogoWithWindowsDocument(cleanName, { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm });
   } else {
     const logoFile = await resolveTicketLogoFile(logoDataUrl);
     try {
-      result = await printWithCups(cleanName, logoFile.filePath, { marginMm });
+      result = await printWithCups(cleanName, logoFile.filePath, { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm });
     } finally {
       await logoFile.cleanup();
     }
@@ -1504,7 +1539,9 @@ export async function printLogoTestTicket(printerName, options = {}) {
     ok: true,
     printerName: cleanName,
     method: result?.method || "",
-    marginMm: cleanTicketMarginMm(marginMm),
+    marginMm: margins.leftMm,
+    marginLeftMm: margins.leftMm,
+    marginRightMm: margins.rightMm,
     logoWidthMm: cleanTicketLogoWidthMm(logoWidthMm),
     printedAt: new Date().toISOString(),
     logoPath: logoDataUrl ? "custom" : "/assets/brand.jpg",
@@ -1513,19 +1550,21 @@ export async function printLogoTestTicket(printerName, options = {}) {
 
 export async function printSaleReceiptTicket(printerName, ticketText = "", options = {}) {
   const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
+  const margins = ticketMarginsFromOptions(options);
   const logoDataUrl = typeof options === "object" && options !== null ? options.logoDataUrl : "";
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
   const text = cleanReceiptPayload(ticketText);
   if (!text.trim()) throw new Error("ticket-required");
+  const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
-    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
+    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, printOptions);
   } else {
-    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
+    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, printOptions);
   }
-  return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: cleanTicketMarginMm(marginMm), printedAt: new Date().toISOString(), ticketText: text };
+  return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: margins.leftMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, printedAt: new Date().toISOString(), ticketText: text };
 }
 
 export async function printTestTicket(printerName) {
@@ -1831,6 +1870,8 @@ export function createSyncMiddleware() {
         try {
           sendJson(res, 200, await printFakeReceiptTicket(payload.printerName, payload.ticketText, {
             marginMm: payload.marginMm,
+            marginLeftMm: payload.marginLeftMm,
+            marginRightMm: payload.marginRightMm,
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
           }));
@@ -1847,6 +1888,8 @@ export function createSyncMiddleware() {
         try {
           sendJson(res, 200, await printReceiptHeaderTicket(payload.printerName, {
             marginMm: payload.marginMm,
+            marginLeftMm: payload.marginLeftMm,
+            marginRightMm: payload.marginRightMm,
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
             includeLogo: payload.includeLogo,
@@ -1865,6 +1908,8 @@ export function createSyncMiddleware() {
         try {
           sendJson(res, 200, await printLogoTestTicket(payload.printerName, {
             marginMm: payload.marginMm,
+            marginLeftMm: payload.marginLeftMm,
+            marginRightMm: payload.marginRightMm,
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
           }));
@@ -1881,6 +1926,8 @@ export function createSyncMiddleware() {
         try {
           sendJson(res, 200, await printSaleReceiptTicket(payload.printerName, payload.ticketText, {
             marginMm: payload.marginMm,
+            marginLeftMm: payload.marginLeftMm,
+            marginRightMm: payload.marginRightMm,
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
           }));
@@ -1897,6 +1944,8 @@ export function createSyncMiddleware() {
         try {
           sendJson(res, 200, await printSaleReceiptTicket(payload.printerName, payload.ticketText, {
             marginMm: payload.marginMm,
+            marginLeftMm: payload.marginLeftMm,
+            marginRightMm: payload.marginRightMm,
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
           }));

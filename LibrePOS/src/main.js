@@ -649,6 +649,8 @@ const defaultState = {
     theme: "tatias",
     ticketPrinterName: "",
     ticketMarginMm: DEFAULT_TICKET_MARGIN_MM,
+    ticketMarginLeftMm: DEFAULT_TICKET_MARGIN_MM,
+    ticketMarginRightMm: DEFAULT_TICKET_MARGIN_MM,
     ticketLogoDataUrl: "",
     ticketLogoWidthMm: DEFAULT_TICKET_LOGO_WIDTH_MM,
     ticketLogoEnabled: false,
@@ -876,27 +878,40 @@ function selectedTicketPrinterName() {
   return String(state.settings?.ticketPrinterName || printerRuntime.selectedName || loadPrinterName() || "").trim();
 }
 
-function ticketMarginMm() {
-  const margin = Math.round(Number(state.settings?.ticketMarginMm));
-  if (!Number.isFinite(margin)) return DEFAULT_TICKET_MARGIN_MM;
-  return Math.max(0, Math.min(20, margin));
+function ticketMarginLeftMm() {
+  return ticketMarginMmFromValue(state.settings?.ticketMarginLeftMm ?? state.settings?.ticketMarginMm);
 }
 
-function saveTicketMarginMm(value) {
+function ticketMarginRightMm() {
+  return ticketMarginMmFromValue(state.settings?.ticketMarginRightMm ?? state.settings?.ticketMarginMm);
+}
+
+function ticketMarginPayload() {
+  return {
+    marginMm: ticketMarginLeftMm(),
+    marginLeftMm: ticketMarginLeftMm(),
+    marginRightMm: ticketMarginRightMm(),
+  };
+}
+
+function saveTicketMarginMm(side, value) {
+  const key = side === "right" ? "ticketMarginRightMm" : "ticketMarginLeftMm";
   state.settings = {
     ...state.settings,
-    ticketMarginMm: ticketMarginMmFromValue(value),
+    [key]: ticketMarginMmFromValue(value),
   };
   persist();
   render();
 }
 
-function updateTicketMarginMm(value) {
+function updateTicketMarginMm(side, value) {
+  const key = side === "right" ? "ticketMarginRightMm" : "ticketMarginLeftMm";
   state.settings = {
     ...state.settings,
-    ticketMarginMm: ticketMarginMmFromValue(value),
+    [key]: ticketMarginMmFromValue(value),
   };
   persist();
+  refreshTicketMarginPreview();
 }
 
 function ticketMarginMmFromValue(value) {
@@ -5909,6 +5924,19 @@ function refreshTicketLogoPreviewSize() {
   });
 }
 
+function ticketMarginPreviewPx(value) {
+  return `${Math.round(14 + (value * 3.2))}px`;
+}
+
+function ticketMarginPreviewStyle() {
+  return `style="--ticket-margin-left: ${ticketMarginPreviewPx(ticketMarginLeftMm())}; --ticket-margin-right: ${ticketMarginPreviewPx(ticketMarginRightMm())};"`;
+}
+
+function refreshTicketMarginPreview() {
+  document.querySelector("[data-printer-panel]")?.style.setProperty("--ticket-margin-left", ticketMarginPreviewPx(ticketMarginLeftMm()));
+  document.querySelector("[data-printer-panel]")?.style.setProperty("--ticket-margin-right", ticketMarginPreviewPx(ticketMarginRightMm()));
+}
+
 function renderReceiptPreviewHtml(text) {
   const value = String(text || "");
   if (!value) {
@@ -5939,7 +5967,8 @@ function renderPrinterTest() {
   const printersCount = printerRuntime.printers.length;
   const selectedTicketName = selectedTicketPrinterName();
   const selectedLabel = selectedTicketName || "Pendiente";
-  const marginMm = ticketMarginMm();
+  const marginLeftMm = ticketMarginLeftMm();
+  const marginRightMm = ticketMarginRightMm();
   const logoWidthMm = ticketLogoWidthMm();
   const logoLoadedLabel = ticketLogoDataUrl() ? "Personalizado" : "Logo base";
   const removeTarget = renderedPrinterValue() || printerRuntime.manualName;
@@ -5951,11 +5980,11 @@ function renderPrinterTest() {
         ? "Eliminando impresora"
       : `${printersCount} impresora${printersCount === 1 ? "" : "s"}`;
   return `
-    <div class="data-layout printer-layout" data-printer-panel>
+    <div class="data-layout printer-layout" data-printer-panel ${ticketMarginPreviewStyle()}>
       <section class="summary-grid">
         ${renderSummaryCard("Impresoras", String(printersCount))}
         ${renderSummaryCard("Ticket", escapeHtml(selectedLabel))}
-        ${renderSummaryCard("Margen", `${marginMm} mm/lado`)}
+        ${renderSummaryCard("Margen", `Izq ${marginLeftMm} · Der ${marginRightMm} mm`)}
         ${renderSummaryCard("Logo", ticketLogoEnabled() ? `${logoWidthMm} mm ${ticketLogoPositionLabel()}` : "No incluido")}
         ${renderSummaryCard("Ultima prueba", printerRuntime.lastPrintedAt ? formatDateTime(printerRuntime.lastPrintedAt) : "Sin prueba")}
       </section>
@@ -5978,9 +6007,14 @@ function renderPrinterTest() {
             <input data-printer-manual value="${escapeAttr(printerRuntime.manualName)}" placeholder="Nombre exacto para tickets" ${printerRuntime.loading ? "disabled" : ""} />
           </label>
           <label class="field">
-            <span>Margen lateral actual</span>
-            <input data-ticket-margin-mm type="number" min="0" max="20" step="1" value="${marginMm}" />
-            <small>${marginMm} mm por lado. Sube o baja de 1mm en 1mm.</small>
+            <span>Margen izquierdo</span>
+            <input data-ticket-margin-mm data-ticket-margin-side="left" type="number" min="0" max="20" step="1" value="${marginLeftMm}" />
+            <small>${marginLeftMm} mm desde el borde izquierdo.</small>
+          </label>
+          <label class="field">
+            <span>Margen derecho</span>
+            <input data-ticket-margin-mm data-ticket-margin-side="right" type="number" min="0" max="20" step="1" value="${marginRightMm}" />
+            <small>${marginRightMm} mm desde el borde derecho. Sube este valor si se cortan los precios.</small>
           </label>
           <label class="field">
             <span>Logo de ticket</span>
@@ -6257,7 +6291,7 @@ async function sendReceiptPrintRequest(ticketText) {
     body: JSON.stringify({
       userId: currentUser()?.id || "",
       printerName,
-      marginMm: ticketMarginMm(),
+      ...ticketMarginPayload(),
       ...ticketLogoPayload(),
       ticketText,
     }),
@@ -6547,7 +6581,7 @@ async function printFakeReceiptPreview() {
       body: JSON.stringify({
         userId: currentUser()?.id || "",
         printerName,
-        marginMm: ticketMarginMm(),
+        ...ticketMarginPayload(),
         ...ticketLogoPayload(),
         ticketText: receiptTextWithLogoMarker(printerRuntime.fakeReceiptText),
       }),
@@ -6586,7 +6620,7 @@ async function printReceiptHeader() {
       body: JSON.stringify({
         userId: currentUser()?.id || "",
         printerName,
-        marginMm: ticketMarginMm(),
+        ...ticketMarginPayload(),
         includeLogo: ticketLogoEnabled(),
         ...ticketLogoPayload(),
       }),
@@ -6624,7 +6658,7 @@ async function printLogoTest() {
       body: JSON.stringify({
         userId: currentUser()?.id || "",
         printerName,
-        marginMm: ticketMarginMm(),
+        ...ticketMarginPayload(),
         ...logoOnlyPayload(),
       }),
     });
@@ -7957,11 +7991,13 @@ function bindEvents() {
       event.preventDefault();
       selectPrinterFromList();
     });
-    document.querySelector("[data-ticket-margin-mm]")?.addEventListener("change", (event) => {
-      saveTicketMarginMm(event.target.value);
-    });
-    document.querySelector("[data-ticket-margin-mm]")?.addEventListener("input", (event) => {
-      updateTicketMarginMm(event.target.value);
+    document.querySelectorAll("[data-ticket-margin-mm]").forEach((input) => {
+      input.addEventListener("change", (event) => {
+        saveTicketMarginMm(event.target.dataset.ticketMarginSide, event.target.value);
+      });
+      input.addEventListener("input", (event) => {
+        updateTicketMarginMm(event.target.dataset.ticketMarginSide, event.target.value);
+      });
     });
     document.querySelector("[data-ticket-logo-file]")?.addEventListener("change", changeTicketLogo);
     document.querySelector("[data-ticket-logo-width-mm]")?.addEventListener("change", (event) => {
