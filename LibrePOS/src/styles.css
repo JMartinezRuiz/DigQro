@@ -4591,6 +4591,31 @@ button:disabled {
   box-shadow: var(--shadow-xs);
 }
 
+.printer-logo-preview {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+
+.printer-logo-paper {
+  width: min(100%, 190px);
+  min-height: 138px;
+  display: grid;
+  place-items: start center;
+  padding: 16px 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-xs);
+}
+
+.printer-logo-paper img {
+  width: min(100%, 118px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  display: block;
+}
+
 .expense-layout {
   display: grid;
   gap: 18px;

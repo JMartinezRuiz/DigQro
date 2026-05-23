@@ -681,6 +681,7 @@ let printerRuntime = {
   fakeReceiptLoading: false,
   fakeReceiptPrinting: false,
   headerPrinting: false,
+  logoPrinting: false,
   removing: false,
   printers: [],
   selectedName: loadPrinterName(),
@@ -5771,7 +5772,15 @@ function renderPrinterTest() {
               ${svg("print")}${printerRuntime.headerPrinting ? "Imprimiendo" : "Imprimir solo cabecera"}
             </button>
           </div>
-          <pre class="printer-receipt-preview">${escapeHtml(printerRuntime.fakeReceiptText || "Genera una cuenta falsa para previsualizar el ticket de 58mm.")}</pre>
+          <pre class="printer-receipt-preview">${escapeHtml(printerRuntime.fakeReceiptText || "Genera una cuenta falsa para previsualizar el ticket.")}</pre>
+          <section class="printer-logo-preview">
+            <div class="printer-logo-paper">
+              <img src="${BRAND_IMAGE}" alt="Los Tatas" />
+            </div>
+            <button class="secondary-button" data-print-logo type="button" ${printerRuntime.logoPrinting || !selectedTicketName ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.logoPrinting ? "Imprimiendo" : "Imprimir logo"}
+            </button>
+          </section>
         </div>
       </section>
     </div>
@@ -5791,6 +5800,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-legacy-print-failed")) return `No se pudo imprimir en modo legacy: ${value}`;
   if (normalized.includes("printer-fake-receipt-failed")) return `No se pudo imprimir la cuenta falsa: ${value}`;
   if (normalized.includes("printer-header-print-failed")) return `No se pudo imprimir la cabecera: ${value}`;
+  if (normalized.includes("printer-logo-print-failed")) return `No se pudo imprimir el logo: ${value}`;
   if (normalized.includes("printer-sale-receipt-failed")) return `No se pudo imprimir el ticket de cobro: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
   if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
@@ -5921,7 +5931,6 @@ function buildSaleReceiptText(sale) {
     ...paymentLines,
     receiptPrintRule(),
     receiptPrintCenter("Gracias por su visita"),
-    receiptPrintCenter("Ticket 58mm"),
     "",
     "",
   ].filter((line) => line !== "");
@@ -6153,6 +6162,38 @@ async function printReceiptHeader() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.headerPrinting = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
+async function printLogoTest() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede imprimir pruebas.");
+    return;
+  }
+  const printerName = selectedTicketPrinterName();
+  if (!printerName) {
+    showToast("Selecciona una impresora.");
+    return;
+  }
+  printerRuntime.logoPrinting = true;
+  printerRuntime.error = "";
+  render();
+  try {
+    const response = await fetch("/api/printers/logo/print", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-logo-print-error");
+    printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
+    showToast("Logo enviado.");
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.logoPrinting = false;
     if (currentUser() && state.view === "printer") render();
   }
 }
@@ -7413,6 +7454,7 @@ function bindEvents() {
     document.querySelector("[data-generate-fake-receipt]")?.addEventListener("click", () => loadFakeReceiptPreview(true));
     document.querySelector("[data-print-fake-receipt]")?.addEventListener("click", printFakeReceiptPreview);
     document.querySelector("[data-print-receipt-header]")?.addEventListener("click", printReceiptHeader);
+    document.querySelector("[data-print-logo]")?.addEventListener("click", printLogoTest);
     document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
   }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);

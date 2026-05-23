@@ -28,6 +28,7 @@ const IGNORED_LOCAL_UPDATE_DIRS = new Set(["__pycache__"]);
 const IGNORED_LOCAL_UPDATE_EXTENSIONS = new Set([".pyc", ".pyo"]);
 const RECEIPT_WIDTH = 32;
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
+const BRAND_IMAGE_FILE = path.join(ROOT_DIR, "assets", "brand.jpg");
 const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
   "User-Agent": "LibrePOS-Updater",
@@ -843,7 +844,6 @@ function fakeReceiptText() {
     card ? null : receiptColumns("Cambio", receiptMoney(change)),
     receiptRule(),
     receiptCenter("Gracias por su visita"),
-    receiptCenter("Ticket 58mm"),
     "",
     "",
     "",
@@ -1016,15 +1016,16 @@ async function printReceiptWithWindowsDocument(printerName, text) {
     "if (-not $doc.PrinterSettings.IsValid) { throw \"printer-not-valid:$printer\" }",
     "$doc.DocumentName = 'LibrePOS cuenta 58mm'",
     "$paperWidth = 228",
+    "$sideMargin = 16",
     "$paperHeight = [Math]::Max(550, ($lines.Count + 8) * 14)",
     "$doc.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('LibrePOS 58mm', $paperWidth, $paperHeight)",
-    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(2, 2, 2, 2)",
+    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins($sideMargin, $sideMargin, 2, 2)",
     "$font = New-Object System.Drawing.Font('Courier New', 7.0, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)",
     "$brush = [System.Drawing.Brushes]::Black",
     "$script:lineIndex = 0",
     "$doc.add_PrintPage({",
     "  param($sender, $event)",
-    "  $x = 2",
+    "  $x = $sideMargin",
     "  $y = 2",
     "  $lineHeight = [Math]::Ceiling($font.GetHeight($event.Graphics)) + 1",
     "  $bottom = $event.PageBounds.Height - 4",
@@ -1043,7 +1044,40 @@ async function printReceiptWithWindowsDocument(printerName, text) {
     "try { $doc.Print(); Write-Output ('windows-printdocument-58mm:' + $printer) } finally { $font.Dispose(); $doc.Dispose() }",
   ].join("\n");
   await runPowerShell(script, [printerName, Buffer.from(text, "utf8").toString("base64")], { timeout: 30000, maxBuffer: 1024 * 1024 });
-  return { method: "windows-printdocument-58mm" };
+  return { method: "windows-printdocument" };
+}
+
+async function printLogoWithWindowsDocument(printerName) {
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "Add-Type -AssemblyName System.Drawing",
+    "$printer = $args[0]",
+    "$imagePath = $args[1]",
+    "if (-not (Test-Path -LiteralPath $imagePath)) { throw \"logo-not-found:$imagePath\" }",
+    "$image = [System.Drawing.Image]::FromFile($imagePath)",
+    "$doc = New-Object System.Drawing.Printing.PrintDocument",
+    "$doc.PrinterSettings.PrinterName = $printer",
+    "if (-not $doc.PrinterSettings.IsValid) { throw \"printer-not-valid:$printer\" }",
+    "$doc.DocumentName = 'LibrePOS logo'",
+    "$paperWidth = 228",
+    "$sideMargin = 16",
+    "$availableWidth = $paperWidth - ($sideMargin * 2)",
+    "$imageHeight = [Math]::Max(1, [Math]::Round($availableWidth * ($image.Height / $image.Width)))",
+    "$paperHeight = [Math]::Max(260, $imageHeight + 28)",
+    "$doc.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('LibrePOS logo', $paperWidth, $paperHeight)",
+    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins($sideMargin, $sideMargin, 2, 2)",
+    "$doc.add_PrintPage({",
+    "  param($sender, $event)",
+    "  $x = $sideMargin",
+    "  $y = 8",
+    "  $rect = [System.Drawing.RectangleF]::new([float]$x, [float]$y, [float]$availableWidth, [float]$imageHeight)",
+    "  $event.Graphics.DrawImage($image, $rect)",
+    "  $event.HasMorePages = $false",
+    "})",
+    "try { $doc.Print(); Write-Output ('windows-print-logo:' + $printer) } finally { $image.Dispose(); $doc.Dispose() }",
+  ].join("\n");
+  await runPowerShell(script, [printerName, BRAND_IMAGE_FILE], { timeout: 30000, maxBuffer: 1024 * 1024 });
+  return { method: "windows-print-logo" };
 }
 
 async function removeWindowsPrinter(printerName) {
@@ -1138,6 +1172,18 @@ export async function printReceiptHeaderTicket(printerName) {
     }
   }
   return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString(), ticketText: text };
+}
+
+export async function printLogoTestTicket(printerName) {
+  const cleanName = String(printerName || "").trim();
+  if (!cleanName) throw new Error("printer-required");
+  let result = null;
+  if (process.platform === "win32") {
+    result = await printLogoWithWindowsDocument(cleanName);
+  } else {
+    result = await printWithCups(cleanName, BRAND_IMAGE_FILE);
+  }
+  return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString(), logoPath: "/assets/brand.jpg" };
 }
 
 export async function printSaleReceiptTicket(printerName, ticketText = "") {
@@ -1476,6 +1522,18 @@ export function createSyncMiddleware() {
           sendJson(res, 200, await printReceiptHeaderTicket(payload.printerName));
         } catch (error) {
           sendJson(res, 500, { error: "printer-header-print-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/printers/logo/print" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requireAdminUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printLogoTestTicket(payload.printerName));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-logo-print-failed", detail: compactError(error) });
         }
         return;
       }
