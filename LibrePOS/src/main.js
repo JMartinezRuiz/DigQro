@@ -673,6 +673,7 @@ let printerRuntime = {
   legacyPrinting: false,
   fakeReceiptLoading: false,
   fakeReceiptPrinting: false,
+  headerPrinting: false,
   removing: false,
   printers: [],
   selectedName: loadPrinterName(),
@@ -5748,6 +5749,9 @@ function renderPrinterTest() {
             <button class="primary-button" data-print-fake-receipt type="button" ${printerRuntime.fakeReceiptPrinting || !printerRuntime.selectedName || !printerRuntime.fakeReceiptText ? "disabled" : ""}>
               ${svg("print")}${printerRuntime.fakeReceiptPrinting ? "Imprimiendo" : "Imprimir cuenta falsa"}
             </button>
+            <button class="secondary-button" data-print-receipt-header type="button" ${printerRuntime.headerPrinting || !printerRuntime.selectedName ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.headerPrinting ? "Imprimiendo" : "Imprimir solo cabecera"}
+            </button>
           </div>
           <pre class="printer-receipt-preview">${escapeHtml(printerRuntime.fakeReceiptText || "Genera una cuenta falsa para previsualizar el ticket de 58mm.")}</pre>
         </div>
@@ -5767,6 +5771,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("powershell-failed")) return `PowerShell devolvio error: ${value}`;
   if (normalized.includes("printer-legacy-print-failed")) return `No se pudo imprimir en modo legacy: ${value}`;
   if (normalized.includes("printer-fake-receipt-failed")) return `No se pudo imprimir la cuenta falsa: ${value}`;
+  if (normalized.includes("printer-header-print-failed")) return `No se pudo imprimir la cabecera: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
   if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
   if (normalized.includes("printer-remove-failed")) return `No se pudo eliminar la impresora: ${value}`;
@@ -5945,6 +5950,38 @@ async function printFakeReceiptPreview() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.fakeReceiptPrinting = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
+async function printReceiptHeader() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede imprimir pruebas.");
+    return;
+  }
+  const printerName = printerRuntime.selectedName;
+  if (!printerName) {
+    showToast("Selecciona una impresora.");
+    return;
+  }
+  printerRuntime.headerPrinting = true;
+  printerRuntime.error = "";
+  render();
+  try {
+    const response = await fetch("/api/printers/receipt-header/print", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-header-print-error");
+    printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
+    showToast("Cabecera enviada.");
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.headerPrinting = false;
     if (currentUser() && state.view === "printer") render();
   }
 }
@@ -7204,6 +7241,7 @@ function bindEvents() {
     document.querySelector("[data-print-legacy]")?.addEventListener("click", sendPrinterLegacyTest);
     document.querySelector("[data-generate-fake-receipt]")?.addEventListener("click", () => loadFakeReceiptPreview(true));
     document.querySelector("[data-print-fake-receipt]")?.addEventListener("click", printFakeReceiptPreview);
+    document.querySelector("[data-print-receipt-header]")?.addEventListener("click", printReceiptHeader);
     document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
   }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);

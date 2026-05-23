@@ -797,6 +797,16 @@ function fakeReceiptText() {
   ].filter((line) => line !== null).join("\n");
 }
 
+function receiptHeaderText() {
+  return [
+    receiptCenter("LOS TATAS"),
+    receiptCenter("LibrePOS"),
+    receiptCenter("CUENTA DE PRUEBA"),
+    "",
+    "",
+  ].join("\n");
+}
+
 function windowsTicketPayload(printerName) {
   const text = testTicketText(printerName).replace(/\n/g, "\r\n");
   return Buffer.concat([
@@ -1047,6 +1057,25 @@ export async function printFakeReceiptTicket(printerName, ticketText = "") {
     result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`);
   } else {
     const filePath = path.join(tmpdir(), `librepos-fake-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+    await writeFile(filePath, `${text}\n\n\n`, "utf8");
+    try {
+      result = await printWithCups(cleanName, filePath);
+    } finally {
+      await rm(filePath, { force: true });
+    }
+  }
+  return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString(), ticketText: text };
+}
+
+export async function printReceiptHeaderTicket(printerName) {
+  const cleanName = String(printerName || "").trim();
+  if (!cleanName) throw new Error("printer-required");
+  const text = receiptHeaderText();
+  let result = null;
+  if (process.platform === "win32") {
+    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`);
+  } else {
+    const filePath = path.join(tmpdir(), `librepos-receipt-header-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
     await writeFile(filePath, `${text}\n\n\n`, "utf8");
     try {
       result = await printWithCups(cleanName, filePath);
@@ -1361,6 +1390,18 @@ export function createSyncMiddleware() {
           sendJson(res, 200, await printFakeReceiptTicket(payload.printerName, payload.ticketText));
         } catch (error) {
           sendJson(res, 500, { error: "printer-fake-receipt-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/printers/receipt-header/print" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requireAdminUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printReceiptHeaderTicket(payload.printerName));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-header-print-failed", detail: compactError(error) });
         }
         return;
       }
