@@ -489,11 +489,30 @@ function serverUserIsAdmin(user) {
   return functions.includes("admin") || role.includes("admin");
 }
 
+function serverUserHasFunction(user, functionId) {
+  if (serverUserIsAdmin(user)) return true;
+  if (!user || user.active === false) return false;
+  const functions = Array.isArray(user.functions) ? user.functions.map((item) => String(item).toLowerCase()) : [];
+  const role = stripAccents(user.role).toLowerCase();
+  const target = String(functionId || "").toLowerCase();
+  return functions.includes(target) || role.includes(target);
+}
+
 async function requireAdminUser(res, userId) {
   await loadSharedState();
   const user = (sharedState?.users || []).find((item) => item.id === userId);
   if (!serverUserIsAdmin(user)) {
     sendJson(res, 403, { error: "admin-required" });
+    return false;
+  }
+  return true;
+}
+
+async function requireCashUser(res, userId) {
+  await loadSharedState();
+  const user = (sharedState?.users || []).find((item) => item.id === userId);
+  if (!serverUserHasFunction(user, "caja")) {
+    sendJson(res, 403, { error: "cash-required" });
     return false;
   }
   return true;
@@ -1086,6 +1105,26 @@ export async function printReceiptHeaderTicket(printerName) {
   return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString(), ticketText: text };
 }
 
+export async function printSaleReceiptTicket(printerName, ticketText = "") {
+  const cleanName = String(printerName || "").trim();
+  if (!cleanName) throw new Error("printer-required");
+  const text = cleanReceiptPayload(ticketText);
+  if (!text.trim()) throw new Error("ticket-required");
+  let result = null;
+  if (process.platform === "win32") {
+    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`);
+  } else {
+    const filePath = path.join(tmpdir(), `librepos-sale-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+    await writeFile(filePath, `${text}\n\n\n`, "utf8");
+    try {
+      result = await printWithCups(cleanName, filePath);
+    } finally {
+      await rm(filePath, { force: true });
+    }
+  }
+  return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString(), ticketText: text };
+}
+
 export async function printTestTicket(printerName) {
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
@@ -1402,6 +1441,18 @@ export function createSyncMiddleware() {
           sendJson(res, 200, await printReceiptHeaderTicket(payload.printerName));
         } catch (error) {
           sendJson(res, 500, { error: "printer-header-print-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/printers/sale-receipt/print" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requireCashUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printSaleReceiptTicket(payload.printerName, payload.ticketText));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-sale-receipt-failed", detail: compactError(error) });
         }
         return;
       }

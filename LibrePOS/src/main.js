@@ -7,6 +7,7 @@ const CLIENT_ID_KEY = "librepos:client-id";
 const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
+const RECEIPT_PRINT_WIDTH = 32;
 const SHARED_STATE_KEYS = [
   "settings",
   "users",
@@ -5764,6 +5765,7 @@ function printerErrorMessage(error) {
   const value = String(error || "");
   const normalized = normalize(value);
   if (normalized.includes("admin-required")) return "Solo admin puede usar el test de impresora.";
+  if (normalized.includes("cash-required")) return "Solo usuarios de caja pueden imprimir tickets de cobro.";
   if (normalized.includes("printer-required")) return "Selecciona una impresora.";
   if (normalized.includes("printer-not-found")) return "No existe una impresora con ese nombre exacto.";
   if (normalized.includes("printer-offline")) return "Windows marca esa impresora como offline.";
@@ -5772,6 +5774,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-legacy-print-failed")) return `No se pudo imprimir en modo legacy: ${value}`;
   if (normalized.includes("printer-fake-receipt-failed")) return `No se pudo imprimir la cuenta falsa: ${value}`;
   if (normalized.includes("printer-header-print-failed")) return `No se pudo imprimir la cabecera: ${value}`;
+  if (normalized.includes("printer-sale-receipt-failed")) return `No se pudo imprimir el ticket de cobro: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
   if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
   if (normalized.includes("printer-remove-failed")) return `No se pudo eliminar la impresora: ${value}`;
@@ -5779,6 +5782,143 @@ function printerErrorMessage(error) {
   if (normalized.includes("not-found") || normalized.includes("enoent")) return "No se encontro el servicio de impresion del sistema.";
   if (normalized.includes("lp:") || normalized.includes("out-printer")) return "No se pudo enviar el ticket a la impresora.";
   return value || "No se pudo completar la accion de impresora.";
+}
+
+function receiptPrintMoney(value) {
+  const number = roundCurrency(value);
+  const formatted = new Intl.NumberFormat("es-MX", {
+    minimumFractionDigits: Number.isInteger(number) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(number);
+  return `$${formatted}`;
+}
+
+function receiptPrintSanitize(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function receiptPrintCenter(value, width = RECEIPT_PRINT_WIDTH) {
+  const text = receiptPrintSanitize(value).slice(0, width);
+  const left = Math.max(0, Math.floor((width - text.length) / 2));
+  return `${" ".repeat(left)}${text}`;
+}
+
+function receiptPrintRule(char = "-") {
+  return char.repeat(RECEIPT_PRINT_WIDTH);
+}
+
+function receiptPrintColumns(left, right, width = RECEIPT_PRINT_WIDTH) {
+  const cleanRight = receiptPrintSanitize(right);
+  const maxLeft = Math.max(1, width - cleanRight.length - 1);
+  const cleanLeft = receiptPrintSanitize(left).slice(0, maxLeft);
+  const spaces = Math.max(1, width - cleanLeft.length - cleanRight.length);
+  return `${cleanLeft}${" ".repeat(spaces)}${cleanRight}`;
+}
+
+function receiptPrintWrap(value, indent = "  ", width = RECEIPT_PRINT_WIDTH) {
+  const text = receiptPrintSanitize(value);
+  if (!text) return [];
+  const words = text.split(" ");
+  const lines = [];
+  let line = indent;
+  const available = Math.max(1, width - indent.length);
+  words.forEach((rawWord) => {
+    let word = rawWord;
+    while (word.length > available) {
+      if (line.trim()) {
+        lines.push(line);
+        line = indent;
+      }
+      lines.push(`${indent}${word.slice(0, available)}`);
+      word = word.slice(available);
+    }
+    const candidate = line.trim() ? `${line} ${word}` : `${indent}${word}`;
+    if (candidate.length <= width) {
+      line = candidate;
+    } else {
+      if (line.trim()) lines.push(line);
+      line = `${indent}${word}`;
+    }
+  });
+  if (line.trim()) lines.push(line);
+  return lines;
+}
+
+function saleReceiptItemLines(item) {
+  const qty = formatPlainNumber(item.qty);
+  const name = item.name || "Producto";
+  const lines = [receiptPrintColumns(`${qty} ${name}`, receiptPrintMoney(saleLineTotal(item)))];
+  if (item.optionsText) lines.push(...receiptPrintWrap(item.optionsText));
+  if (item.note) lines.push(...receiptPrintWrap(`Nota: ${item.note}`));
+  return lines;
+}
+
+function buildSaleReceiptText(sale) {
+  const closedAt = saleClosedAt(sale) || new Date().toISOString();
+  const uid = paymentUidForSale(sale);
+  const payment = sale.payment || {};
+  const cashDue = Number(payment.cashDue) || 0;
+  const cardDue = Number(payment.cardDue) || 0;
+  const cashReceived = Number(payment.cashReceived) || 0;
+  const changeGiven = Number(payment.changeGiven) || 0;
+  const tipAmount = saleTip(sale);
+  const lines = [
+    receiptPrintCenter("LOS TATAS"),
+    receiptPrintCenter("LibrePOS"),
+    receiptPrintCenter("TICKET DE VENTA"),
+    receiptPrintRule(),
+    receiptPrintColumns("Cuenta", sale.label || sale.orderId || "Venta"),
+    receiptPrintColumns("Ticket", sale.orderNumber || "-"),
+    uid ? receiptPrintColumns("UID", uid) : "",
+    formatCsvDateTime(closedAt),
+    receiptPrintColumns("Mesero", waiterName(sale.waiterId)),
+    receiptPrintColumns("Cajero", waiterName(sale.cashierId)),
+    receiptPrintRule(),
+    ...(Array.isArray(sale.items) ? sale.items.flatMap(saleReceiptItemLines) : []),
+    receiptPrintRule(),
+    receiptPrintColumns("Subtotal", receiptPrintMoney(saleSubtotal(sale))),
+    tipAmount ? receiptPrintColumns(`Propina ${saleTipPaymentMethod(sale)}`, receiptPrintMoney(tipAmount)) : "",
+    receiptPrintColumns("TOTAL", receiptPrintMoney(saleTotal(sale))),
+    cardDue > 0 ? receiptPrintColumns("Tarjeta", receiptPrintMoney(cardDue)) : "",
+    cashDue > 0 ? receiptPrintColumns("Efectivo", receiptPrintMoney(cashDue)) : "",
+    cashDue > 0 ? receiptPrintColumns("Recibido", receiptPrintMoney(cashReceived)) : "",
+    cashDue > 0 ? receiptPrintColumns("Cambio", receiptPrintMoney(changeGiven)) : "",
+    !cashDue && !cardDue ? receiptPrintColumns("Pago", sale.paymentMethod || "Efectivo") : "",
+    receiptPrintRule(),
+    receiptPrintCenter("Gracias por su visita"),
+    "",
+    "",
+  ].filter((line) => line !== "");
+  return lines.join("\n");
+}
+
+async function printClosedSaleReceipt(sale) {
+  const printerName = loadPrinterName();
+  if (!printerName) {
+    showToast("Cuenta cobrada. Selecciona impresora para imprimir tickets.");
+    return;
+  }
+  try {
+    const response = await fetch("/api/printers/sale-receipt/print", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: currentUser()?.id || sale.cashierId || "",
+        printerName,
+        ticketText: buildSaleReceiptText(sale),
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-sale-receipt-error");
+    showToast("Ticket de cobro enviado.");
+  } catch (error) {
+    showToast(`Cuenta cobrada, pero no se imprimio ticket: ${printerErrorMessage(error.message)}`);
+  }
 }
 
 async function loadPrinterList(force = false) {
@@ -7649,7 +7789,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     tipPaymentMethod: checkout.tip.paymentMethod,
     total: checkout.total,
   };
-  state.sales.unshift({
+  const saleRecord = {
     id: safeId("sale"),
     uid: paymentUid,
     paymentUid,
@@ -7673,7 +7813,8 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     closedAt,
     chargedAt: closedAt,
     waitMinutes: minutesBetween(order.openedAt, closedAt),
-  });
+  };
+  state.sales.unshift(saleRecord);
   order.status = "closed";
   order.closedAt = closedAt;
   order.cashierId = currentUser().id;
@@ -7689,6 +7830,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   showToast(`${orderLabel(order)} cobrada por ${money.format(totals.total)}.`);
   celebrateAction("paid", source, "Cobrado");
   render();
+  void printClosedSaleReceipt(saleRecord);
 }
 
 function saveSaleTip(event) {
