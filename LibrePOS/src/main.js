@@ -607,6 +607,7 @@ const icons = {
   alert: `<path d="M12 3 2.8 19h18.4Z" /><path d="M12 8v5" /><path d="M12 16.5v.01" />`,
   cancel: `<circle cx="12" cy="12" r="9" /><path d="M8 8l8 8M16 8l-8 8" />`,
   print: `<path d="M7 8V4h10v4" /><path d="M7 17H5a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2" /><path d="M7 14h10v6H7z" />`,
+  settings: `<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" /><path d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.04.04a2.1 2.1 0 0 1-2.97 2.97l-.04-.04a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.08 1.65V21a2.1 2.1 0 0 1-4.2 0v-.06a1.8 1.8 0 0 0-1.08-1.65 1.8 1.8 0 0 0-1.98.36l-.04.04a2.1 2.1 0 1 1-2.97-2.97l.04-.04A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.65-1.08H3a2.1 2.1 0 0 1 0-4.2h.06A1.8 1.8 0 0 0 4.71 8.64a1.8 1.8 0 0 0-.36-1.98l-.04-.04a2.1 2.1 0 1 1 2.97-2.97l.04.04a1.8 1.8 0 0 0 1.98.36A1.8 1.8 0 0 0 10.38 2.4V2.1a2.1 2.1 0 0 1 4.2 0v.06a1.8 1.8 0 0 0 1.08 1.65 1.8 1.8 0 0 0 1.98-.36l.04-.04a2.1 2.1 0 1 1 2.97 2.97l-.04.04a1.8 1.8 0 0 0-.36 1.98 1.8 1.8 0 0 0 1.65 1.08H22a2.1 2.1 0 0 1 0 4.2h-.06A1.8 1.8 0 0 0 19.4 15Z" />`,
   digital: `<path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h8M8 16h5" />`,
   empanada: `<path d="M4 15a8 8 0 0 1 16 0v3H4z" /><path d="M8 15v3M12 12v6M16 15v3" />`,
   bowl: `<path d="M5 11h14c-.4 5-3 8-7 8s-6.6-3-7-8Z" /><path d="M7 8c1.5-1.5 8.5-1.5 10 0" />`,
@@ -622,6 +623,7 @@ const defaultState = {
   authError: "",
   view: "sale",
   navPage: 0,
+  configTab: "general",
   activeOrderId: null,
   activeSection: "Para picar",
   activeSubsection: "Todos",
@@ -656,6 +658,7 @@ const defaultState = {
     ticketLogoWidthMm: DEFAULT_TICKET_LOGO_WIDTH_MM,
     ticketLogoEnabled: false,
     ticketLogoPosition: DEFAULT_TICKET_LOGO_POSITION,
+    ivaEnabled: false,
     ivaRate: DEFAULT_IVA_RATE,
   },
   users: defaultUsers,
@@ -2294,7 +2297,7 @@ function extraUnitCostTotal(extras = []) {
 
 function calculateTotals(order) {
   const subtotal = roundCurrency(order.items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0));
-  const tax = taxBreakdownForGross(subtotal);
+  const tax = taxBreakdownForGross(subtotal, orderIvaRate(order));
   const statusCounts = order.items.reduce(
     (acc, item) => {
       const status = lineServiceStatus(item, order);
@@ -2306,6 +2309,8 @@ function calculateTotals(order) {
   );
   return {
     subtotal,
+    ivaEnabled: tax.ivaRate > 0,
+    taxEnabled: tax.ivaRate > 0,
     netSubtotal: tax.netSubtotal,
     taxableSubtotal: tax.netSubtotal,
     iva: tax.iva,
@@ -2411,7 +2416,11 @@ function render() {
     bindLogin();
     return;
   }
-  if (["users", "recipes"].includes(state.view) && !isAdminUser()) state.view = "profile";
+  if (state.view === "printer") {
+    state.view = "config";
+    state.configTab = "printing";
+  }
+  if (["users", "recipes", "config"].includes(state.view) && !isAdminUser()) state.view = "profile";
   if (!state.view || !availableNavItems().some(([view]) => view === state.view)) state.view = "profile";
 
   app.innerHTML = `
@@ -2425,7 +2434,7 @@ function render() {
       ${state.view === "inventory" ? renderInventory() : ""}
       ${state.view === "recipes" ? renderRecipes() : ""}
         ${state.view === "cash" ? renderCashRegister() : ""}
-        ${state.view === "printer" ? renderPrinterTest() : ""}
+        ${state.view === "config" ? renderConfig() : ""}
         ${state.view === "data" ? renderData() : ""}
         ${state.view === "users" ? renderUsers() : ""}
       </section>
@@ -2468,7 +2477,7 @@ function availableNavItems() {
       ["recipes", "Catalogo", "note"],
       ["data", "Datos", "data"],
       ["users", "Usuarios", "users"],
-      ["printer", "Impresora", "print"],
+      ["config", "Config", "settings"],
     );
   }
   return items;
@@ -3366,7 +3375,10 @@ function applySelectionUpdateInPlace() {
   const taxEl = side.querySelector("[data-config-tax]");
   if (totalEl) totalEl.textContent = money.format(total);
   if (unitEl) unitEl.textContent = `${money.format(price)} c/u`;
-  if (taxEl) taxEl.textContent = `Incluye ${ivaLabel()} ${money.format(taxBreakdownForGross(total).iva)}`;
+  if (taxEl) {
+    const tax = taxBreakdownForGross(total);
+    taxEl.textContent = `Incluye ${ivaLabel(tax.ivaRate)} ${money.format(tax.iva)}`;
+  }
 
   // 5. Stock-panel completo (sin animación porque ya la quitamos)
   const stockHost = side.querySelector("[data-config-stock-panel]");
@@ -3536,7 +3548,7 @@ function renderProductConfig() {
             <span>Precio</span>
             <strong data-config-total>${money.format(total)}</strong>
             <small data-config-unit>${money.format(price)} c/u</small>
-            <small data-config-tax>Incluye ${escapeHtml(ivaLabel())} ${money.format(taxBreakdownForGross(total).iva)}</small>
+            <small data-config-tax>Incluye ${escapeHtml(ivaLabel(taxBreakdownForGross(total).ivaRate))} ${money.format(taxBreakdownForGross(total).iva)}</small>
           </div>
         </div>
         <button class="primary-button" data-add-configured ${canServe ? "" : "disabled"}>${svg(submitIcon)}${submitLabel}</button>
@@ -6004,6 +6016,90 @@ function renderReceiptPreviewHtml(text) {
   `;
 }
 
+function configTabs() {
+  return [
+    ["general", "General"],
+    ["printing", "Impresion"],
+  ];
+}
+
+function activeConfigTab() {
+  return state.configTab === "printing" ? "printing" : "general";
+}
+
+function isPrintingConfigView() {
+  return currentUser() && state.view === "config" && activeConfigTab() === "printing";
+}
+
+function setConfigTab(tab) {
+  state.configTab = tab === "printing" ? "printing" : "general";
+  persist();
+  render();
+}
+
+function renderConfig() {
+  if (!isAdminUser()) return "";
+  const active = activeConfigTab();
+  return `
+    <div class="data-layout config-layout">
+      <section class="board-header">
+        <div>
+          <h2>Configuracion</h2>
+          <p>Parametros generales e impresion de tickets</p>
+        </div>
+        <span class="stat-pill">${active === "printing" ? "Impresion" : "General"}</span>
+      </section>
+      <section class="panel data-grid-wide config-tabs-panel">
+        <div class="panel-body">
+          <div class="chip-row compact-chip-row">
+            ${configTabs()
+              .map(([id, label]) => `
+                <button class="chip ${active === id ? "is-active" : ""}" data-config-tab="${id}" type="button">
+                  ${escapeHtml(label)}
+                </button>
+              `)
+              .join("")}
+          </div>
+        </div>
+      </section>
+      ${active === "printing" ? renderPrinterTest() : renderGeneralConfig()}
+    </div>
+  `;
+}
+
+function renderGeneralConfig() {
+  const enabled = currentIvaEnabled();
+  const rate = currentIvaRate();
+  const ratePercent = formatPlainNumber(rate * 100);
+  return `
+    <section class="summary-grid">
+      ${renderSummaryCard("IVA", enabled ? "Activo" : "Inactivo", enabled ? "ok" : "")}
+      ${renderSummaryCard("Porcentaje", `${ratePercent}%`)}
+      ${renderSummaryCard("Ventas antiguas", "IVA 0")}
+    </section>
+    <section class="panel data-grid-wide config-general-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">General</h2>
+          <p class="panel-kicker">El IVA se aplica solo a ordenes nuevas abiertas con IVA activo.</p>
+        </div>
+      </div>
+      <div class="panel-body field-grid">
+        <label class="field printer-logo-toggle">
+          <span>Activar IVA</span>
+          <input data-iva-enabled type="checkbox" ${enabled ? "checked" : ""} />
+          <small>Las ventas antiguas sin IVA guardado permanecen con IVA 0.</small>
+        </label>
+        <label class="field">
+          <span>Porcentaje IVA</span>
+          <input data-iva-rate type="number" min="0" max="100" step="0.01" value="${ratePercent}" />
+          <small>Valor usado por defecto: 16%. Se guarda como porcentaje para nuevas ordenes.</small>
+        </label>
+      </div>
+    </section>
+  `;
+}
+
 function renderPrinterTest() {
   if (!isAdminUser()) return "";
   const printersCount = printerRuntime.printers.length;
@@ -6494,7 +6590,7 @@ async function loadPrinterList(force = false) {
     printerRuntime.loaded = true;
   } finally {
     printerRuntime.loading = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -6554,7 +6650,7 @@ async function sendPrinterTest() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.printing = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -6586,7 +6682,7 @@ async function sendPrinterLegacyTest() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.legacyPrinting = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -6614,7 +6710,7 @@ async function loadFakeReceiptPreview(force = false, type = printerRuntime.fakeR
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.fakeReceiptLoading = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -6660,7 +6756,7 @@ async function printFakeReceiptPreview(type = printerRuntime.fakeReceiptType) {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.fakeReceiptPrinting = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -6698,7 +6794,7 @@ async function printReceiptHeader() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.headerPrinting = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -6735,7 +6831,7 @@ async function printLogoTest() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.logoPrinting = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -6772,7 +6868,7 @@ async function removeSelectedSystemPrinter() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.removing = false;
-    if (currentUser() && state.view === "printer") render();
+    if (isPrintingConfigView()) render();
   }
 }
 
@@ -7241,7 +7337,12 @@ function saleSubtotal(sale) {
 }
 
 function saleIvaRate(sale) {
-  return cleanIvaRate(sale?.totals?.ivaRate ?? sale?.totals?.taxRate ?? sale?.payment?.ivaRate ?? state.settings?.ivaRate);
+  const enabled = sale?.totals?.ivaEnabled === true || sale?.totals?.taxEnabled === true || sale?.payment?.ivaEnabled === true || sale?.payment?.taxEnabled === true || sale?.ivaEnabled === true || sale?.taxEnabled === true;
+  if (!enabled) return 0;
+  const storedRate = sale?.totals?.ivaRate ?? sale?.totals?.taxRate ?? sale?.payment?.ivaRate ?? sale?.payment?.taxRate;
+  if (storedRate !== undefined && storedRate !== null) return cleanIvaRate(storedRate);
+  const storedIva = Number(sale?.totals?.iva ?? sale?.totals?.taxAmount ?? sale?.payment?.iva ?? sale?.payment?.taxAmount);
+  return storedIva > 0 ? DEFAULT_IVA_RATE : 0;
 }
 
 function saleTaxBreakdown(sale) {
@@ -7249,7 +7350,7 @@ function saleTaxBreakdown(sale) {
   const ivaRate = saleIvaRate(sale);
   const storedNet = Number(sale?.totals?.netSubtotal ?? sale?.totals?.taxableSubtotal);
   const storedIva = Number(sale?.totals?.iva ?? sale?.totals?.taxAmount);
-  if (Number.isFinite(storedNet) && Number.isFinite(storedIva)) {
+  if (ivaRate > 0 && Number.isFinite(storedNet) && Number.isFinite(storedIva)) {
     return {
       gross,
       netSubtotal: roundCurrency(storedNet),
@@ -7257,7 +7358,12 @@ function saleTaxBreakdown(sale) {
       ivaRate,
     };
   }
-  return taxBreakdownForGross(gross, ivaRate);
+  return {
+    gross,
+    netSubtotal: gross,
+    iva: 0,
+    ivaRate: 0,
+  };
 }
 
 function saleNetSubtotal(sale) {
@@ -7359,7 +7465,7 @@ function cashSessionDisplayTotals(session) {
     cashSales,
     cardSales,
     totalSales,
-    iva: Number(session.iva) || calculated.iva || 0,
+    iva: (session.ivaEnabled === true || session.taxEnabled === true) ? (Number(session.iva) || 0) : (calculated.iva || 0),
     cashExpenses: Number(session.cashExpenses ?? calculated.cashExpenses) || 0,
     cashTips: Number(session.cashTips ?? calculated.cashTips) || 0,
     cardTips: Number(session.cardTips ?? calculated.cardTips) || 0,
@@ -8106,6 +8212,15 @@ function bindEvents() {
   document.querySelectorAll("[data-export-data]").forEach((button) => {
     button.addEventListener("click", () => exportData(button.dataset.exportData));
   });
+  document.querySelectorAll("[data-config-tab]").forEach((button) => {
+    button.addEventListener("click", () => setConfigTab(button.dataset.configTab));
+  });
+  document.querySelector("[data-iva-enabled]")?.addEventListener("change", (event) => {
+    saveIvaEnabled(event.target.checked);
+  });
+  document.querySelector("[data-iva-rate]")?.addEventListener("change", (event) => {
+    saveIvaRatePercent(event.target.value);
+  });
   if (document.querySelector("[data-printer-panel]")) {
     loadPrinterList();
     loadFakeReceiptPreview();
@@ -8232,6 +8347,7 @@ function openTable(formElement) {
     status: "open",
     items: [],
     commandBatches: [],
+    ...currentOrderTaxSnapshot(),
     openedAt: new Date().toISOString(),
     openedBy: currentUser().id,
   };
@@ -8296,6 +8412,7 @@ function openTakeout(event) {
     status: "open",
     items: [],
     commandBatches: [],
+    ...currentOrderTaxSnapshot(),
     openedAt: new Date().toISOString(),
     openedBy: currentUser().id,
   };
@@ -8331,11 +8448,51 @@ function currentIvaRate() {
   return cleanIvaRate(state.settings?.ivaRate);
 }
 
+function currentIvaEnabled() {
+  return Boolean(state.settings?.ivaEnabled);
+}
+
+function currentOrderTaxSnapshot() {
+  return {
+    ivaEnabled: currentIvaEnabled(),
+    taxEnabled: currentIvaEnabled(),
+    ivaRate: currentIvaRate(),
+    taxRate: currentIvaRate(),
+  };
+}
+
+function saveIvaEnabled(enabled) {
+  state.settings = {
+    ...state.settings,
+    ivaEnabled: Boolean(enabled),
+  };
+  printerRuntime.fakeReceiptText = "";
+  persist();
+  render();
+}
+
+function saveIvaRatePercent(value, { rerender = true } = {}) {
+  state.settings = {
+    ...state.settings,
+    ivaRate: cleanIvaRate(value),
+  };
+  printerRuntime.fakeReceiptText = "";
+  persist();
+  if (rerender) render();
+}
+
+function orderIvaRate(order) {
+  if (order?.ivaEnabled === true || order?.taxEnabled === true) {
+    return cleanIvaRate(order.ivaRate ?? order.taxRate);
+  }
+  return 0;
+}
+
 function ivaLabel(rate = currentIvaRate()) {
   return `IVA ${formatPlainNumber(cleanIvaRate(rate) * 100)}%`;
 }
 
-function taxBreakdownForGross(value, rate = currentIvaRate()) {
+function taxBreakdownForGross(value, rate = currentIvaEnabled() ? currentIvaRate() : 0) {
   const gross = roundCurrency(value);
   const ivaRate = cleanIvaRate(rate);
   if (!gross || !ivaRate) {
@@ -8394,6 +8551,8 @@ function readCheckoutPayment(order, form = document.querySelector("[data-checkou
     taxableSubtotal: totals.netSubtotal,
     iva: totals.iva,
     taxAmount: totals.iva,
+    ivaEnabled: totals.ivaEnabled,
+    taxEnabled: totals.ivaEnabled,
     ivaRate: totals.ivaRate,
     taxRate: totals.ivaRate,
     total: roundCurrency(subtotal + tip.amount),
@@ -8513,6 +8672,8 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
       taxableSubtotal: roundCurrency(payment.taxableSubtotal ?? payment.netSubtotal ?? tax.netSubtotal),
       iva: roundCurrency(payment.iva ?? payment.taxAmount ?? tax.iva),
       taxAmount: roundCurrency(payment.taxAmount ?? payment.iva ?? tax.iva),
+      ivaEnabled: Boolean(payment.ivaEnabled ?? payment.taxEnabled ?? baseTotals.ivaEnabled),
+      taxEnabled: Boolean(payment.taxEnabled ?? payment.ivaEnabled ?? baseTotals.ivaEnabled),
       ivaRate: cleanIvaRate(payment.ivaRate ?? payment.taxRate ?? tax.ivaRate),
       taxRate: cleanIvaRate(payment.taxRate ?? payment.ivaRate ?? tax.ivaRate),
       total: roundCurrency(payment.total ?? baseTotals.subtotal + tip.amount),
@@ -8538,6 +8699,8 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
     taxableSubtotal: baseTotals.netSubtotal,
     iva: baseTotals.iva,
     taxAmount: baseTotals.iva,
+    ivaEnabled: baseTotals.ivaEnabled,
+    taxEnabled: baseTotals.ivaEnabled,
     ivaRate: baseTotals.ivaRate,
     taxRate: baseTotals.ivaRate,
     total: roundCurrency(baseTotals.subtotal + tip.amount),
@@ -8577,6 +8740,8 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
       taxableSubtotal: checkout.netSubtotal,
       iva: checkout.iva,
       taxAmount: checkout.iva,
+      ivaEnabled: checkout.ivaEnabled,
+      taxEnabled: checkout.ivaEnabled,
       ivaRate: checkout.ivaRate,
       taxRate: checkout.ivaRate,
       confirmedAt: closedAt,
@@ -8614,6 +8779,8 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     taxableSubtotal: checkout.netSubtotal,
     iva: checkout.iva,
     taxAmount: checkout.iva,
+    ivaEnabled: checkout.ivaEnabled,
+    taxEnabled: checkout.ivaEnabled,
     ivaRate: checkout.ivaRate,
     taxRate: checkout.ivaRate,
     confirmedAt: closedAt,
@@ -8629,6 +8796,8 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     taxableSubtotal: checkout.netSubtotal,
     iva: checkout.iva,
     taxAmount: checkout.iva,
+    ivaEnabled: checkout.ivaEnabled,
+    taxEnabled: checkout.ivaEnabled,
     ivaRate: checkout.ivaRate,
     taxRate: checkout.ivaRate,
     total: checkout.total,
@@ -9092,7 +9261,10 @@ function updateConfigQty(delta) {
   if (qtyTarget) qtyTarget.textContent = String(state.productConfig.qty);
   if (totalTarget) totalTarget.textContent = money.format(unitPrice * state.productConfig.qty);
   if (unitTarget) unitTarget.textContent = `${money.format(unitPrice)} c/u`;
-  if (taxTarget) taxTarget.textContent = `Incluye ${ivaLabel()} ${money.format(taxBreakdownForGross(unitPrice * state.productConfig.qty).iva)}`;
+  if (taxTarget) {
+    const tax = taxBreakdownForGross(unitPrice * state.productConfig.qty);
+    taxTarget.textContent = `Incluye ${ivaLabel(tax.ivaRate)} ${money.format(tax.iva)}`;
+  }
   if (stockPanel && stockMessage) {
     const overRequest = stock.known && state.productConfig.qty > stock.orderable;
     stockPanel.className = `stock-panel ${stock.known ? stock.tone : "unknown"} ${overRequest ? "over-request" : ""}`;
@@ -9699,6 +9871,8 @@ function closeCashSession(event) {
     cardSales: totals.card,
     totalSales: totals.total,
     iva: totals.iva,
+    ivaEnabled: totals.iva > 0,
+    taxEnabled: totals.iva > 0,
     cashExpenses: totals.cashExpenses || 0,
     cashTips: totals.cashTips,
     cardTips: totals.cardTips,

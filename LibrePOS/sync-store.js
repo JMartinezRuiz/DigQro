@@ -757,9 +757,24 @@ function roundCurrency(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-function taxBreakdownForGross(value, rate = DEFAULT_IVA_RATE) {
+function cleanIvaRate(value) {
+  const rate = Number(value);
+  if (!Number.isFinite(rate)) return DEFAULT_IVA_RATE;
+  const normalized = rate > 1 ? rate / 100 : rate;
+  return Math.max(0, Math.min(1, normalized));
+}
+
+function sharedIvaEnabled() {
+  return Boolean(sharedState?.settings?.ivaEnabled);
+}
+
+function sharedIvaRate() {
+  return cleanIvaRate(sharedState?.settings?.ivaRate);
+}
+
+function taxBreakdownForGross(value, rate = sharedIvaEnabled() ? sharedIvaRate() : 0) {
   const gross = roundCurrency(value);
-  const ivaRate = Math.max(0, Math.min(1, Number(rate) || DEFAULT_IVA_RATE));
+  const ivaRate = cleanIvaRate(rate);
   if (!gross || !ivaRate) return { gross, netSubtotal: gross, iva: 0, ivaRate };
   const netSubtotal = roundCurrency(gross / (1 + ivaRate));
   return {
@@ -771,7 +786,7 @@ function taxBreakdownForGross(value, rate = DEFAULT_IVA_RATE) {
 }
 
 function ivaLabel(rate = DEFAULT_IVA_RATE) {
-  return `IVA ${Math.round((Number(rate) || DEFAULT_IVA_RATE) * 100)}%`;
+  return `IVA ${Math.round(cleanIvaRate(rate) * 100)}%`;
 }
 
 function receiptSanitize(value) {
