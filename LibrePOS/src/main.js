@@ -670,6 +670,7 @@ let printerRuntime = {
   loaded: false,
   loading: false,
   printing: false,
+  removing: false,
   printers: [],
   selectedName: loadPrinterName(),
   manualName: "",
@@ -5658,9 +5659,11 @@ function renderPrinterOptions() {
     options.push(`<option value="${escapeAttr(printerRuntime.selectedName)}" selected>${escapeHtml(printerRuntime.selectedName)} (guardada)</option>`);
   }
   printerRuntime.printers.forEach((printer) => {
+    const details = [printer.portName, printer.driverName].filter(Boolean).join(" · ");
+    const status = printer.workOffline ? " · offline" : "";
     options.push(`
       <option value="${escapeAttr(printer.name)}" ${printer.name === selected ? "selected" : ""}>
-        ${escapeHtml(printer.name)}${printer.isTicketLikely ? " (sugerida)" : printer.isDefault ? " (predeterminada)" : ""}
+        ${escapeHtml(printer.name)}${printer.isTicketLikely ? " (sugerida)" : printer.isDefault ? " (predeterminada)" : ""}${details ? ` · ${escapeHtml(details)}` : ""}${status}
       </option>
     `);
   });
@@ -5673,10 +5676,13 @@ function renderPrinterTest() {
   if (!isAdminUser()) return "";
   const printersCount = printerRuntime.printers.length;
   const selectedLabel = printerRuntime.selectedName || "Pendiente";
+  const removeTarget = renderedPrinterValue() || printerRuntime.manualName;
   const status = printerRuntime.error
     ? printerRuntime.error
     : printerRuntime.loading
       ? "Buscando impresoras"
+      : printerRuntime.removing
+        ? "Eliminando impresora"
       : `${printersCount} impresora${printersCount === 1 ? "" : "s"}`;
   return `
     <div class="data-layout printer-layout" data-printer-panel>
@@ -5708,8 +5714,14 @@ function renderPrinterTest() {
             <button class="secondary-button" data-select-printer type="button" ${printerRuntime.loading ? "disabled" : ""}>
               ${svg("print")}Seleccionar impresora
             </button>
+            <button class="secondary-button" data-clear-printer type="button" ${printerRuntime.loading || printerRuntime.removing || (!printerRuntime.selectedName && !printerRuntime.manualName) ? "disabled" : ""}>
+              ${svg("trash")}Quitar guardada
+            </button>
             <button class="primary-button" data-print-test type="button" ${printerRuntime.printing || !printerRuntime.selectedName ? "disabled" : ""}>
               ${svg("print")}${printerRuntime.printing ? "Imprimiendo" : "Imprimir ticket de prueba"}
+            </button>
+            <button class="danger-button" data-remove-system-printer type="button" ${printerRuntime.loading || printerRuntime.removing || !removeTarget ? "disabled" : ""}>
+              ${svg("trash")}${printerRuntime.removing ? "Eliminando" : "Eliminar del sistema"}
             </button>
           </div>
         </div>
@@ -5723,6 +5735,11 @@ function printerErrorMessage(error) {
   const normalized = normalize(value);
   if (normalized.includes("admin-required")) return "Solo admin puede usar el test de impresora.";
   if (normalized.includes("printer-required")) return "Selecciona una impresora.";
+  if (normalized.includes("printer-not-found")) return "No existe una impresora con ese nombre exacto.";
+  if (normalized.includes("printer-offline")) return "Windows marca esa impresora como offline.";
+  if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
+  if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
+  if (normalized.includes("printer-remove-failed")) return `No se pudo eliminar la impresora: ${value}`;
   if (normalized.includes("printer-print-failed")) return "No se pudo enviar el ticket a la impresora.";
   if (normalized.includes("not-found") || normalized.includes("enoent")) return "No se encontro el servicio de impresion del sistema.";
   if (normalized.includes("lp:") || normalized.includes("out-printer")) return "No se pudo enviar el ticket a la impresora.";
@@ -5772,6 +5789,14 @@ async function selectPrinterFromList() {
   render();
 }
 
+function clearSavedPrinter() {
+  savePrinterName("");
+  printerRuntime.manualName = "";
+  printerRuntime.error = "";
+  showToast("Impresora quitada de LibrePOS.");
+  render();
+}
+
 async function sendPrinterTest() {
   if (!isAdminUser()) {
     showToast("Solo admin puede imprimir pruebas.");
@@ -5792,14 +5817,51 @@ async function sendPrinterTest() {
       body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || payload.detail || "printer-test-error");
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-test-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
-    showToast("Ticket de prueba enviado.");
+    showToast(payload.method ? `Ticket enviado por ${payload.method}.` : "Ticket de prueba enviado.");
   } catch (error) {
     printerRuntime.error = printerErrorMessage(error.message);
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.printing = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
+async function removeSelectedSystemPrinter() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede eliminar impresoras.");
+    return;
+  }
+  const printerName = printerCandidateName() || printerRuntime.selectedName;
+  if (!printerName) {
+    showToast("Selecciona una impresora.");
+    return;
+  }
+  if (!window.confirm(`Eliminar impresora "${printerName}" de este equipo?`)) return;
+  printerRuntime.removing = true;
+  printerRuntime.error = "";
+  render();
+  try {
+    const response = await fetch("/api/printers/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-remove-error");
+    if (printerRuntime.selectedName === printerName) savePrinterName("");
+    printerRuntime.manualName = "";
+    printerRuntime.loaded = false;
+    printerRuntime.printers = [];
+    showToast(`Impresora eliminada: ${printerName}`);
+    await loadPrinterList(true);
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.removing = false;
     if (currentUser() && state.view === "printer") render();
   }
 }
@@ -7016,7 +7078,9 @@ function bindEvents() {
       selectPrinterFromList();
     });
     document.querySelector("[data-select-printer]")?.addEventListener("click", selectPrinterFromList);
+    document.querySelector("[data-clear-printer]")?.addEventListener("click", clearSavedPrinter);
     document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
+    document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
   }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);
   document.querySelector("[data-cash-close-form]")?.addEventListener("submit", closeCashSession);

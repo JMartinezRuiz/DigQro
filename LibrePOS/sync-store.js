@@ -466,7 +466,13 @@ function sameCommit(left, right) {
 }
 
 function compactError(error) {
-  return String(error?.message || error || "unknown").replace(/\s+/g, " ").slice(0, 280);
+  const details = [
+    error?.message,
+    error?.stderr,
+    error?.stdout,
+    error?.code ? `code:${error.code}` : "",
+  ].filter(Boolean).join(" ");
+  return String(details || error || "unknown").replace(/\s+/g, " ").slice(0, 700);
 }
 
 function stripAccents(value) {
@@ -543,6 +549,8 @@ function decoratePrinter(printer) {
     driverName: printer.driverName || "",
     portName: printer.portName || "",
     deviceUri: printer.deviceUri || "",
+    printerStatus: printer.printerStatus || "",
+    workOffline: Boolean(printer.workOffline),
   };
 }
 
@@ -588,14 +596,14 @@ async function listCupsPrinters() {
   })));
 }
 
-async function runPowerShell(script, args = []) {
-  const commands = ["powershell.exe", "pwsh"];
+async function runPowerShell(script, args = [], options = {}) {
+  const commands = process.platform === "win32" ? ["powershell.exe", "pwsh"] : ["pwsh", "powershell.exe"];
   let lastError = null;
   for (const command of commands) {
     try {
       return await execFile(command, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, ...args], {
-        timeout: 10000,
-        maxBuffer: 512 * 1024,
+        timeout: options.timeout ?? 10000,
+        maxBuffer: options.maxBuffer ?? 512 * 1024,
       });
     } catch (error) {
       lastError = error;
@@ -605,7 +613,7 @@ async function runPowerShell(script, args = []) {
 }
 
 async function listWindowsPrinters() {
-  const { stdout } = await runPowerShell("Get-CimInstance Win32_Printer | Select-Object Name,Default,DriverName,PortName | ConvertTo-Json -Compress");
+  const { stdout } = await runPowerShell("Get-CimInstance Win32_Printer | Select-Object Name,Default,DriverName,PortName,PrinterStatus,WorkOffline | ConvertTo-Json -Compress");
   if (!stdout.trim()) return [];
   const parsed = JSON.parse(stdout);
   return sortPrinters((Array.isArray(parsed) ? parsed : [parsed]).map((printer) => ({
@@ -613,6 +621,8 @@ async function listWindowsPrinters() {
     isDefault: Boolean(printer.Default),
     driverName: String(printer.DriverName || "").trim(),
     portName: String(printer.PortName || "").trim(),
+    printerStatus: String(printer.PrinterStatus || "").trim(),
+    workOffline: Boolean(printer.WorkOffline),
     source: "windows",
   })));
 }
@@ -639,37 +649,178 @@ function testTicketText(printerName) {
   ].join("\n");
 }
 
+function windowsTicketPayload(printerName) {
+  const text = testTicketText(printerName).replace(/\n/g, "\r\n");
+  return Buffer.concat([
+    Buffer.from([0x1b, 0x40]),
+    Buffer.from(text, "ascii"),
+    Buffer.from("\r\n\r\n\r\n", "ascii"),
+    Buffer.from([0x1d, 0x56, 0x42, 0x00]),
+  ]);
+}
+
 async function printWithCups(printerName, filePath) {
   await execFile("lp", ["-d", printerName, "-t", "LibrePOS test", filePath], {
     timeout: 20000,
     maxBuffer: 128 * 1024,
   });
+  return { method: "cups-lp" };
 }
 
-async function printWithWindows(printerName, filePath) {
+async function printWithWindowsRaw(printerName, payload) {
+  const script = String.raw`
+$ErrorActionPreference = "Stop"
+$printerName = $args[0]
+$payload = [Convert]::FromBase64String($args[1])
+$printer = Get-CimInstance Win32_Printer | Where-Object { $_.Name -eq $printerName } | Select-Object -First 1
+if (-not $printer) { throw "printer-not-found:$printerName" }
+if ($printer.WorkOffline) { throw "printer-offline:$printerName" }
+Add-Type -TypeDefinition @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public class LibrePosRawPrinter {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+  public class DOCINFOA {
+    [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+    [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+    [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+  }
+
+  [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool OpenPrinter(string szPrinter, out IntPtr hPrinter, IntPtr pd);
+
+  [DllImport("winspool.Drv", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool ClosePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] DOCINFOA di);
+
+  [DllImport("winspool.Drv", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool EndDocPrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool StartPagePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
+
+  public static void Send(string printerName, byte[] bytes) {
+    IntPtr hPrinter = IntPtr.Zero;
+    if (!OpenPrinter(printerName, out hPrinter, IntPtr.Zero)) Fail("OpenPrinter");
+    try {
+      DOCINFOA docInfo = new DOCINFOA();
+      docInfo.pDocName = "LibrePOS test";
+      docInfo.pDataType = "RAW";
+      if (!StartDocPrinter(hPrinter, 1, docInfo)) Fail("StartDocPrinter");
+      bool pageStarted = false;
+      try {
+        if (!StartPagePrinter(hPrinter)) Fail("StartPagePrinter");
+        pageStarted = true;
+        IntPtr unmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
+        try {
+          Marshal.Copy(bytes, 0, unmanagedBytes, bytes.Length);
+          int written = 0;
+          if (!WritePrinter(hPrinter, unmanagedBytes, bytes.Length, out written)) Fail("WritePrinter");
+          if (written != bytes.Length) throw new Exception("WritePrinter wrote " + written + " of " + bytes.Length + " bytes");
+        } finally {
+          Marshal.FreeCoTaskMem(unmanagedBytes);
+        }
+      } finally {
+        if (pageStarted) EndPagePrinter(hPrinter);
+        EndDocPrinter(hPrinter);
+      }
+    } finally {
+      ClosePrinter(hPrinter);
+    }
+  }
+
+  private static void Fail(string operation) {
+    int error = Marshal.GetLastWin32Error();
+    throw new Win32Exception(error, operation + " failed: " + new Win32Exception(error).Message);
+  }
+}
+"@
+[LibrePosRawPrinter]::Send($printerName, $payload)
+Write-Output ("printed:" + $printerName + ":" + $printer.PortName)
+`;
+  await runPowerShell(script, [printerName, payload.toString("base64")], { timeout: 25000, maxBuffer: 1024 * 1024 });
+  return { method: "windows-raw-spooler" };
+}
+
+async function printWithWindowsTextFallback(printerName, payload) {
   const script = [
+    "$ErrorActionPreference = 'Stop'",
     "$printer = $args[0]",
-    "$file = $args[1]",
-    "Get-Content -LiteralPath $file -Raw | Out-Printer -Name $printer",
+    "$text = [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String($args[1]))",
+    "$text | Out-Printer -Name $printer",
   ].join("; ");
-  await runPowerShell(script, [printerName, filePath]);
+  await runPowerShell(script, [printerName, payload.toString("base64")], { timeout: 25000, maxBuffer: 1024 * 1024 });
+  return { method: "windows-out-printer" };
+}
+
+async function printWithWindows(printerName) {
+  const payload = windowsTicketPayload(printerName);
+  try {
+    return await printWithWindowsRaw(printerName, payload);
+  } catch (rawError) {
+    try {
+      return await printWithWindowsTextFallback(printerName, payload);
+    } catch (fallbackError) {
+      throw new Error(`windows-print-failed raw=${compactError(rawError)} fallback=${compactError(fallbackError)}`);
+    }
+  }
+}
+
+async function removeWindowsPrinter(printerName) {
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$printerName = $args[0]",
+    "$printer = Get-CimInstance Win32_Printer | Where-Object { $_.Name -eq $printerName } | Select-Object -First 1",
+    "if (-not $printer) { throw \"printer-not-found:$printerName\" }",
+    "Remove-Printer -Name $printerName -ErrorAction Stop",
+  ].join("; ");
+  await runPowerShell(script, [printerName], { timeout: 20000, maxBuffer: 512 * 1024 });
+}
+
+async function removeCupsPrinter(printerName) {
+  await execFile("lpadmin", ["-x", printerName], {
+    timeout: 20000,
+    maxBuffer: 128 * 1024,
+  });
+}
+
+export async function removeSystemPrinter(printerName) {
+  const cleanName = String(printerName || "").trim();
+  if (!cleanName) throw new Error("printer-required");
+  if (process.platform === "win32") {
+    await removeWindowsPrinter(cleanName);
+  } else {
+    await removeCupsPrinter(cleanName);
+  }
+  return { ok: true, printerName: cleanName, removedAt: new Date().toISOString() };
 }
 
 export async function printTestTicket(printerName) {
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
-  const filePath = path.join(tmpdir(), `librepos-test-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
-  await writeFile(filePath, testTicketText(cleanName), "utf8");
-  try {
-    if (process.platform === "win32") {
-      await printWithWindows(cleanName, filePath);
-    } else {
-      await printWithCups(cleanName, filePath);
+  let result = null;
+  if (process.platform === "win32") {
+    result = await printWithWindows(cleanName);
+  } else {
+    const filePath = path.join(tmpdir(), `librepos-test-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+    await writeFile(filePath, testTicketText(cleanName), "utf8");
+    try {
+      result = await printWithCups(cleanName, filePath);
+    } finally {
+      await rm(filePath, { force: true });
     }
-  } finally {
-    await rm(filePath, { force: true });
   }
-  return { ok: true, printerName: cleanName, printedAt: new Date().toISOString() };
+  return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString() };
 }
 
 function updateLog(message, details = null) {
@@ -928,6 +1079,18 @@ export function createSyncMiddleware() {
           sendJson(res, 200, await printTestTicket(payload.printerName));
         } catch (error) {
           sendJson(res, 500, { error: "printer-print-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/printers/remove" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requireAdminUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await removeSystemPrinter(payload.printerName));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-remove-failed", detail: compactError(error) });
         }
         return;
       }
