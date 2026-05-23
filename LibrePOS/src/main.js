@@ -8,6 +8,7 @@ const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
 const RECEIPT_PRINT_WIDTH = 32;
+const DEFAULT_TICKET_MARGIN_MM = 4;
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
 const SHARED_STATE_KEYS = [
   "settings",
@@ -643,6 +644,7 @@ const defaultState = {
     subtitle: "Los Tatas · POS restaurante",
     theme: "tatias",
     ticketPrinterName: "",
+    ticketMarginMm: DEFAULT_TICKET_MARGIN_MM,
   },
   users: defaultUsers,
   orders: [],
@@ -863,6 +865,35 @@ function loadPrinterName() {
 
 function selectedTicketPrinterName() {
   return String(state.settings?.ticketPrinterName || printerRuntime.selectedName || loadPrinterName() || "").trim();
+}
+
+function ticketMarginMm() {
+  const margin = Math.round(Number(state.settings?.ticketMarginMm));
+  if (!Number.isFinite(margin)) return DEFAULT_TICKET_MARGIN_MM;
+  return Math.max(0, Math.min(20, margin));
+}
+
+function saveTicketMarginMm(value) {
+  state.settings = {
+    ...state.settings,
+    ticketMarginMm: ticketMarginMmFromValue(value),
+  };
+  persist();
+  render();
+}
+
+function updateTicketMarginMm(value) {
+  state.settings = {
+    ...state.settings,
+    ticketMarginMm: ticketMarginMmFromValue(value),
+  };
+  persist();
+}
+
+function ticketMarginMmFromValue(value) {
+  const margin = Math.round(Number(value));
+  if (!Number.isFinite(margin)) return DEFAULT_TICKET_MARGIN_MM;
+  return Math.max(0, Math.min(20, margin));
 }
 
 function savePrinterName(name) {
@@ -5700,6 +5731,7 @@ function renderPrinterTest() {
   const printersCount = printerRuntime.printers.length;
   const selectedTicketName = selectedTicketPrinterName();
   const selectedLabel = selectedTicketName || "Pendiente";
+  const marginMm = ticketMarginMm();
   const removeTarget = renderedPrinterValue() || printerRuntime.manualName;
   const status = printerRuntime.error
     ? printerRuntime.error
@@ -5713,6 +5745,7 @@ function renderPrinterTest() {
       <section class="summary-grid">
         ${renderSummaryCard("Impresoras", String(printersCount))}
         ${renderSummaryCard("Ticket", escapeHtml(selectedLabel))}
+        ${renderSummaryCard("Margen", `${marginMm} mm/lado`)}
         ${renderSummaryCard("Ultima prueba", printerRuntime.lastPrintedAt ? formatDateTime(printerRuntime.lastPrintedAt) : "Sin prueba")}
       </section>
       <section class="panel data-grid-wide printer-panel">
@@ -5732,6 +5765,11 @@ function renderPrinterTest() {
           <label class="field">
             <span>Nombre manual</span>
             <input data-printer-manual value="${escapeAttr(printerRuntime.manualName)}" placeholder="Nombre exacto para tickets" ${printerRuntime.loading ? "disabled" : ""} />
+          </label>
+          <label class="field">
+            <span>Margen lateral actual</span>
+            <input data-ticket-margin-mm type="number" min="0" max="20" step="1" value="${marginMm}" />
+            <small>${marginMm} mm por lado. Sube o baja de 1mm en 1mm.</small>
           </label>
           ${printerRuntime.error ? `<div class="checkout-warning">${svg("alert")}${escapeHtml(printerRuntime.error)}</div>` : ""}
           <div class="printer-action-row">
@@ -5950,6 +5988,7 @@ async function printClosedSaleReceipt(sale) {
       body: JSON.stringify({
         userId: currentUser()?.id || sale.cashierId || "",
         printerName,
+        marginMm: ticketMarginMm(),
         ticketText: buildSaleReceiptText(sale),
       }),
     });
@@ -6118,7 +6157,7 @@ async function printFakeReceiptPreview() {
     const response = await fetch("/api/printers/fake-receipt/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, ticketText: printerRuntime.fakeReceiptText }),
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, marginMm: ticketMarginMm(), ticketText: printerRuntime.fakeReceiptText }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-error");
@@ -6151,7 +6190,7 @@ async function printReceiptHeader() {
     const response = await fetch("/api/printers/receipt-header/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, marginMm: ticketMarginMm() }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-header-print-error");
@@ -6183,7 +6222,7 @@ async function printLogoTest() {
     const response = await fetch("/api/printers/logo/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, marginMm: ticketMarginMm() }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-logo-print-error");
@@ -7446,6 +7485,12 @@ function bindEvents() {
       if (event.key !== "Enter") return;
       event.preventDefault();
       selectPrinterFromList();
+    });
+    document.querySelector("[data-ticket-margin-mm]")?.addEventListener("change", (event) => {
+      saveTicketMarginMm(event.target.value);
+    });
+    document.querySelector("[data-ticket-margin-mm]")?.addEventListener("input", (event) => {
+      updateTicketMarginMm(event.target.value);
     });
     document.querySelector("[data-select-printer]")?.addEventListener("click", selectPrinterFromList);
     document.querySelector("[data-clear-printer]")?.addEventListener("click", clearSavedPrinter);

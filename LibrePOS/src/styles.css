@@ -4565,6 +4565,11 @@ button:disabled {
   gap: 10px;
 }
 
+.printer-panel .field small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .printer-preview-body,
 .printer-preview-actions {
   display: grid;
