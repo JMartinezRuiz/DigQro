@@ -32,6 +32,7 @@ const BRAND_IMAGE_FILE = path.join(ROOT_DIR, "assets", "brand.jpg");
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
+const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
 const GITHUB_API_HEADERS = {
@@ -752,6 +753,27 @@ function receiptMoney(value) {
   return `$${Math.round(Number(value) || 0).toLocaleString("es-MX")}`;
 }
 
+function roundCurrency(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function taxBreakdownForGross(value, rate = DEFAULT_IVA_RATE) {
+  const gross = roundCurrency(value);
+  const ivaRate = Math.max(0, Math.min(1, Number(rate) || DEFAULT_IVA_RATE));
+  if (!gross || !ivaRate) return { gross, netSubtotal: gross, iva: 0, ivaRate };
+  const netSubtotal = roundCurrency(gross / (1 + ivaRate));
+  return {
+    gross,
+    netSubtotal,
+    iva: roundCurrency(gross - netSubtotal),
+    ivaRate,
+  };
+}
+
+function ivaLabel(rate = DEFAULT_IVA_RATE) {
+  return `IVA ${Math.round((Number(rate) || DEFAULT_IVA_RATE) * 100)}%`;
+}
+
 function receiptSanitize(value) {
   return stripAccents(value)
     .replace(/[^\x20-\x7E]/g, "")
@@ -890,7 +912,12 @@ function localReceiptDate(date = new Date()) {
   ].join(" ");
 }
 
-function fakeReceiptText() {
+function normalizeFakeReceiptType(value) {
+  return value === "postpaid" ? "postpaid" : "prepaid";
+}
+
+function fakeReceiptText(type = "prepaid") {
+  const receiptType = normalizeFakeReceiptType(type);
   const now = new Date();
   const table = randomInt(1, 13);
   const folio = randomInt(1, 999);
@@ -908,8 +935,9 @@ function fakeReceiptText() {
       lines.push(receiptColumns(`  + ${extra.name}`, receiptMoney(extra.price)));
     }
   });
+  const tax = taxBreakdownForGross(subtotal);
   const tipRate = [10, 12, 15][randomInt(0, 2)];
-  const tip = Math.round(subtotal * tipRate / 100);
+  const tip = receiptType === "postpaid" ? Math.round(subtotal * tipRate / 100) : 0;
   const total = subtotal + tip;
   const card = Math.random() > 0.5;
   const paid = card ? total : Math.ceil(total / 50) * 50;
@@ -918,7 +946,7 @@ function fakeReceiptText() {
     receiptCenter(RECEIPT_BRAND_TITLE),
     receiptCenter("LibrePOS"),
     ...receiptCenteredWrap(RESTAURANT_ADDRESS),
-    receiptCenter("CUENTA DE PRUEBA"),
+    receiptCenter(receiptType === "postpaid" ? "PRUEBA POSTPAGO" : "PRUEBA PREPAGO"),
     receiptRule(),
     receiptColumns("Folio", folio),
     localReceiptDate(now),
@@ -926,11 +954,14 @@ function fakeReceiptText() {
     receiptRule(),
     ...lines,
     receiptRule(),
-    receiptColumns("Subtotal", receiptMoney(subtotal)),
-    receiptColumns(`Propina ${tipRate}%`, receiptMoney(tip)),
+    receiptColumns("Subtotal s/IVA", receiptMoney(tax.netSubtotal)),
+    receiptColumns(ivaLabel(tax.ivaRate), receiptMoney(tax.iva)),
+    receiptType === "postpaid" ? receiptColumns("Consumo", receiptMoney(subtotal)) : null,
+    receiptType === "postpaid" ? receiptColumns(`Propina ${tipRate}%`, receiptMoney(tip)) : null,
     receiptColumns("TOTAL", receiptMoney(total)),
-    receiptColumns(card ? "Pago tarjeta" : "Pago efectivo", receiptMoney(paid)),
-    card ? null : receiptColumns("Cambio", receiptMoney(change)),
+    receiptType === "prepaid" ? receiptCenter("Pendiente de pago") : null,
+    receiptType === "postpaid" ? receiptColumns(card ? "Pago tarjeta" : "Pago efectivo", receiptMoney(paid)) : null,
+    receiptType === "postpaid" && !card ? receiptColumns("Cambio", receiptMoney(change)) : null,
     receiptRule(),
     receiptCenter("Gracias por su visita"),
     "",
@@ -1475,8 +1506,9 @@ function cleanReceiptPayload(value) {
   return text.slice(0, 6000);
 }
 
-export function previewFakeReceiptTicket() {
-  return { ticketText: fakeReceiptText(), width: RECEIPT_WIDTH, createdAt: new Date().toISOString() };
+export function previewFakeReceiptTicket(type = "prepaid") {
+  const receiptType = normalizeFakeReceiptType(type);
+  return { ticketText: fakeReceiptText(receiptType), type: receiptType, width: RECEIPT_WIDTH, createdAt: new Date().toISOString() };
 }
 
 export async function printFakeReceiptTicket(printerName, ticketText = "", options = {}) {
@@ -1486,7 +1518,7 @@ export async function printFakeReceiptTicket(printerName, ticketText = "", optio
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
-  const text = cleanReceiptPayload(ticketText) || fakeReceiptText();
+  const text = cleanReceiptPayload(ticketText) || fakeReceiptText(options.type);
   const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
@@ -1494,7 +1526,7 @@ export async function printFakeReceiptTicket(printerName, ticketText = "", optio
   } else {
     result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, printOptions);
   }
-  return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: margins.leftMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, printedAt: new Date().toISOString(), ticketText: text };
+  return { ok: true, printerName: cleanName, method: result?.method || "", type: normalizeFakeReceiptType(options.type), marginMm: margins.leftMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, printedAt: new Date().toISOString(), ticketText: text };
 }
 
 export async function printReceiptHeaderTicket(printerName, options = {}) {
@@ -1859,7 +1891,7 @@ export function createSyncMiddleware() {
 
       if (url.pathname === "/api/printers/fake-receipt" && req.method === "GET") {
         if (!(await requireAdminUser(res, url.searchParams.get("userId")))) return;
-        sendJson(res, 200, previewFakeReceiptTicket());
+        sendJson(res, 200, previewFakeReceiptTicket(url.searchParams.get("type")));
         return;
       }
 
@@ -1874,6 +1906,7 @@ export function createSyncMiddleware() {
             marginRightMm: payload.marginRightMm,
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
+            type: payload.type,
           }));
         } catch (error) {
           sendJson(res, 500, { error: "printer-fake-receipt-failed", detail: compactError(error) });

@@ -11,6 +11,7 @@ const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
+const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
@@ -655,6 +656,7 @@ const defaultState = {
     ticketLogoWidthMm: DEFAULT_TICKET_LOGO_WIDTH_MM,
     ticketLogoEnabled: false,
     ticketLogoPosition: DEFAULT_TICKET_LOGO_POSITION,
+    ivaRate: DEFAULT_IVA_RATE,
   },
   users: defaultUsers,
   orders: [],
@@ -701,6 +703,7 @@ let printerRuntime = {
   error: "",
   lastPrintedAt: "",
   fakeReceiptText: "",
+  fakeReceiptType: "prepaid",
 };
 let postpaidTicketPrinting = false;
 
@@ -2290,7 +2293,8 @@ function extraUnitCostTotal(extras = []) {
 }
 
 function calculateTotals(order) {
-  const subtotal = order.items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0);
+  const subtotal = roundCurrency(order.items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0));
+  const tax = taxBreakdownForGross(subtotal);
   const statusCounts = order.items.reduce(
     (acc, item) => {
       const status = lineServiceStatus(item, order);
@@ -2302,6 +2306,12 @@ function calculateTotals(order) {
   );
   return {
     subtotal,
+    netSubtotal: tax.netSubtotal,
+    taxableSubtotal: tax.netSubtotal,
+    iva: tax.iva,
+    taxAmount: tax.iva,
+    ivaRate: tax.ivaRate,
+    taxRate: tax.ivaRate,
     total: subtotal,
     count: order.items.reduce((sum, item) => sum + item.qty, 0),
     ...statusCounts,
@@ -3026,6 +3036,10 @@ function renderTicket(order) {
           <span>Precio</span>
           <strong>${money.format(totals.total)}</strong>
         </div>
+        <div class="total-line compact-tax-line">
+          <span>Incluye ${escapeHtml(ivaLabel(totals.ivaRate))}</span>
+          <strong>${money.format(totals.iva)}</strong>
+        </div>
         <div class="ticket-actions">
           <button class="primary-button" data-open-modal="command" ${totals.pending && cashOpen ? "" : "disabled"}>${svg("digital")}Comandar</button>
           <button class="secondary-button" data-open-modal="price">${svg("cash")}Precio</button>
@@ -3228,11 +3242,12 @@ function renderMenu(order) {
 function renderMenuItem(item) {
   const hasOptions = item.options.length > 0;
   const stock = estimateProductStock(item, defaultSelectionsFor(item));
+  const tax = taxBreakdownForGross(item.price);
   return `
     <button class="menu-item" data-configure-product="${item.id}">
       <span class="menu-item-top">
         <span class="menu-icon">${svg(item.icon)}</span>
-        <strong>${money.format(item.price)}</strong>
+        <span class="price-with-tax"><strong>${money.format(item.price)}</strong><small>IVA ${money.format(tax.iva)}</small></span>
       </span>
       <span>
         <h3>${escapeHtml(item.name)}</h3>
@@ -3348,8 +3363,10 @@ function applySelectionUpdateInPlace() {
   // 4. Precio y total
   const totalEl = side.querySelector("[data-config-total]");
   const unitEl = side.querySelector("[data-config-unit]");
+  const taxEl = side.querySelector("[data-config-tax]");
   if (totalEl) totalEl.textContent = money.format(total);
   if (unitEl) unitEl.textContent = `${money.format(price)} c/u`;
+  if (taxEl) taxEl.textContent = `Incluye ${ivaLabel()} ${money.format(taxBreakdownForGross(total).iva)}`;
 
   // 5. Stock-panel completo (sin animación porque ya la quitamos)
   const stockHost = side.querySelector("[data-config-stock-panel]");
@@ -3519,6 +3536,7 @@ function renderProductConfig() {
             <span>Precio</span>
             <strong data-config-total>${money.format(total)}</strong>
             <small data-config-unit>${money.format(price)} c/u</small>
+            <small data-config-tax>Incluye ${escapeHtml(ivaLabel())} ${money.format(taxBreakdownForGross(total).iva)}</small>
           </div>
         </div>
         <button class="primary-button" data-add-configured ${canServe ? "" : "disabled"}>${svg(submitIcon)}${submitLabel}</button>
@@ -4068,6 +4086,8 @@ function renderPriceModal(order) {
             `,
           )
           .join("")}
+        <div class="total-line"><span>Subtotal s/IVA</span><strong>${money.format(totals.netSubtotal)}</strong></div>
+        <div class="total-line"><span>${escapeHtml(ivaLabel(totals.ivaRate))}</span><strong>${money.format(totals.iva)}</strong></div>
         <div class="total-line grand"><span>Total</span><strong>${money.format(totals.total)}</strong></div>
       </div>
     </section>
@@ -4101,6 +4121,7 @@ function renderCheckoutModal(order) {
         <div class="checkout-total">
           <span>Total a cobrar</span>
           <strong data-checkout-total>${money.format(totals.total)}</strong>
+          <small>Subtotal s/IVA ${money.format(totals.netSubtotal)} · ${escapeHtml(ivaLabel(totals.ivaRate))} ${money.format(totals.iva)}</small>
         </div>
         <section class="checkout-payment-box" data-checkout-payment>
           <div class="tip-box-head">
@@ -4195,6 +4216,9 @@ function renderAdjustTipModal(sale) {
 
 function renderSaleDetailModal(sale) {
   const subtotal = saleSubtotal(sale);
+  const netSubtotal = saleNetSubtotal(sale);
+  const ivaAmount = saleIvaAmount(sale);
+  const ivaRate = saleIvaRate(sale);
   const tipAmount = saleTip(sale);
   const total = saleTotal(sale);
   const closedAt = saleClosedAt(sale);
@@ -4261,7 +4285,9 @@ function renderSaleDetailModal(sale) {
           }
         </section>
         <section class="sale-detail-totals">
-          <div><span>Subtotal</span><strong>${money.format(subtotal)}</strong></div>
+          <div><span>Subtotal s/IVA</span><strong>${money.format(netSubtotal)}</strong></div>
+          <div><span>${escapeHtml(ivaLabel(ivaRate))}</span><strong>${money.format(ivaAmount)}</strong></div>
+          <div><span>Consumo</span><strong>${money.format(subtotal)}</strong></div>
           <div><span>Propina</span><strong>${money.format(tipAmount)}</strong><small>${escapeHtml(saleTipPaymentMethod(sale))}</small></div>
           <div class="grand"><span>Total</span><strong>${money.format(total)}</strong></div>
         </section>
@@ -4691,11 +4717,14 @@ function recipeCostForItems(recipe = []) {
 
 function financialMetrics(price, cost) {
   const salePrice = Math.max(0, Number(price) || 0);
+  const netSalePrice = taxBreakdownForGross(salePrice).netSubtotal;
   const itemCost = Math.max(0, Number(cost) || 0);
-  const profit = roundCurrency(salePrice - itemCost);
-  const margin = salePrice ? (profit / salePrice) * 100 : 0;
+  const profit = roundCurrency(netSalePrice - itemCost);
+  const margin = netSalePrice ? (profit / netSalePrice) * 100 : 0;
   return {
     price: roundCurrency(salePrice),
+    netPrice: netSalePrice,
+    iva: roundCurrency(salePrice - netSalePrice),
     cost: roundCurrency(itemCost),
     profit,
     margin,
@@ -4708,14 +4737,18 @@ function averageFinancialMetrics(entries) {
   const totals = source.reduce(
     (sum, item) => ({
       price: sum.price + item.price,
+      netPrice: sum.netPrice + (Number(item.netPrice) || 0),
+      iva: sum.iva + (Number(item.iva) || 0),
       cost: sum.cost + item.cost,
       profit: sum.profit + item.profit,
       margin: sum.margin + item.margin,
     }),
-    { price: 0, cost: 0, profit: 0, margin: 0 },
+    { price: 0, netPrice: 0, iva: 0, cost: 0, profit: 0, margin: 0 },
   );
   return {
     price: roundCurrency(totals.price / source.length),
+    netPrice: roundCurrency(totals.netPrice / source.length),
+    iva: roundCurrency(totals.iva / source.length),
     cost: roundCurrency(totals.cost / source.length),
     profit: roundCurrency(totals.profit / source.length),
     margin: totals.margin / source.length,
@@ -4870,7 +4903,7 @@ function renderRecipeProductCard(product) {
     <article class="menu-item recipe-product-card ${product.active === false ? "is-cancelled" : ""}">
       <span class="menu-item-top">
         <span class="menu-icon">${svg(product.icon)}</span>
-        <strong>${money.format(product.price)}</strong>
+        <span class="price-with-tax"><strong>${money.format(product.price)}</strong><small>IVA ${money.format(taxBreakdownForGross(product.price).iva)}</small></span>
       </span>
       <span>
         <h3>${escapeHtml(product.name)}</h3>
@@ -5483,6 +5516,7 @@ function renderCashRegister() {
       <section class="summary-grid">
         ${renderSummaryCard("Estado", activeSession ? `Abierta ${formatTime(activeSession.openedAt)}` : "Cerrada")}
         ${renderSummaryCard("Total hoy", money.format(todayPayments.total))}
+        ${renderSummaryCard("IVA hoy", money.format(todayPayments.iva || 0))}
         ${renderSummaryCard("Efectivo hoy", money.format(todayPayments.cash))}
         ${renderSummaryCard("Tarjeta hoy", money.format(todayPayments.card))}
         ${renderSummaryCard("Ultimo corte", lastCut ? money.format(Number(lastCut.difference) || 0) : "Sin corte")}
@@ -5523,6 +5557,7 @@ function renderCashRegister() {
           <div class="panel-body metric-stack">
             <div class="total-line"><span>Fondo inicial</span><strong>${money.format(activeTotals.openingCash || 0)}</strong></div>
             <div class="total-line"><span>Total cobrado</span><strong>${money.format(activeTotals.total || 0)}</strong></div>
+            <div class="total-line"><span>IVA incluido</span><strong>${money.format(activeTotals.iva || 0)}</strong></div>
             <div class="total-line"><span>Ventas efectivo</span><strong>${money.format(activeTotals.cash || 0)}</strong></div>
             <div class="total-line"><span>Ventas tarjeta</span><strong>${money.format(activeTotals.card || 0)}</strong></div>
             <div class="total-line"><span>Tickets insumos</span><strong>${money.format(activeTotals.cashExpenses || 0)}</strong></div>
@@ -5551,6 +5586,7 @@ function renderCashClosePanel(session, totals) {
         ${openOrders ? `<div class="checkout-warning">${svg("alert")}Hay ${openOrders} orden${openOrders === 1 ? "" : "es"} abierta${openOrders === 1 ? "" : "s"}. Cierra o cancela antes del corte.</div>` : ""}
         <div class="cash-cut-preview">
           <div><span>Total cobrado</span><strong>${money.format(totals.total)}</strong></div>
+          <div><span>IVA incluido</span><strong>${money.format(totals.iva || 0)}</strong></div>
           <div><span>Efectivo esperado</span><strong>${money.format(totals.expectedCash)}</strong></div>
           <div><span>Tarjeta cobrada</span><strong>${money.format(totals.card)}</strong></div>
           <div><span>Tickets insumos</span><strong>${money.format(totals.cashExpenses || 0)}</strong></div>
@@ -5581,7 +5617,7 @@ function renderCashSessionSales(session) {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>UID</th><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
+          <thead><tr><th>UID</th><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>IVA</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
           <tbody>
             ${
               sales.length
@@ -5596,6 +5632,7 @@ function renderCashSessionSales(session) {
                             <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
                             <td>${escapeHtml(waiterName(sale.cashierId))}</td>
                             <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
+                            <td>${money.format(saleIvaAmount(sale))}</td>
                             <td>${money.format(saleTip(sale))}<small>${escapeHtml(saleTipPaymentMethod(sale))}</small></td>
                             <td>${cashDue > 0 ? money.format(Number(sale.payment?.cashReceived) || 0) : "-"}</td>
                             <td>${cashDue > 0 ? money.format(Number(sale.payment?.changeGiven) || 0) : "-"}</td>
@@ -5605,7 +5642,7 @@ function renderCashSessionSales(session) {
                       },
                     )
                     .join("")
-                : `<tr><td colspan="9">Aun no hay cobros en esta caja.</td></tr>`
+                : `<tr><td colspan="10">Aun no hay cobros en esta caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -5628,19 +5665,20 @@ function renderCashSessionHistory() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               sessions.length
                 ? sessions
                     .map((session) => {
-                      const totals = session.status === "closed" ? session : cashSessionTotals(session);
+                      const totals = cashSessionDisplayTotals(session);
                       return `
                         <tr>
                           <td>${formatDateTime(session.openedAt)}</td>
                           <td>${session.closedAt ? formatDateTime(session.closedAt) : "Abierta"}</td>
                           <td><strong>${escapeHtml(waiterName(session.openedBy))}</strong><small>${session.closedBy ? `Cerro ${escapeHtml(waiterName(session.closedBy))}` : ""}</small></td>
                           <td>${money.format(Number(totals.totalSales ?? totals.total) || 0)}</td>
+                          <td>${money.format(Number(totals.iva) || 0)}</td>
                           <td>${money.format(Number(totals.cashSales ?? totals.cash) || 0)}</td>
                           <td>${money.format(Number(totals.cardSales ?? totals.card) || 0)}</td>
                           <td>${session.status === "closed" ? money.format(Number(session.countedCash) || 0) : "Pendiente"}</td>
@@ -5649,7 +5687,7 @@ function renderCashSessionHistory() {
                       `;
                     })
                     .join("")
-                : `<tr><td colspan="8">Aun no hay aperturas de caja.</td></tr>`
+                : `<tr><td colspan="9">Aun no hay aperturas de caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -5688,6 +5726,7 @@ function cashClosuresByDay() {
   normalizeCashSessions(state.cashSessions)
     .filter((session) => session.status === "closed")
     .forEach((session) => {
+      const totals = cashSessionDisplayTotals(session);
       const closeDate = new Date(session.closedAt || session.openedAt);
       const key = localDateKey(closeDate);
       const current = map.get(key) || {
@@ -5695,15 +5734,17 @@ function cashClosuresByDay() {
         sortKey: key,
         sessions: 0,
         total: 0,
+        iva: 0,
         cash: 0,
         card: 0,
         counted: 0,
         difference: 0,
       };
       current.sessions += 1;
-      current.total += Number(session.totalSales) || 0;
-      current.cash += Number(session.cashSales) || 0;
-      current.card += Number(session.cardSales) || 0;
+      current.total += Number(totals.totalSales ?? totals.total) || 0;
+      current.iva += Number(totals.iva) || 0;
+      current.cash += Number(totals.cashSales ?? totals.cash) || 0;
+      current.card += Number(totals.cardSales ?? totals.card) || 0;
       current.counted += Number(session.countedCash) || 0;
       current.difference += Number(session.difference) || 0;
       map.set(key, current);
@@ -5806,12 +5847,12 @@ function renderCashClosuresData() {
       <div class="panel-header">
         <div>
           <h2 class="panel-title">Cierres de caja por dia</h2>
-          <p class="panel-kicker">Total, efectivo, tarjeta y diferencias documentadas</p>
+          <p class="panel-kicker">Total, IVA, efectivo, tarjeta y diferencias documentadas</p>
         </div>
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               rows.length
@@ -5822,6 +5863,7 @@ function renderCashClosuresData() {
                           <td><strong>${escapeHtml(row.date)}</strong></td>
                           <td>${row.sessions}</td>
                           <td>${money.format(row.total)}</td>
+                          <td>${money.format(row.iva)}</td>
                           <td>${money.format(row.cash)}</td>
                           <td>${money.format(row.card)}</td>
                           <td>${money.format(row.counted)}</td>
@@ -5830,7 +5872,7 @@ function renderCashClosuresData() {
                       `,
                     )
                     .join("")
-                : `<tr><td colspan="7">Aun no hay cortes de caja cerrados.</td></tr>`
+                : `<tr><td colspan="8">Aun no hay cortes de caja cerrados.</td></tr>`
             }
           </tbody>
         </table>
@@ -5971,6 +6013,8 @@ function renderPrinterTest() {
   const marginRightMm = ticketMarginRightMm();
   const logoWidthMm = ticketLogoWidthMm();
   const logoLoadedLabel = ticketLogoDataUrl() ? "Personalizado" : "Logo base";
+  const fakeReceiptType = printerRuntime.fakeReceiptType === "postpaid" ? "postpaid" : "prepaid";
+  const fakeReceiptLabel = fakeReceiptType === "postpaid" ? "postpago" : "prepago";
   const removeTarget = renderedPrinterValue() || printerRuntime.manualName;
   const status = printerRuntime.error
     ? printerRuntime.error
@@ -6072,16 +6116,22 @@ function renderPrinterTest() {
         <div class="panel-header">
           <div>
             <h2 class="panel-title">Previsualizacion 58mm</h2>
-            <p class="panel-kicker">Cuenta falsa a 32 columnas; se imprime en 58mm con fuente monoespaciada.</p>
+            <p class="panel-kicker">Cuenta falsa ${escapeHtml(fakeReceiptLabel)} a 32 columnas; se imprime en 58mm con fuente monoespaciada.</p>
           </div>
         </div>
         <div class="panel-body printer-preview-body">
           <div class="printer-preview-actions">
-            <button class="secondary-button" data-generate-fake-receipt type="button" ${printerRuntime.fakeReceiptLoading ? "disabled" : ""}>
-              ${svg("transfer")}${printerRuntime.fakeReceiptLoading ? "Generando" : "Generar cuenta falsa"}
+            <button class="secondary-button ${fakeReceiptType === "prepaid" ? "is-active" : ""}" data-generate-fake-receipt="prepaid" type="button" ${printerRuntime.fakeReceiptLoading ? "disabled" : ""}>
+              ${svg("transfer")}${printerRuntime.fakeReceiptLoading && fakeReceiptType === "prepaid" ? "Generando" : "Ver prepago"}
             </button>
-            <button class="primary-button" data-print-fake-receipt type="button" ${printerRuntime.fakeReceiptPrinting || !selectedTicketName || !printerRuntime.fakeReceiptText ? "disabled" : ""}>
-              ${svg("print")}${printerRuntime.fakeReceiptPrinting ? "Imprimiendo" : "Imprimir cuenta falsa"}
+            <button class="secondary-button ${fakeReceiptType === "postpaid" ? "is-active" : ""}" data-generate-fake-receipt="postpaid" type="button" ${printerRuntime.fakeReceiptLoading ? "disabled" : ""}>
+              ${svg("transfer")}${printerRuntime.fakeReceiptLoading && fakeReceiptType === "postpaid" ? "Generando" : "Ver postpago"}
+            </button>
+            <button class="primary-button" data-print-fake-receipt="prepaid" type="button" ${printerRuntime.fakeReceiptPrinting || !selectedTicketName ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.fakeReceiptPrinting && fakeReceiptType === "prepaid" ? "Imprimiendo" : "Imprimir prueba prepago"}
+            </button>
+            <button class="primary-button" data-print-fake-receipt="postpaid" type="button" ${printerRuntime.fakeReceiptPrinting || !selectedTicketName ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.fakeReceiptPrinting && fakeReceiptType === "postpaid" ? "Imprimiendo" : "Imprimir prueba postpago"}
             </button>
             <button class="secondary-button" data-print-receipt-header type="button" ${printerRuntime.headerPrinting || !selectedTicketName ? "disabled" : ""}>
               ${svg("print")}${printerRuntime.headerPrinting ? "Imprimiendo" : "Imprimir solo cabecera"}
@@ -6229,7 +6279,8 @@ function buildPrepaidReceiptText(order) {
     receiptPrintRule(),
     ...(Array.isArray(order.items) ? order.items.flatMap(saleReceiptItemLines) : []),
     receiptPrintRule(),
-    receiptPrintColumns("Subtotal", receiptPrintMoney(totals.subtotal)),
+    receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(totals.netSubtotal)),
+    receiptPrintColumns(ivaLabel(totals.ivaRate), receiptPrintMoney(totals.iva)),
     receiptPrintColumns("TOTAL", receiptPrintMoney(totals.total)),
     receiptPrintCenter("Pendiente de pago"),
     receiptPrintRule(),
@@ -6249,6 +6300,7 @@ function buildPostpaidReceiptText(sale) {
   const cashReceived = Number(payment.cashReceived) || 0;
   const changeGiven = Number(payment.changeGiven) || 0;
   const tipAmount = saleTip(sale);
+  const tax = saleTaxBreakdown(sale);
   const orderLabelText = sale.type === "table" ? `Mesa ${sale.tableNumber || ""}`.trim() : "Para llevar";
   const paymentLines = [];
   if (cardDue > 0) paymentLines.push(receiptPrintColumns("Pago tarjeta", receiptPrintMoney(cardDue)));
@@ -6268,7 +6320,9 @@ function buildPostpaidReceiptText(sale) {
     receiptPrintRule(),
     ...(Array.isArray(sale.items) ? sale.items.flatMap(saleReceiptItemLines) : []),
     receiptPrintRule(),
-    receiptPrintColumns("Subtotal", receiptPrintMoney(saleSubtotal(sale))),
+    receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(tax.netSubtotal)),
+    receiptPrintColumns(ivaLabel(tax.ivaRate), receiptPrintMoney(tax.iva)),
+    receiptPrintColumns("Consumo", receiptPrintMoney(saleSubtotal(sale))),
     tipAmount ? receiptPrintColumns(saleReceiptTipLabel(sale), receiptPrintMoney(tipAmount)) : "",
     receiptPrintColumns("TOTAL", receiptPrintMoney(saleTotal(sale))),
     ...paymentLines,
@@ -6536,18 +6590,25 @@ async function sendPrinterLegacyTest() {
   }
 }
 
-async function loadFakeReceiptPreview(force = false) {
+function normalizeFakeReceiptType(value) {
+  return value === "postpaid" ? "postpaid" : "prepaid";
+}
+
+async function loadFakeReceiptPreview(force = false, type = printerRuntime.fakeReceiptType) {
   if (!isAdminUser()) return;
-  if (printerRuntime.fakeReceiptLoading || (printerRuntime.fakeReceiptText && !force)) return;
+  const receiptType = normalizeFakeReceiptType(type);
+  if (printerRuntime.fakeReceiptLoading || (printerRuntime.fakeReceiptText && printerRuntime.fakeReceiptType === receiptType && !force)) return;
   printerRuntime.fakeReceiptLoading = true;
+  printerRuntime.fakeReceiptType = receiptType;
   printerRuntime.error = "";
   render();
   try {
     const userId = encodeURIComponent(currentUser()?.id || "");
-    const response = await fetch(`/api/printers/fake-receipt?userId=${userId}`, { cache: "no-store" });
+    const response = await fetch(`/api/printers/fake-receipt?userId=${userId}&type=${receiptType}`, { cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-preview-error");
     printerRuntime.fakeReceiptText = String(payload.ticketText || "");
+    printerRuntime.fakeReceiptType = normalizeFakeReceiptType(payload.type || receiptType);
   } catch (error) {
     printerRuntime.error = printerErrorMessage(error.message);
     showToast(printerRuntime.error);
@@ -6557,7 +6618,7 @@ async function loadFakeReceiptPreview(force = false) {
   }
 }
 
-async function printFakeReceiptPreview() {
+async function printFakeReceiptPreview(type = printerRuntime.fakeReceiptType) {
   if (!isAdminUser()) {
     showToast("Solo admin puede imprimir pruebas.");
     return;
@@ -6567,11 +6628,13 @@ async function printFakeReceiptPreview() {
     showToast("Selecciona una impresora.");
     return;
   }
-  if (!printerRuntime.fakeReceiptText) {
-    await loadFakeReceiptPreview(true);
+  const receiptType = normalizeFakeReceiptType(type);
+  if (!printerRuntime.fakeReceiptText || printerRuntime.fakeReceiptType !== receiptType) {
+    await loadFakeReceiptPreview(true, receiptType);
   }
   if (!printerRuntime.fakeReceiptText) return;
   printerRuntime.fakeReceiptPrinting = true;
+  printerRuntime.fakeReceiptType = receiptType;
   printerRuntime.error = "";
   render();
   try {
@@ -6583,6 +6646,7 @@ async function printFakeReceiptPreview() {
         printerName,
         ...ticketMarginPayload(),
         ...ticketLogoPayload(),
+        type: receiptType,
         ticketText: receiptTextWithLogoMarker(printerRuntime.fakeReceiptText),
       }),
     });
@@ -6590,7 +6654,7 @@ async function printFakeReceiptPreview() {
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
     if (payload.ticketText && !printerRuntime.fakeReceiptText) printerRuntime.fakeReceiptText = String(payload.ticketText);
-    showToast("Cuenta falsa enviada.");
+    showToast(`Prueba ${receiptType === "postpaid" ? "postpago" : "prepago"} enviada.`);
   } catch (error) {
     printerRuntime.error = printerErrorMessage(error.message);
     showToast(printerRuntime.error);
@@ -6737,19 +6801,23 @@ function postpaidReceiptWarningVisible(sale) {
 function orderSearchRecords() {
   const activeRecords = (Array.isArray(state.orders) ? state.orders : [])
     .filter((order) => order.status !== "closed")
-    .map((order) => ({
-      recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
-      statusKey: order.status === "cancelled" ? "cancelled" : "open",
-      id: Number(order.orderNumber) || "",
-      uid: order.status === "cancelled" ? "" : "Pendiente cobro",
-      saleId: "",
-      date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
-      label: orderLabel(order),
-      waiter: waiterName(order.waiterId),
-      payment: order.status === "cancelled" ? "Sin cobro" : "Pendiente",
-      total: calculateTotals(order).total,
-      products: orderItemsSummary(order.items),
-    }));
+    .map((order) => {
+      const totals = calculateTotals(order);
+      return {
+        recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
+        statusKey: order.status === "cancelled" ? "cancelled" : "open",
+        id: Number(order.orderNumber) || "",
+        uid: order.status === "cancelled" ? "" : "Pendiente cobro",
+        saleId: "",
+        date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
+        label: orderLabel(order),
+        waiter: waiterName(order.waiterId),
+        payment: order.status === "cancelled" ? "Sin cobro" : "Pendiente",
+        total: totals.total,
+        iva: totals.iva,
+        products: orderItemsSummary(order.items),
+      };
+    });
   const paidRecords = (Array.isArray(state.sales) ? state.sales : []).map((sale) => ({
     recordType: "Cobrada",
     statusKey: "paid",
@@ -6767,6 +6835,7 @@ function orderSearchRecords() {
     waiter: waiterName(sale.waiterId),
     payment: sale.paymentMethod || "Efectivo",
     total: saleTotal(sale),
+    iva: saleIvaAmount(sale),
     products: orderItemsSummary(sale.items),
   }));
   return [...paidRecords, ...activeRecords].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -6897,7 +6966,7 @@ function renderOrderSearchData() {
                             <td><strong>${escapeHtml(record.label)}</strong><small>${escapeHtml(record.waiter)}</small></td>
                             <td><span class="shift-status ${record.recordType === "Cobrada" ? "is-active" : ""}">${escapeHtml(record.recordType)}</span></td>
                             <td>${escapeHtml(record.payment)}</td>
-                            <td><strong>${money.format(record.total)}</strong></td>
+                            <td><strong>${money.format(record.total)}</strong><small>IVA ${money.format(record.iva || 0)}</small></td>
                             <td>${renderPostpaidTicketCell(record)}</td>
                             <td>${escapeHtml(record.products)}</td>
                             <td>
@@ -6928,6 +6997,7 @@ function renderData() {
     <div class="data-layout">
       <section class="summary-grid">
         ${renderRevenueBreakdownCard(metrics)}
+        ${renderSummaryCard("IVA hoy", money.format(metrics.iva))}
         ${renderSummaryCard("Propinas hoy", money.format(metrics.tips))}
         ${renderSummaryCard("Costo estimado", money.format(metrics.foodCost))}
         ${renderSummaryCard("Ganancia bruta", money.format(metrics.grossProfit), "ok")}
@@ -6979,12 +7049,12 @@ function renderData() {
           <div class="panel-header">
             <div>
               <h2 class="panel-title">Productos vendidos</h2>
-              <p class="panel-kicker">Unidades, venta y costo estimado</p>
+              <p class="panel-kicker">Unidades, venta sin IVA y costo estimado</p>
             </div>
           </div>
           <div class="panel-body table-wrap">
             <table class="data-table">
-              <thead><tr><th>Producto</th><th>Unidades</th><th>Venta</th><th>Costo</th><th>Ganancia</th></tr></thead>
+              <thead><tr><th>Producto</th><th>Unidades</th><th>Venta s/IVA</th><th>Costo</th><th>Ganancia</th></tr></thead>
               <tbody>
                 ${
                   metrics.products.length
@@ -7058,7 +7128,7 @@ function renderSummaryCard(label, value, tone = "") {
 function renderRevenueBreakdownCard(metrics) {
   const cash = Number(metrics.cashRevenue) || 0;
   const card = Number(metrics.cardRevenue) || 0;
-  const total = Number(metrics.revenue) || cash + card;
+  const total = Number(metrics.collected ?? metrics.revenue) || cash + card;
   return `
     <article class="summary-card summary-card-breakdown">
       <p class="summary-label">Cobrado hoy</p>
@@ -7066,6 +7136,7 @@ function renderRevenueBreakdownCard(metrics) {
       <div class="summary-breakdown">
         <span><strong>${money.format(cash)}</strong>Efectivo</span>
         <span><strong>${money.format(card)}</strong>Tarjeta</span>
+        <span><strong>${money.format(metrics.revenue || 0)}</strong>Venta s/IVA</span>
       </div>
     </article>
   `;
@@ -7169,6 +7240,34 @@ function saleSubtotal(sale) {
   return Number(sale.totals?.subtotal ?? Math.max(0, saleTotal(sale) - saleTip(sale)) ?? 0);
 }
 
+function saleIvaRate(sale) {
+  return cleanIvaRate(sale?.totals?.ivaRate ?? sale?.totals?.taxRate ?? sale?.payment?.ivaRate ?? state.settings?.ivaRate);
+}
+
+function saleTaxBreakdown(sale) {
+  const gross = roundCurrency(saleSubtotal(sale));
+  const ivaRate = saleIvaRate(sale);
+  const storedNet = Number(sale?.totals?.netSubtotal ?? sale?.totals?.taxableSubtotal);
+  const storedIva = Number(sale?.totals?.iva ?? sale?.totals?.taxAmount);
+  if (Number.isFinite(storedNet) && Number.isFinite(storedIva)) {
+    return {
+      gross,
+      netSubtotal: roundCurrency(storedNet),
+      iva: roundCurrency(storedIva),
+      ivaRate,
+    };
+  }
+  return taxBreakdownForGross(gross, ivaRate);
+}
+
+function saleNetSubtotal(sale) {
+  return saleTaxBreakdown(sale).netSubtotal;
+}
+
+function saleIvaAmount(sale) {
+  return saleTaxBreakdown(sale).iva;
+}
+
 function saleTip(sale) {
   return Number(sale.totals?.tip ?? sale.tip?.amount ?? 0);
 }
@@ -7186,6 +7285,7 @@ function paymentTotalsForSales(sales = []) {
     (acc, sale) => {
       const subtotal = saleSubtotal(sale);
       const tip = saleTip(sale);
+      const iva = saleIvaAmount(sale);
       const saleBucket = paymentBucket(sale.paymentMethod);
       const tipBucket = paymentBucket(saleTipPaymentMethod(sale));
       if (saleBucket === "card") {
@@ -7204,10 +7304,11 @@ function paymentTotalsForSales(sales = []) {
       }
       acc.total += subtotal + tip;
       acc.tips += tip;
+      acc.iva += iva;
       acc.count += 1;
       return acc;
     },
-    { cash: 0, card: 0, total: 0, tips: 0, cashSales: 0, cardSales: 0, cashTips: 0, cardTips: 0, count: 0 },
+    { cash: 0, card: 0, total: 0, tips: 0, iva: 0, cashSales: 0, cardSales: 0, cashTips: 0, cardTips: 0, count: 0 },
   );
 }
 
@@ -7239,6 +7340,31 @@ function cashSessionTotals(session) {
     openingCash,
     cashExpenses,
     expectedCash: openingCash + payments.cash - cashExpenses,
+  };
+}
+
+function cashSessionDisplayTotals(session) {
+  const calculated = cashSessionTotals(session);
+  if (session?.status !== "closed") return calculated;
+  const cashSales = Number(session.cashSales ?? calculated.cashSales ?? calculated.cash) || 0;
+  const cardSales = Number(session.cardSales ?? calculated.cardSales ?? calculated.card) || 0;
+  const totalSales = Number(session.totalSales ?? calculated.totalSales ?? calculated.total) || 0;
+  return {
+    ...calculated,
+    ...session,
+    openingCash: Number(session.openingCash ?? calculated.openingCash) || 0,
+    cash: cashSales,
+    card: cardSales,
+    total: totalSales,
+    cashSales,
+    cardSales,
+    totalSales,
+    iva: Number(session.iva) || calculated.iva || 0,
+    cashExpenses: Number(session.cashExpenses ?? calculated.cashExpenses) || 0,
+    cashTips: Number(session.cashTips ?? calculated.cashTips) || 0,
+    cardTips: Number(session.cardTips ?? calculated.cardTips) || 0,
+    tips: Number(session.tips ?? calculated.tips) || 0,
+    expectedCash: Number(session.expectedCash ?? calculated.expectedCash) || 0,
   };
 }
 
@@ -8020,8 +8146,12 @@ function bindEvents() {
     document.querySelector("[data-clear-printer]")?.addEventListener("click", clearSavedPrinter);
     document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
     document.querySelector("[data-print-legacy]")?.addEventListener("click", sendPrinterLegacyTest);
-    document.querySelector("[data-generate-fake-receipt]")?.addEventListener("click", () => loadFakeReceiptPreview(true));
-    document.querySelector("[data-print-fake-receipt]")?.addEventListener("click", printFakeReceiptPreview);
+    document.querySelectorAll("[data-generate-fake-receipt]").forEach((button) => {
+      button.addEventListener("click", () => loadFakeReceiptPreview(true, button.dataset.generateFakeReceipt));
+    });
+    document.querySelectorAll("[data-print-fake-receipt]").forEach((button) => {
+      button.addEventListener("click", () => printFakeReceiptPreview(button.dataset.printFakeReceipt));
+    });
     document.querySelector("[data-print-receipt-header]")?.addEventListener("click", printReceiptHeader);
     document.querySelector("[data-print-logo]")?.addEventListener("click", printLogoTest);
     document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
@@ -8190,6 +8320,36 @@ function roundCurrency(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+function cleanIvaRate(value) {
+  const rate = Number(value);
+  if (!Number.isFinite(rate)) return DEFAULT_IVA_RATE;
+  const normalized = rate > 1 ? rate / 100 : rate;
+  return Math.max(0, Math.min(1, normalized));
+}
+
+function currentIvaRate() {
+  return cleanIvaRate(state.settings?.ivaRate);
+}
+
+function ivaLabel(rate = currentIvaRate()) {
+  return `IVA ${formatPlainNumber(cleanIvaRate(rate) * 100)}%`;
+}
+
+function taxBreakdownForGross(value, rate = currentIvaRate()) {
+  const gross = roundCurrency(value);
+  const ivaRate = cleanIvaRate(rate);
+  if (!gross || !ivaRate) {
+    return { gross, netSubtotal: gross, iva: 0, ivaRate };
+  }
+  const netSubtotal = roundCurrency(gross / (1 + ivaRate));
+  return {
+    gross,
+    netSubtotal,
+    iva: roundCurrency(gross - netSubtotal),
+    ivaRate,
+  };
+}
+
 function readCheckoutTip(subtotal, form = document) {
   const box = form.querySelector?.("[data-checkout-tip]") || document.querySelector("[data-checkout-tip]");
   if (!box) return { mode: "none", value: 0, amount: 0, paymentMethod: "Efectivo" };
@@ -8210,7 +8370,8 @@ function readCheckoutTip(subtotal, form = document) {
 
 function readCheckoutPayment(order, form = document.querySelector("[data-checkout-form]")) {
   if (!order || !form) return null;
-  const subtotal = calculateTotals(order).subtotal;
+  const totals = calculateTotals(order);
+  const subtotal = totals.subtotal;
   const paymentMethod = form.querySelector('input[name="paymentMethod"]:checked')?.value || state.paymentMethod || "Efectivo";
   const tip = readCheckoutTip(subtotal, form);
   tip.paymentMethod = form.querySelector('input[name="tipPaymentMethod"]:checked')?.value || paymentMethod;
@@ -8229,6 +8390,12 @@ function readCheckoutPayment(order, form = document.querySelector("[data-checkou
     paymentMethod,
     tip,
     subtotal,
+    netSubtotal: totals.netSubtotal,
+    taxableSubtotal: totals.netSubtotal,
+    iva: totals.iva,
+    taxAmount: totals.iva,
+    ivaRate: totals.ivaRate,
+    taxRate: totals.ivaRate,
     total: roundCurrency(subtotal + tip.amount),
     cashDue,
     cardDue,
@@ -8311,6 +8478,8 @@ function confirmCheckoutPayment(event) {
   const pending = order.items.some((item) => item.status === "pending");
   const details = [
     `Total: ${money.format(payment.total)}`,
+    `Subtotal s/IVA: ${money.format(payment.netSubtotal)}`,
+    `${ivaLabel(payment.ivaRate)}: ${money.format(payment.iva)}`,
     `Pago principal: ${payment.paymentMethod}`,
     payment.cardDue > 0 ? `A tarjeta: ${money.format(payment.cardDue)}` : "",
     payment.cashDue > 0 ? `A efectivo: ${money.format(payment.cashDue)}` : "",
@@ -8328,6 +8497,7 @@ function confirmCheckoutPayment(event) {
 
 function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(order)) {
   if (payment && typeof payment === "object") {
+    const tax = taxBreakdownForGross(payment.subtotal ?? baseTotals.subtotal, payment.ivaRate ?? payment.taxRate ?? baseTotals.ivaRate);
     const tip = {
       mode: payment.tip?.mode || "none",
       value: Number(payment.tip?.value) || 0,
@@ -8339,6 +8509,12 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
       paymentMethod: payment.paymentMethod || "Efectivo",
       tip,
       subtotal: roundCurrency(payment.subtotal ?? baseTotals.subtotal),
+      netSubtotal: roundCurrency(payment.netSubtotal ?? payment.taxableSubtotal ?? tax.netSubtotal),
+      taxableSubtotal: roundCurrency(payment.taxableSubtotal ?? payment.netSubtotal ?? tax.netSubtotal),
+      iva: roundCurrency(payment.iva ?? payment.taxAmount ?? tax.iva),
+      taxAmount: roundCurrency(payment.taxAmount ?? payment.iva ?? tax.iva),
+      ivaRate: cleanIvaRate(payment.ivaRate ?? payment.taxRate ?? tax.ivaRate),
+      taxRate: cleanIvaRate(payment.taxRate ?? payment.ivaRate ?? tax.ivaRate),
       total: roundCurrency(payment.total ?? baseTotals.subtotal + tip.amount),
       cashDue: roundCurrency(payment.cashDue),
       cardDue: roundCurrency(payment.cardDue),
@@ -8358,6 +8534,12 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
     paymentMethod,
     tip,
     subtotal: baseTotals.subtotal,
+    netSubtotal: baseTotals.netSubtotal,
+    taxableSubtotal: baseTotals.netSubtotal,
+    iva: baseTotals.iva,
+    taxAmount: baseTotals.iva,
+    ivaRate: baseTotals.ivaRate,
+    taxRate: baseTotals.ivaRate,
     total: roundCurrency(baseTotals.subtotal + tip.amount),
     cashDue,
     cardDue,
@@ -8390,6 +8572,13 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
       cardDue: checkout.cardDue,
       cashReceived: checkout.cashReceived,
       changeGiven: checkout.changeGiven,
+      subtotal: checkout.subtotal,
+      netSubtotal: checkout.netSubtotal,
+      taxableSubtotal: checkout.netSubtotal,
+      iva: checkout.iva,
+      taxAmount: checkout.iva,
+      ivaRate: checkout.ivaRate,
+      taxRate: checkout.ivaRate,
       confirmedAt: closedAt,
       confirmedBy: currentUser().id,
     };
@@ -8420,6 +8609,13 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     cardDue: checkout.cardDue,
     cashReceived: checkout.cashReceived,
     changeGiven: checkout.changeGiven,
+    subtotal: checkout.subtotal,
+    netSubtotal: checkout.netSubtotal,
+    taxableSubtotal: checkout.netSubtotal,
+    iva: checkout.iva,
+    taxAmount: checkout.iva,
+    ivaRate: checkout.ivaRate,
+    taxRate: checkout.ivaRate,
     confirmedAt: closedAt,
     confirmedBy: currentUser().id,
   };
@@ -8429,6 +8625,12 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     tipMode: checkout.tip.mode,
     tipValue: checkout.tip.value,
     tipPaymentMethod: checkout.tip.paymentMethod,
+    netSubtotal: checkout.netSubtotal,
+    taxableSubtotal: checkout.netSubtotal,
+    iva: checkout.iva,
+    taxAmount: checkout.iva,
+    ivaRate: checkout.ivaRate,
+    taxRate: checkout.ivaRate,
     total: checkout.total,
   };
   const saleRecord = {
@@ -8495,6 +8697,7 @@ function saveSaleTip(event) {
   const amount = roundCurrency(Math.max(0, Number(form.get("tipAmount")) || 0));
   const paymentMethod = String(form.get("tipPaymentMethod") || sale.paymentMethod || "Efectivo");
   const subtotal = saleSubtotal(sale);
+  const tax = saleTaxBreakdown(sale);
   const now = new Date().toISOString();
   sale.tip = {
     ...(sale.tip || {}),
@@ -8508,6 +8711,12 @@ function saveSaleTip(event) {
   sale.totals = {
     ...(sale.totals || {}),
     subtotal,
+    netSubtotal: tax.netSubtotal,
+    taxableSubtotal: tax.netSubtotal,
+    iva: tax.iva,
+    taxAmount: tax.iva,
+    ivaRate: tax.ivaRate,
+    taxRate: tax.ivaRate,
     tip: amount,
     tipMode: "fixed",
     tipValue: amount,
@@ -8876,12 +9085,14 @@ function updateConfigQty(delta) {
   const qtyTarget = document.querySelector("[data-config-qty-value]");
   const totalTarget = document.querySelector("[data-config-total]");
   const unitTarget = document.querySelector("[data-config-unit]");
+  const taxTarget = document.querySelector("[data-config-tax]");
   const stockTarget = document.querySelector("[data-config-stock-panel]");
   const stockPanel = document.querySelector("[data-stock-panel]");
   const stockMessage = document.querySelector("[data-stock-message]");
   if (qtyTarget) qtyTarget.textContent = String(state.productConfig.qty);
   if (totalTarget) totalTarget.textContent = money.format(unitPrice * state.productConfig.qty);
   if (unitTarget) unitTarget.textContent = `${money.format(unitPrice)} c/u`;
+  if (taxTarget) taxTarget.textContent = `Incluye ${ivaLabel()} ${money.format(taxBreakdownForGross(unitPrice * state.productConfig.qty).iva)}`;
   if (stockPanel && stockMessage) {
     const overRequest = stock.known && state.productConfig.qty > stock.orderable;
     stockPanel.className = `stock-panel ${stock.known ? stock.tone : "unknown"} ${overRequest ? "over-request" : ""}`;
@@ -9487,6 +9698,7 @@ function closeCashSession(event) {
     cashSales: totals.cash,
     cardSales: totals.card,
     totalSales: totals.total,
+    iva: totals.iva,
     cashExpenses: totals.cashExpenses || 0,
     cashTips: totals.cashTips,
     cardTips: totals.cardTips,
@@ -11043,14 +11255,21 @@ function lineUnitCost(line) {
 function buildBusinessMetrics(day = null) {
   const productMap = new Map();
   let revenue = 0;
+  let salesGross = 0;
+  let iva = 0;
   let foodCost = 0;
   let tips = 0;
   const sales = day ? state.sales.filter((sale) => isSameLocalDay(saleClosedAt(sale), day)) : state.sales;
   sales.forEach((sale) => {
-    revenue += saleTotal(sale);
+    const saleGross = saleSubtotal(sale);
+    const tax = saleTaxBreakdown(sale);
+    salesGross += saleGross;
+    iva += tax.iva;
+    revenue += tax.netSubtotal;
     tips += saleTip(sale);
     sale.items?.forEach((line) => {
-      const lineRevenue = line.unitPrice * line.qty;
+      const lineGross = roundCurrency(line.unitPrice * line.qty);
+      const lineRevenue = taxBreakdownForGross(lineGross, tax.ivaRate).netSubtotal;
       const lineCost = lineUnitCost(line) * line.qty;
       foodCost += lineCost;
       const key = line.productId || line.name;
@@ -11070,6 +11289,9 @@ function buildBusinessMetrics(day = null) {
   const grossProfit = revenue - foodCost;
   return {
     revenue,
+    salesGross,
+    iva,
+    collected: paymentTotals.total,
     cashRevenue: paymentTotals.cash,
     cardRevenue: paymentTotals.card,
     tips,
@@ -11081,7 +11303,7 @@ function buildBusinessMetrics(day = null) {
     netAfterExpenses: grossProfit - expenses,
     margin: revenue ? (grossProfit / revenue) * 100 : 0,
     tickets: sales.length,
-    averageTicket: sales.length ? revenue / sales.length : 0,
+    averageTicket: sales.length ? paymentTotals.total / sales.length : 0,
     products: [...productMap.values()].sort((a, b) => b.revenue - a.revenue),
     cancellations: [...cancellations].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 40),
   };
@@ -11102,7 +11324,9 @@ function exportData(kind) {
           "cajero",
           "metodo_pago",
           "metodo_propina",
-          "subtotal",
+          "subtotal_sin_iva",
+          "iva",
+          "consumo_con_iva",
           "propina",
           "total",
           "efectivo_a_recibir",
@@ -11119,7 +11343,9 @@ function exportData(kind) {
           waiterName(sale.cashierId),
           sale.paymentMethod || "Efectivo",
           saleTipPaymentMethod(sale),
-          Number(sale.totals?.subtotal ?? saleTotal(sale) - saleTip(sale)) || 0,
+          saleNetSubtotal(sale),
+          saleIvaAmount(sale),
+          saleSubtotal(sale),
           saleTip(sale),
           saleTotal(sale),
           Number(sale.payment?.cashDue) || 0,
@@ -11132,9 +11358,9 @@ function exportData(kind) {
     caja: () => ({
       filename: `librepos-caja-${stamp}.csv`,
       rows: [
-        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
+        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "iva", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
         ...normalizeCashSessions(state.cashSessions).map((session) => {
-          const totals = session.status === "closed" ? session : cashSessionTotals(session);
+          const totals = cashSessionDisplayTotals(session);
           return [
             formatCsvDateTime(session.openedAt),
             session.closedAt ? formatCsvDateTime(session.closedAt) : "Abierta",
@@ -11144,6 +11370,7 @@ function exportData(kind) {
             Number(totals.cashSales ?? totals.cash) || 0,
             Number(totals.cardSales ?? totals.card) || 0,
             Number(totals.totalSales ?? totals.total) || 0,
+            Number(totals.iva) || 0,
             Number(totals.cashExpenses) || 0,
             Number(totals.expectedCash) || 0,
             Number(session.countedCash) || 0,

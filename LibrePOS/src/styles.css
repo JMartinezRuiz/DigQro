@@ -2435,6 +2435,10 @@ button:disabled {
   letter-spacing: -0.02em;
 }
 
+.compact-tax-line {
+  font-size: 0.82rem;
+}
+
 .ticket-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2649,6 +2653,19 @@ button:disabled {
   justify-content: space-between;
   gap: 10px;
   align-items: center;
+}
+
+.price-with-tax {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.price-with-tax small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .menu-icon {
