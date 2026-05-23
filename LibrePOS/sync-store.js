@@ -940,6 +940,48 @@ async function printWithWindowsLegacy(printerName) {
   return printTextWithWindowsLegacy(printerName, legacyTicketText(), "windows-out-printer-legacy");
 }
 
+async function printReceiptWithWindowsDocument(printerName, text) {
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "Add-Type -AssemblyName System.Drawing",
+    "$printer = $args[0]",
+    "$text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[1]))",
+    "$lines = $text -replace \"`r`n\", \"`n\" -replace \"`r\", \"`n\" -split \"`n\"",
+    "$doc = New-Object System.Drawing.Printing.PrintDocument",
+    "$doc.PrinterSettings.PrinterName = $printer",
+    "if (-not $doc.PrinterSettings.IsValid) { throw \"printer-not-valid:$printer\" }",
+    "$doc.DocumentName = 'LibrePOS cuenta 58mm'",
+    "$paperWidth = 228",
+    "$paperHeight = [Math]::Max(550, ($lines.Count + 8) * 14)",
+    "$doc.DefaultPageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('LibrePOS 58mm', $paperWidth, $paperHeight)",
+    "$doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(2, 2, 2, 2)",
+    "$font = New-Object System.Drawing.Font('Courier New', 7.0, [System.Drawing.FontStyle]::Regular, [System.Drawing.GraphicsUnit]::Point)",
+    "$brush = [System.Drawing.Brushes]::Black",
+    "$script:lineIndex = 0",
+    "$doc.add_PrintPage({",
+    "  param($sender, $event)",
+    "  $x = 2",
+    "  $y = 2",
+    "  $lineHeight = [Math]::Ceiling($font.GetHeight($event.Graphics)) + 1",
+    "  $bottom = $event.PageBounds.Height - 4",
+    "  while ($script:lineIndex -lt $lines.Count) {",
+    "    $line = [string]$lines[$script:lineIndex]",
+    "    $event.Graphics.DrawString($line, $font, $brush, $x, $y)",
+    "    $y += $lineHeight",
+    "    $script:lineIndex += 1",
+    "    if ($y + $lineHeight -gt $bottom -and $script:lineIndex -lt $lines.Count) {",
+    "      $event.HasMorePages = $true",
+    "      return",
+    "    }",
+    "  }",
+    "  $event.HasMorePages = $false",
+    "})",
+    "try { $doc.Print(); Write-Output ('windows-printdocument-58mm:' + $printer) } finally { $font.Dispose(); $doc.Dispose() }",
+  ].join("\n");
+  await runPowerShell(script, [printerName, Buffer.from(text, "utf8").toString("base64")], { timeout: 30000, maxBuffer: 1024 * 1024 });
+  return { method: "windows-printdocument-58mm" };
+}
+
 async function removeWindowsPrinter(printerName) {
   const script = [
     "$ErrorActionPreference = 'Stop'",
@@ -1002,7 +1044,7 @@ export async function printFakeReceiptTicket(printerName, ticketText = "") {
   const text = cleanReceiptPayload(ticketText) || fakeReceiptText();
   let result = null;
   if (process.platform === "win32") {
-    result = await printTextWithWindowsLegacy(cleanName, `${text}\n\n\n`, "windows-out-printer-fake-receipt");
+    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`);
   } else {
     const filePath = path.join(tmpdir(), `librepos-fake-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
     await writeFile(filePath, `${text}\n\n\n`, "utf8");

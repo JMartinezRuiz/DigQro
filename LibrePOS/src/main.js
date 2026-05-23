@@ -5737,7 +5737,7 @@ function renderPrinterTest() {
         <div class="panel-header">
           <div>
             <h2 class="panel-title">Previsualizacion 58mm</h2>
-            <p class="panel-kicker">Cuenta falsa para validar cortes, extras y propina.</p>
+            <p class="panel-kicker">Cuenta falsa a 32 columnas; se imprime en 58mm con fuente monoespaciada.</p>
           </div>
         </div>
         <div class="panel-body printer-preview-body">
