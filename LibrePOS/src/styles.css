@@ -4592,8 +4592,31 @@ button:disabled {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.9rem;
   line-height: 1.35;
-  white-space: pre;
+  white-space: normal;
   box-shadow: var(--shadow-xs);
+}
+
+.printer-receipt-placeholder {
+  color: var(--muted);
+  font-family: inherit;
+}
+
+.printer-receipt-line {
+  min-height: 1.35em;
+  white-space: pre;
+}
+
+.printer-receipt-logo-row {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 8px;
+}
+
+.printer-receipt-logo-row img {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  display: block;
 }
 
 .printer-logo-preview {
@@ -4615,10 +4638,20 @@ button:disabled {
 }
 
 .printer-logo-paper img {
-  width: min(100%, 118px);
-  aspect-ratio: 1;
+  max-width: 100%;
+  height: auto;
+  max-height: 142px;
   object-fit: contain;
   display: block;
+}
+
+.printer-logo-toggle {
+  align-content: start;
+}
+
+.printer-logo-toggle input {
+  width: 22px;
+  height: 22px;
 }
 
 .expense-layout {

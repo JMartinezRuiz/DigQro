@@ -9,6 +9,8 @@ const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
 const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
+const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
+const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
 const SHARED_STATE_KEYS = [
   "settings",
@@ -645,6 +647,9 @@ const defaultState = {
     theme: "tatias",
     ticketPrinterName: "",
     ticketMarginMm: DEFAULT_TICKET_MARGIN_MM,
+    ticketLogoDataUrl: "",
+    ticketLogoWidthMm: DEFAULT_TICKET_LOGO_WIDTH_MM,
+    ticketLogoEnabled: false,
   },
   users: defaultUsers,
   orders: [],
@@ -894,6 +899,117 @@ function ticketMarginMmFromValue(value) {
   const margin = Math.round(Number(value));
   if (!Number.isFinite(margin)) return DEFAULT_TICKET_MARGIN_MM;
   return Math.max(0, Math.min(20, margin));
+}
+
+function ticketLogoDataUrl() {
+  const value = String(state.settings?.ticketLogoDataUrl || "").trim();
+  return value.startsWith("data:image/") ? value : "";
+}
+
+function ticketLogoSrc() {
+  return ticketLogoDataUrl() || BRAND_IMAGE;
+}
+
+function ticketLogoEnabled() {
+  return Boolean(state.settings?.ticketLogoEnabled);
+}
+
+function ticketLogoWidthMm() {
+  const width = Math.round(Number(state.settings?.ticketLogoWidthMm));
+  if (!Number.isFinite(width)) return DEFAULT_TICKET_LOGO_WIDTH_MM;
+  return Math.max(10, Math.min(48, width));
+}
+
+function updateTicketLogoWidthMm(value) {
+  state.settings = {
+    ...state.settings,
+    ticketLogoWidthMm: ticketLogoWidthMmFromValue(value),
+  };
+  persist();
+}
+
+function saveTicketLogoWidthMm(value) {
+  updateTicketLogoWidthMm(value);
+  render();
+}
+
+function ticketLogoWidthMmFromValue(value) {
+  const width = Math.round(Number(value));
+  if (!Number.isFinite(width)) return DEFAULT_TICKET_LOGO_WIDTH_MM;
+  return Math.max(10, Math.min(48, width));
+}
+
+function ticketLogoPayload() {
+  if (!ticketLogoEnabled()) return {};
+  return {
+    logoDataUrl: ticketLogoDataUrl(),
+    logoWidthMm: ticketLogoWidthMm(),
+  };
+}
+
+function logoOnlyPayload() {
+  return {
+    logoDataUrl: ticketLogoDataUrl(),
+    logoWidthMm: ticketLogoWidthMm(),
+  };
+}
+
+function setTicketLogoEnabled(value) {
+  state.settings = {
+    ...state.settings,
+    ticketLogoEnabled: Boolean(value),
+  };
+  persist();
+  render();
+}
+
+function clearTicketLogo() {
+  state.settings = {
+    ...state.settings,
+    ticketLogoDataUrl: "",
+  };
+  persist();
+  showToast("Logo de prueba restaurado.");
+  render();
+}
+
+function readImageAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(new Error("logo-read-error")));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function changeTicketLogo(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  if (!["image/png", "image/jpeg"].includes(file.type)) {
+    showToast("Usa un logo PNG o JPG.");
+    event.target.value = "";
+    return;
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    showToast("El logo debe pesar menos de 2 MB.");
+    event.target.value = "";
+    return;
+  }
+  try {
+    const dataUrl = await readImageAsDataUrl(file);
+    state.settings = {
+      ...state.settings,
+      ticketLogoDataUrl: dataUrl,
+      ticketLogoEnabled: true,
+    };
+    persist();
+    showToast("Logo de prueba cargado.");
+    render();
+  } catch {
+    showToast("No se pudo cargar el logo.");
+  } finally {
+    event.target.value = "";
+  }
 }
 
 function savePrinterName(name) {
@@ -5726,12 +5842,59 @@ function renderPrinterOptions() {
   return `<option value="">Sin impresoras detectadas</option>`;
 }
 
+function receiptTextWithLogoMarker(text) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const normalizedLines = lines.map((line) => (line === RECEIPT_LOGO_MARKER ? receiptPrintCenter("LibrePOS") : line));
+  if (!ticketLogoEnabled()) return normalizedLines.join("\n");
+  const index = normalizedLines.findIndex((line) => line.trim() === "LibrePOS");
+  if (index >= 0) normalizedLines[index] = RECEIPT_LOGO_MARKER;
+  return normalizedLines.join("\n");
+}
+
+function receiptLogoLine() {
+  return ticketLogoEnabled() ? RECEIPT_LOGO_MARKER : receiptPrintCenter("LibrePOS");
+}
+
+function ticketLogoPreviewWidthPx() {
+  return Math.round(ticketLogoWidthMm() * 3.2);
+}
+
+function refreshTicketLogoPreviewSize() {
+  document.querySelectorAll("[data-ticket-logo-preview-img]").forEach((image) => {
+    image.style.width = `${ticketLogoPreviewWidthPx()}px`;
+  });
+}
+
+function renderReceiptPreviewHtml(text) {
+  const value = String(text || "");
+  if (!value) {
+    return `<div class="printer-receipt-preview printer-receipt-placeholder">Genera una cuenta falsa para previsualizar el ticket.</div>`;
+  }
+  const lines = receiptTextWithLogoMarker(value).split("\n");
+  return `
+    <div class="printer-receipt-preview">
+      ${lines.map((line) => {
+        if (line === RECEIPT_LOGO_MARKER) {
+          return `
+            <div class="printer-receipt-logo-row">
+              <img data-ticket-logo-preview-img src="${escapeAttr(ticketLogoSrc())}" alt="Logo ticket" style="width: ${ticketLogoPreviewWidthPx()}px" />
+            </div>
+          `;
+        }
+        return `<div class="printer-receipt-line">${line ? escapeHtml(line) : "&nbsp;"}</div>`;
+      }).join("")}
+    </div>
+  `;
+}
+
 function renderPrinterTest() {
   if (!isAdminUser()) return "";
   const printersCount = printerRuntime.printers.length;
   const selectedTicketName = selectedTicketPrinterName();
   const selectedLabel = selectedTicketName || "Pendiente";
   const marginMm = ticketMarginMm();
+  const logoWidthMm = ticketLogoWidthMm();
+  const logoLoadedLabel = ticketLogoDataUrl() ? "Personalizado" : "Logo base";
   const removeTarget = renderedPrinterValue() || printerRuntime.manualName;
   const status = printerRuntime.error
     ? printerRuntime.error
@@ -5746,6 +5909,7 @@ function renderPrinterTest() {
         ${renderSummaryCard("Impresoras", String(printersCount))}
         ${renderSummaryCard("Ticket", escapeHtml(selectedLabel))}
         ${renderSummaryCard("Margen", `${marginMm} mm/lado`)}
+        ${renderSummaryCard("Logo", ticketLogoEnabled() ? `${logoWidthMm} mm` : "No incluido")}
         ${renderSummaryCard("Ultima prueba", printerRuntime.lastPrintedAt ? formatDateTime(printerRuntime.lastPrintedAt) : "Sin prueba")}
       </section>
       <section class="panel data-grid-wide printer-panel">
@@ -5771,6 +5935,21 @@ function renderPrinterTest() {
             <input data-ticket-margin-mm type="number" min="0" max="20" step="1" value="${marginMm}" />
             <small>${marginMm} mm por lado. Sube o baja de 1mm en 1mm.</small>
           </label>
+          <label class="field">
+            <span>Logo de ticket</span>
+            <input data-ticket-logo-file type="file" accept="image/png,image/jpeg" />
+            <small>${escapeHtml(logoLoadedLabel)}. PNG o JPG, maximo 2 MB.</small>
+          </label>
+          <label class="field">
+            <span>Tamano del logo</span>
+            <input data-ticket-logo-width-mm type="number" min="10" max="48" step="1" value="${logoWidthMm}" />
+            <small>${logoWidthMm} mm de ancho, centrado en el ticket.</small>
+          </label>
+          <label class="field printer-logo-toggle">
+            <span>Incluir logo en ticket</span>
+            <input data-ticket-logo-enabled type="checkbox" ${ticketLogoEnabled() ? "checked" : ""} />
+            <small>Sustituye la linea LibrePOS en la cuenta falsa y en los tickets cobrados.</small>
+          </label>
           ${printerRuntime.error ? `<div class="checkout-warning">${svg("alert")}${escapeHtml(printerRuntime.error)}</div>` : ""}
           <div class="printer-action-row">
             <button class="secondary-button" data-select-printer type="button" ${printerRuntime.loading ? "disabled" : ""}>
@@ -5784,6 +5963,9 @@ function renderPrinterTest() {
             </button>
             <button class="secondary-button" data-print-legacy type="button" ${printerRuntime.legacyPrinting || !selectedTicketName ? "disabled" : ""}>
               ${svg("print")}${printerRuntime.legacyPrinting ? "Imprimiendo" : "Impresion legacy"}
+            </button>
+            <button class="secondary-button" data-clear-ticket-logo type="button" ${!ticketLogoDataUrl() ? "disabled" : ""}>
+              ${svg("trash")}Restaurar logo
             </button>
             <button class="danger-button" data-remove-system-printer type="button" ${printerRuntime.loading || printerRuntime.removing || !removeTarget ? "disabled" : ""}>
               ${svg("trash")}${printerRuntime.removing ? "Eliminando" : "Eliminar del sistema"}
@@ -5810,10 +5992,10 @@ function renderPrinterTest() {
               ${svg("print")}${printerRuntime.headerPrinting ? "Imprimiendo" : "Imprimir solo cabecera"}
             </button>
           </div>
-          <pre class="printer-receipt-preview">${escapeHtml(printerRuntime.fakeReceiptText || "Genera una cuenta falsa para previsualizar el ticket.")}</pre>
+          ${renderReceiptPreviewHtml(printerRuntime.fakeReceiptText)}
           <section class="printer-logo-preview">
             <div class="printer-logo-paper">
-              <img src="${BRAND_IMAGE}" alt="Los Tatas" />
+              <img data-ticket-logo-preview-img src="${escapeAttr(ticketLogoSrc())}" alt="Logo ticket" style="width: ${ticketLogoPreviewWidthPx()}px" />
             </div>
             <button class="secondary-button" data-print-logo type="button" ${printerRuntime.logoPrinting || !selectedTicketName ? "disabled" : ""}>
               ${svg("print")}${printerRuntime.logoPrinting ? "Imprimiendo" : "Imprimir logo"}
@@ -5953,7 +6135,7 @@ function buildSaleReceiptText(sale) {
   if (!paymentLines.length) paymentLines.push(receiptPrintColumns(`Pago ${sale.paymentMethod || "Efectivo"}`, receiptPrintMoney(saleTotal(sale))));
   const lines = [
     receiptPrintCenter("LOS TATAS"),
-    receiptPrintCenter("LibrePOS"),
+    receiptLogoLine(),
     ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
     receiptPrintCenter("TICKET DE VENTA"),
     receiptPrintRule(),
@@ -5989,6 +6171,7 @@ async function printClosedSaleReceipt(sale) {
         userId: currentUser()?.id || sale.cashierId || "",
         printerName,
         marginMm: ticketMarginMm(),
+        ...ticketLogoPayload(),
         ticketText: buildSaleReceiptText(sale),
       }),
     });
@@ -6157,12 +6340,18 @@ async function printFakeReceiptPreview() {
     const response = await fetch("/api/printers/fake-receipt/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, marginMm: ticketMarginMm(), ticketText: printerRuntime.fakeReceiptText }),
+      body: JSON.stringify({
+        userId: currentUser()?.id || "",
+        printerName,
+        marginMm: ticketMarginMm(),
+        ...ticketLogoPayload(),
+        ticketText: receiptTextWithLogoMarker(printerRuntime.fakeReceiptText),
+      }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
-    if (payload.ticketText) printerRuntime.fakeReceiptText = String(payload.ticketText);
+    if (payload.ticketText && !printerRuntime.fakeReceiptText) printerRuntime.fakeReceiptText = String(payload.ticketText);
     showToast("Cuenta falsa enviada.");
   } catch (error) {
     printerRuntime.error = printerErrorMessage(error.message);
@@ -6190,7 +6379,13 @@ async function printReceiptHeader() {
     const response = await fetch("/api/printers/receipt-header/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, marginMm: ticketMarginMm() }),
+      body: JSON.stringify({
+        userId: currentUser()?.id || "",
+        printerName,
+        marginMm: ticketMarginMm(),
+        includeLogo: ticketLogoEnabled(),
+        ...ticketLogoPayload(),
+      }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-header-print-error");
@@ -6222,7 +6417,12 @@ async function printLogoTest() {
     const response = await fetch("/api/printers/logo/print", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, marginMm: ticketMarginMm() }),
+      body: JSON.stringify({
+        userId: currentUser()?.id || "",
+        printerName,
+        marginMm: ticketMarginMm(),
+        ...logoOnlyPayload(),
+      }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-logo-print-error");
@@ -7492,6 +7692,18 @@ function bindEvents() {
     document.querySelector("[data-ticket-margin-mm]")?.addEventListener("input", (event) => {
       updateTicketMarginMm(event.target.value);
     });
+    document.querySelector("[data-ticket-logo-file]")?.addEventListener("change", changeTicketLogo);
+    document.querySelector("[data-ticket-logo-width-mm]")?.addEventListener("change", (event) => {
+      saveTicketLogoWidthMm(event.target.value);
+    });
+    document.querySelector("[data-ticket-logo-width-mm]")?.addEventListener("input", (event) => {
+      updateTicketLogoWidthMm(event.target.value);
+      refreshTicketLogoPreviewSize();
+    });
+    document.querySelector("[data-ticket-logo-enabled]")?.addEventListener("change", (event) => {
+      setTicketLogoEnabled(event.target.checked);
+    });
+    document.querySelector("[data-clear-ticket-logo]")?.addEventListener("click", clearTicketLogo);
     document.querySelector("[data-select-printer]")?.addEventListener("click", selectPrinterFromList);
     document.querySelector("[data-clear-printer]")?.addEventListener("click", clearSavedPrinter);
     document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
