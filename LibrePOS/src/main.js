@@ -8,6 +8,7 @@ const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
 const RECEIPT_PRINT_WIDTH = 32;
+const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
 const SHARED_STATE_KEYS = [
   "settings",
   "users",
@@ -5865,6 +5866,10 @@ function receiptPrintWrap(value, indent = "  ", width = RECEIPT_PRINT_WIDTH) {
   return lines;
 }
 
+function receiptPrintCenteredWrap(value) {
+  return receiptPrintWrap(value, "").map((line) => receiptPrintCenter(line));
+}
+
 function saleReceiptItemLines(item) {
   const qty = formatPlainNumber(item.qty);
   const name = item.name || "Producto";
@@ -5901,9 +5906,10 @@ function buildSaleReceiptText(sale) {
   const lines = [
     receiptPrintCenter("LOS TATAS"),
     receiptPrintCenter("LibrePOS"),
+    ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
     receiptPrintCenter("TICKET DE VENTA"),
     receiptPrintRule(),
-    receiptPrintColumns("Folio", uid || sale.orderNumber || "-"),
+    receiptPrintColumns("Folio", sale.orderNumber || uid || "-"),
     formatCsvDateTime(closedAt),
     receiptPrintColumns(orderLabelText, `Mesero ${waiterName(sale.waiterId)}`),
     receiptPrintRule(),

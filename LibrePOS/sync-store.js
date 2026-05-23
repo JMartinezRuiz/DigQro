@@ -27,6 +27,7 @@ const PRESERVED_UPDATE_FILES = new Set([".DS_Store", ".env", ".env.local"]);
 const IGNORED_LOCAL_UPDATE_DIRS = new Set(["__pycache__"]);
 const IGNORED_LOCAL_UPDATE_EXTENSIONS = new Set([".pyc", ".pyo"]);
 const RECEIPT_WIDTH = 32;
+const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
 const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
   "User-Agent": "LibrePOS-Updater",
@@ -760,6 +761,38 @@ function receiptColumns(left, right, width = RECEIPT_WIDTH) {
   return `${cleanLeft}${" ".repeat(spaces)}${cleanRight}`;
 }
 
+function receiptWrap(value, width = RECEIPT_WIDTH) {
+  const text = receiptSanitize(value);
+  if (!text) return [];
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  words.forEach((rawWord) => {
+    let word = rawWord;
+    while (word.length > width) {
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      lines.push(word.slice(0, width));
+      word = word.slice(width);
+    }
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length <= width) {
+      line = candidate;
+    } else {
+      if (line) lines.push(line);
+      line = word;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+function receiptCenteredWrap(value) {
+  return receiptWrap(value).map((line) => receiptCenter(line));
+}
+
 function localReceiptDate(date = new Date()) {
   return [
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
@@ -770,7 +803,7 @@ function localReceiptDate(date = new Date()) {
 function fakeReceiptText() {
   const now = new Date();
   const table = randomInt(1, 13);
-  const folio = `PRB-${randomInt(1000, 9999)}`;
+  const folio = randomInt(1, 999);
   const selected = sampleItems(FAKE_RECEIPT_PRODUCTS, randomInt(3, 5));
   const lines = [];
   let subtotal = 0;
@@ -794,6 +827,7 @@ function fakeReceiptText() {
   return [
     receiptCenter("LOS TATAS"),
     receiptCenter("LibrePOS"),
+    ...receiptCenteredWrap(RESTAURANT_ADDRESS),
     receiptCenter("CUENTA DE PRUEBA"),
     receiptRule(),
     receiptColumns("Folio", folio),
@@ -820,6 +854,7 @@ function receiptHeaderText() {
   return [
     receiptCenter("LOS TATAS"),
     receiptCenter("LibrePOS"),
+    ...receiptCenteredWrap(RESTAURANT_ADDRESS),
     receiptCenter("CUENTA DE PRUEBA"),
     "",
     "",
