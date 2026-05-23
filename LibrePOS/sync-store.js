@@ -33,6 +33,7 @@ const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
+const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
 const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
   "User-Agent": "LibrePOS-Updater",
@@ -524,6 +525,16 @@ async function requireCashUser(res, userId) {
   return true;
 }
 
+async function requirePrinterUser(res, userId) {
+  await loadSharedState();
+  const user = (sharedState?.users || []).find((item) => item.id === userId);
+  if (!serverUserHasFunction(user, "caja") && !serverUserHasFunction(user, "mesero")) {
+    sendJson(res, 403, { error: "printer-user-required" });
+    return false;
+  }
+  return true;
+}
+
 function printerLines(stdout) {
   return String(stdout || "")
     .split(/\r?\n/)
@@ -846,15 +857,20 @@ async function resolveTicketLogoFile(logoDataUrl = "") {
 function replaceLibrePosLineWithLogoMarker(text, includeLogo = false, logoPosition = DEFAULT_TICKET_LOGO_POSITION) {
   if (!includeLogo) return text;
   const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const normalizedLines = lines.map((line) => (line.trim() === "LOS TATAS" ? receiptCenter("LOS TATAS") : line));
+  const normalizedLines = lines.map((line) => (isReceiptBrandTitle(line) ? receiptCenter(RECEIPT_BRAND_TITLE) : line));
   const withoutLibrePos = normalizedLines.filter((line) => line.trim() !== "LibrePOS");
-  const titleIndex = withoutLibrePos.findIndex((line) => line.trim() === "LOS TATAS");
+  const titleIndex = withoutLibrePos.findIndex(isReceiptBrandTitle);
   if (titleIndex >= 0) {
-    withoutLibrePos[titleIndex] = receiptCenter("LOS TATAS");
+    withoutLibrePos[titleIndex] = receiptCenter(RECEIPT_BRAND_TITLE);
     const markerIndex = cleanTicketLogoPosition(logoPosition) === "above-title" ? titleIndex : titleIndex + 1;
     withoutLibrePos.splice(markerIndex, 0, RECEIPT_LOGO_MARKER);
   }
   return withoutLibrePos.join("\n");
+}
+
+function isReceiptBrandTitle(line) {
+  const title = receiptSanitize(line);
+  return title === "LOS TATAS" || title === RECEIPT_BRAND_TITLE;
 }
 
 function localReceiptDate(date = new Date()) {
@@ -889,7 +905,7 @@ function fakeReceiptText() {
   const paid = card ? total : Math.ceil(total / 50) * 50;
   const change = Math.max(0, paid - total);
   return [
-    receiptCenter("LOS TATAS"),
+    receiptCenter(RECEIPT_BRAND_TITLE),
     receiptCenter("LibrePOS"),
     ...receiptCenteredWrap(RESTAURANT_ADDRESS),
     receiptCenter("CUENTA DE PRUEBA"),
@@ -915,7 +931,7 @@ function fakeReceiptText() {
 
 function receiptHeaderText() {
   return [
-    receiptCenter("LOS TATAS"),
+    receiptCenter(RECEIPT_BRAND_TITLE),
     receiptCenter("LibrePOS"),
     ...receiptCenteredWrap(RESTAURANT_ADDRESS),
     receiptCenter("CUENTA DE PRUEBA"),
@@ -1870,6 +1886,22 @@ export function createSyncMiddleware() {
           }));
         } catch (error) {
           sendJson(res, 500, { error: "printer-sale-receipt-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/printers/order-receipt/print" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requirePrinterUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printSaleReceiptTicket(payload.printerName, payload.ticketText, {
+            marginMm: payload.marginMm,
+            logoDataUrl: payload.logoDataUrl,
+            logoWidthMm: payload.logoWidthMm,
+          }));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-receipt-failed", detail: compactError(error) });
         }
         return;
       }

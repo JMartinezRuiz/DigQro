@@ -3654,6 +3654,29 @@ button:disabled {
   background: #fff8ec;
 }
 
+.postpaid-ticket-cell {
+  display: grid;
+  min-width: 180px;
+  gap: 6px;
+}
+
+.postpaid-ticket-cell small {
+  color: var(--muted);
+}
+
+.postpaid-ticket-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.postpaid-ticket-warning .icon {
+  flex: 0 0 auto;
+}
+
 .extra-warning {
   display: inline-flex;
   align-items: center;

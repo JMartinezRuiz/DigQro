@@ -12,6 +12,7 @@ const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
+const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
 const SHARED_STATE_KEYS = [
   "settings",
@@ -699,6 +700,7 @@ let printerRuntime = {
   lastPrintedAt: "",
   fakeReceiptText: "",
 };
+let postpaidTicketPrinting = false;
 
 const app = document.querySelector("#app");
 
@@ -2852,6 +2854,7 @@ function renderTableTile(number, order) {
             <div class="table-actions-row ${readyQty ? "has-delivery" : ""}">
               ${readyQty ? `<button class="primary-button deliver-button" data-deliver-ready="${order.id}">${svg("check")}Entregar listos (${readyQty})</button>` : ""}
               <button class="secondary-button" data-open-order="${order.id}">${svg("sale")}Continuar</button>
+              <button class="secondary-button" data-print-prepaid-order="${order.id}" ${order.items.length ? "" : "disabled"}>${svg("print")}Imprimir ticket</button>
               <button class="secondary-button" data-open-modal="table-note" data-order-id="${order.id}">${svg("note")}Nota</button>
               <button class="danger-button" data-close-order="${order.id}">${svg("check")}Cerrar</button>
             </div>
@@ -3011,6 +3014,7 @@ function renderTicket(order) {
         <div class="ticket-actions">
           <button class="primary-button" data-open-modal="command" ${totals.pending && cashOpen ? "" : "disabled"}>${svg("digital")}Comandar</button>
           <button class="secondary-button" data-open-modal="price">${svg("cash")}Precio</button>
+          <button class="secondary-button" data-print-prepaid-order="${order.id}" ${order.items.length ? "" : "disabled"}>${svg("print")}Imprimir ticket</button>
           <button class="secondary-button" data-finalize-order ${order.items.length ? "" : "disabled"}>${svg("check")}Finalizar</button>
         </div>
       </section>
@@ -5866,14 +5870,14 @@ function receiptTextWithLogoMarker(text) {
   const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const normalizedLines = lines.map((line) => {
     if (line === RECEIPT_LOGO_MARKER) return receiptPrintCenter("LibrePOS");
-    if (line.trim() === "LOS TATAS") return receiptPrintCenter("LOS TATAS");
+    if (isReceiptBrandTitle(line)) return receiptPrintCenter(RECEIPT_BRAND_TITLE);
     return line;
   });
   if (!ticketLogoEnabled()) return normalizedLines.join("\n");
   const withoutLibrePos = normalizedLines.filter((line) => line.trim() !== "LibrePOS");
-  const titleIndex = withoutLibrePos.findIndex((line) => line.trim() === "LOS TATAS");
+  const titleIndex = withoutLibrePos.findIndex(isReceiptBrandTitle);
   if (titleIndex >= 0) {
-    withoutLibrePos[titleIndex] = receiptPrintCenter("LOS TATAS");
+    withoutLibrePos[titleIndex] = receiptPrintCenter(RECEIPT_BRAND_TITLE);
     const markerIndex = ticketLogoPosition() === "above-title" ? titleIndex : titleIndex + 1;
     withoutLibrePos.splice(markerIndex, 0, RECEIPT_LOGO_MARKER);
     return withoutLibrePos.join("\n");
@@ -5881,8 +5885,13 @@ function receiptTextWithLogoMarker(text) {
   return withoutLibrePos.join("\n");
 }
 
+function isReceiptBrandTitle(line) {
+  const title = receiptPrintSanitize(line);
+  return title === "LOS TATAS" || title === RECEIPT_BRAND_TITLE;
+}
+
 function receiptBrandLines() {
-  const titleLine = receiptPrintCenter("LOS TATAS");
+  const titleLine = receiptPrintCenter(RECEIPT_BRAND_TITLE);
   const textLogoLine = receiptPrintCenter("LibrePOS");
   if (!ticketLogoEnabled()) return [titleLine, textLogoLine];
   return ticketLogoPosition() === "above-title"
@@ -5916,7 +5925,7 @@ function renderReceiptPreviewHtml(text) {
             </div>
           `;
         }
-        if (line.trim() === "LOS TATAS") {
+        if (isReceiptBrandTitle(line)) {
           return `<div class="printer-receipt-line printer-receipt-title-line">${escapeHtml(line.trim())}</div>`;
         }
         return `<div class="printer-receipt-line">${line ? escapeHtml(line) : "&nbsp;"}</div>`;
@@ -6064,6 +6073,7 @@ function printerErrorMessage(error) {
   const normalized = normalize(value);
   if (normalized.includes("admin-required")) return "Solo admin puede usar el test de impresora.";
   if (normalized.includes("cash-required")) return "Solo usuarios de caja pueden imprimir tickets de cobro.";
+  if (normalized.includes("printer-user-required")) return "Solo usuarios de mesa o caja pueden imprimir tickets.";
   if (normalized.includes("printer-required")) return "Selecciona una impresora.";
   if (normalized.includes("printer-not-found")) return "No existe una impresora con ese nombre exacto.";
   if (normalized.includes("printer-offline")) return "Windows marca esa impresora como offline.";
@@ -6073,6 +6083,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-fake-receipt-failed")) return `No se pudo imprimir la cuenta falsa: ${value}`;
   if (normalized.includes("printer-header-print-failed")) return `No se pudo imprimir la cabecera: ${value}`;
   if (normalized.includes("printer-logo-print-failed")) return `No se pudo imprimir el logo: ${value}`;
+  if (normalized.includes("printer-receipt-failed")) return `No se pudo imprimir el ticket: ${value}`;
   if (normalized.includes("printer-sale-receipt-failed")) return `No se pudo imprimir el ticket de cobro: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
   if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
@@ -6168,7 +6179,34 @@ function saleReceiptTipLabel(sale) {
   return "Propina";
 }
 
-function buildSaleReceiptText(sale) {
+function buildPrepaidReceiptText(order) {
+  const printedAt = new Date().toISOString();
+  const totals = calculateTotals(order);
+  const orderNumber = ensureOrderNumber(order);
+  const orderLabelText = order.type === "table" ? `Mesa ${order.tableNumber || ""}`.trim() : "Para llevar";
+  const lines = [
+    ...receiptBrandLines(),
+    ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
+    receiptPrintCenter("TICKET PREPAGO"),
+    receiptPrintRule(),
+    receiptPrintColumns("Folio", orderNumber || "-"),
+    formatCsvDateTime(printedAt),
+    receiptPrintColumns(orderLabelText, `Mesero ${waiterName(order.waiterId)}`),
+    receiptPrintRule(),
+    ...(Array.isArray(order.items) ? order.items.flatMap(saleReceiptItemLines) : []),
+    receiptPrintRule(),
+    receiptPrintColumns("Subtotal", receiptPrintMoney(totals.subtotal)),
+    receiptPrintColumns("TOTAL", receiptPrintMoney(totals.total)),
+    receiptPrintCenter("Pendiente de pago"),
+    receiptPrintRule(),
+    receiptPrintCenter("Gracias por su visita"),
+    "",
+    "",
+  ].filter((line) => line !== "");
+  return lines.join("\n");
+}
+
+function buildPostpaidReceiptText(sale) {
   const closedAt = saleClosedAt(sale) || new Date().toISOString();
   const uid = paymentUidForSale(sale);
   const payment = sale.payment || {};
@@ -6188,7 +6226,7 @@ function buildSaleReceiptText(sale) {
   const lines = [
     ...receiptBrandLines(),
     ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
-    receiptPrintCenter("TICKET DE VENTA"),
+    receiptPrintCenter("TICKET POSTPAGO"),
     receiptPrintRule(),
     receiptPrintColumns("Folio", sale.orderNumber || uid || "-"),
     formatCsvDateTime(closedAt),
@@ -6208,30 +6246,145 @@ function buildSaleReceiptText(sale) {
   return lines.join("\n");
 }
 
-async function printClosedSaleReceipt(sale) {
+async function sendReceiptPrintRequest(ticketText) {
   const printerName = selectedTicketPrinterName();
   if (!printerName) {
+    throw new Error("printer-required");
+  }
+  const response = await fetch("/api/printers/order-receipt/print", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: currentUser()?.id || "",
+      printerName,
+      marginMm: ticketMarginMm(),
+      ...ticketLogoPayload(),
+      ticketText,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || payload.error || "printer-receipt-error");
+  return payload;
+}
+
+function markPostpaidReceiptPrinted(sale, payload = {}) {
+  if (!sale) return;
+  sale.postpaidReceiptPrintedAt = payload.printedAt || new Date().toISOString();
+  sale.postpaidReceiptPrintedBy = currentUser()?.id || sale.postpaidReceiptPrintedBy || "";
+  sale.postpaidReceiptMethod = payload.method || "";
+  sale.postpaidReceiptError = "";
+  sale.postpaidReceiptFailedAt = "";
+  sale.postpaidReceiptWarningDismissedAt = "";
+  sale.postpaidReceiptWarningDismissedBy = "";
+}
+
+function markPostpaidReceiptFailed(sale, error) {
+  if (!sale) return;
+  sale.postpaidReceiptPrintedAt = sale.postpaidReceiptPrintedAt || "";
+  sale.postpaidReceiptError = printerErrorMessage(error?.message || error);
+  sale.postpaidReceiptFailedAt = new Date().toISOString();
+}
+
+async function printPrepaidOrderReceipt(orderId) {
+  const order = getOrder(orderId);
+  if (!order) {
+    showToast("Solo se puede imprimir prepago de una mesa abierta.");
+    return false;
+  }
+  if (!order.items.length) {
+    showToast("Agrega productos antes de imprimir el ticket.");
+    return false;
+  }
+  try {
+    const ticketText = buildPrepaidReceiptText(order);
+    const payload = await sendReceiptPrintRequest(ticketText);
+    order.prepaidReceiptPrintedAt = payload.printedAt || new Date().toISOString();
+    order.prepaidReceiptPrintedBy = currentUser()?.id || "";
+    persist();
+    showToast("Ticket prepago enviado.");
+    if (currentUser()) render();
+    return true;
+  } catch (error) {
+    showToast(`No se imprimio ticket prepago: ${printerErrorMessage(error.message)}`);
+    return false;
+  }
+}
+
+async function printPostpaidSaleReceipt(saleId, { silent = false } = {}) {
+  const sale = state.sales.find((item) => item.id === saleId);
+  if (!sale) {
+    if (!silent) showToast("No se encontro la venta cerrada.");
+    return false;
+  }
+  try {
+    const payload = await sendReceiptPrintRequest(buildPostpaidReceiptText(sale));
+    markPostpaidReceiptPrinted(sale, payload);
+    persist();
+    if (!silent) showToast("Ticket postpago enviado.");
+    if (currentUser()) render();
+    return true;
+  } catch (error) {
+    markPostpaidReceiptFailed(sale, error);
+    persist();
+    if (!silent) showToast(`No se imprimio ticket postpago: ${printerErrorMessage(error.message)}`);
+    if (currentUser()) render();
+    return false;
+  }
+}
+
+async function printClosedSaleReceipt(sale) {
+  const saleRecord = state.sales.find((item) => item.id === sale.id) || sale;
+  if (!selectedTicketPrinterName()) {
+    markPostpaidReceiptFailed(saleRecord, new Error("printer-required"));
+    persist();
     showToast("Cuenta cobrada. Selecciona impresora para imprimir tickets.");
+    if (currentUser() && state.view === "data") render();
     return;
   }
   try {
-    const response = await fetch("/api/printers/sale-receipt/print", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: currentUser()?.id || sale.cashierId || "",
-        printerName,
-        marginMm: ticketMarginMm(),
-        ...ticketLogoPayload(),
-        ticketText: buildSaleReceiptText(sale),
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-sale-receipt-error");
-    showToast("Ticket de cobro enviado.");
+    const payload = await sendReceiptPrintRequest(buildPostpaidReceiptText(saleRecord));
+    markPostpaidReceiptPrinted(saleRecord, payload);
+    persist();
+    showToast("Ticket postpago enviado.");
+    if (currentUser() && state.view === "data") render();
   } catch (error) {
-    showToast(`Cuenta cobrada, pero no se imprimio ticket: ${printerErrorMessage(error.message)}`);
+    markPostpaidReceiptFailed(saleRecord, error);
+    persist();
+    showToast(`Cuenta cobrada, pero no se imprimio ticket postpago: ${printerErrorMessage(error.message)}`);
+    if (currentUser() && state.view === "data") render();
   }
+}
+
+function dismissPostpaidTicketWarning(saleId) {
+  const sale = state.sales.find((item) => item.id === saleId);
+  if (!sale) return;
+  sale.postpaidReceiptWarningDismissedAt = new Date().toISOString();
+  sale.postpaidReceiptWarningDismissedBy = currentUser()?.id || "";
+  persist();
+  render();
+}
+
+async function printFilteredPendingPostpaidTickets() {
+  if (postpaidTicketPrinting) return;
+  const pendingSaleIds = filteredOrderSearchRecords()
+    .filter((record) => record.saleId && record.postpaidPending)
+    .map((record) => record.saleId);
+  if (!pendingSaleIds.length) {
+    showToast("No hay tickets postpago pendientes con este filtro.");
+    return;
+  }
+  postpaidTicketPrinting = true;
+  render();
+  let printed = 0;
+  for (const saleId of pendingSaleIds) {
+    const ok = await printPostpaidSaleReceipt(saleId, { silent: true });
+    if (ok) printed += 1;
+  }
+  postpaidTicketPrinting = false;
+  persist();
+  render();
+  const failed = pendingSaleIds.length - printed;
+  showToast(failed ? `Postpago: ${printed} impresos, ${failed} pendientes.` : `${printed} tickets postpago enviados.`);
 }
 
 async function loadPrinterList(force = false) {
@@ -6539,6 +6692,14 @@ function orderItemsSummary(items = []) {
   return `${labels.join(" · ")}${remaining > 0 ? ` · +${remaining}` : ""}`;
 }
 
+function postpaidReceiptPrinted(sale) {
+  return Boolean(sale?.postpaidReceiptPrintedAt);
+}
+
+function postpaidReceiptWarningVisible(sale) {
+  return !postpaidReceiptPrinted(sale) && !sale?.postpaidReceiptWarningDismissedAt;
+}
+
 function orderSearchRecords() {
   const activeRecords = (Array.isArray(state.orders) ? state.orders : [])
     .filter((order) => order.status !== "closed")
@@ -6561,6 +6722,12 @@ function orderSearchRecords() {
     id: Number(sale.orderNumber) || "",
     uid: paymentUidForSale(sale),
     saleId: sale.id,
+    postpaidPrinted: postpaidReceiptPrinted(sale),
+    postpaidPrintedAt: sale.postpaidReceiptPrintedAt || "",
+    postpaidPending: !postpaidReceiptPrinted(sale),
+    postpaidWarningVisible: postpaidReceiptWarningVisible(sale),
+    postpaidError: sale.postpaidReceiptError || "",
+    postpaidWarningDismissed: Boolean(sale.postpaidReceiptWarningDismissedAt),
     date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
     label: sale.label || sale.orderId || "Venta",
     waiter: waiterName(sale.waiterId),
@@ -6571,6 +6738,13 @@ function orderSearchRecords() {
   return [...paidRecords, ...activeRecords].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
+function orderRecordMatchesStatus(record, status) {
+  if (!status || status === "all") return true;
+  if (status === "postpaid-pending") return record.statusKey === "paid" && record.postpaidPending;
+  if (status === "postpaid-printed") return record.statusKey === "paid" && record.postpaidPrinted;
+  return record.statusKey === status;
+}
+
 function filteredOrderSearchRecords() {
   const query = normalize(state.dataOrderSearch);
   const from = state.dataOrderFrom || "";
@@ -6578,7 +6752,7 @@ function filteredOrderSearchRecords() {
   const status = state.dataOrderStatus || "all";
   return orderSearchRecords()
     .filter((record) => {
-      if (status !== "all" && record.statusKey !== status) return false;
+      if (!orderRecordMatchesStatus(record, status)) return false;
       const dateKey = localDateValue(record.date);
       if (from && dateKey < from) return false;
       if (to && dateKey > to) return false;
@@ -6594,13 +6768,45 @@ function orderStatusFilters() {
     { id: "all", label: "Todos" },
     { id: "open", label: "Abiertas" },
     { id: "paid", label: "Cobradas" },
+    { id: "postpaid-pending", label: "Postpago pendiente" },
+    { id: "postpaid-printed", label: "Postpago impreso" },
     { id: "cancelled", label: "Canceladas" },
   ];
+}
+
+function renderPostpaidTicketCell(record) {
+  if (!record.saleId) return "-";
+  if (record.postpaidPrinted) {
+    return `
+      <div class="postpaid-ticket-cell is-printed">
+        <span class="shift-status is-active">Impreso</span>
+        <small>${record.postpaidPrintedAt ? formatDateTime(record.postpaidPrintedAt) : ""}</small>
+        <button class="secondary-button compact" data-print-postpaid-sale="${escapeAttr(record.saleId)}" type="button" ${postpaidTicketPrinting ? "disabled" : ""}>${svg("print")}Reimprimir</button>
+      </div>
+    `;
+  }
+  return `
+    <div class="postpaid-ticket-cell is-pending">
+      ${
+        record.postpaidWarningVisible
+          ? `
+            <div class="postpaid-ticket-warning">
+              ${svg("alert")}<span>Ticket postpago no imprimido</span>
+              <button class="icon-button compact" data-dismiss-postpaid-warning="${escapeAttr(record.saleId)}" title="Quitar aviso">${svg("check")}</button>
+            </div>
+          `
+          : `<span class="shift-status">Pendiente</span>`
+      }
+      ${record.postpaidError ? `<small>${escapeHtml(record.postpaidError)}</small>` : ""}
+      <button class="secondary-button compact" data-print-postpaid-sale="${escapeAttr(record.saleId)}" type="button" ${postpaidTicketPrinting ? "disabled" : ""}>${svg("print")}Imprimir postpago</button>
+    </div>
+  `;
 }
 
 function renderOrderSearchData() {
   const rows = filteredOrderSearchRecords();
   const allRows = orderSearchRecords();
+  const pendingPostpaidRows = rows.filter((record) => record.saleId && record.postpaidPending);
   return `
     <section class="panel data-grid-wide order-search-panel">
       <div class="panel-header">
@@ -6608,6 +6814,9 @@ function renderOrderSearchData() {
           <h2 class="panel-title">Buscador de ordenes</h2>
           <p class="panel-kicker">Busca por ID, UID, mesa, pago, producto o rango de fechas</p>
         </div>
+        <button class="secondary-button" data-print-pending-postpaid type="button" ${postpaidTicketPrinting || !pendingPostpaidRows.length ? "disabled" : ""}>
+          ${svg("print")}${postpaidTicketPrinting ? "Imprimiendo" : `Imprimir pendientes (${pendingPostpaidRows.length})`}
+        </button>
       </div>
       <div class="panel-body field-grid">
         <div class="order-search-grid">
@@ -6628,7 +6837,7 @@ function renderOrderSearchData() {
         <div class="chip-row compact-chip-row">
           ${orderStatusFilters()
             .map((filter) => {
-              const count = filter.id === "all" ? allRows.length : allRows.filter((record) => record.statusKey === filter.id).length;
+              const count = filter.id === "all" ? allRows.length : allRows.filter((record) => orderRecordMatchesStatus(record, filter.id)).length;
               return `
                 <button class="chip ${state.dataOrderStatus === filter.id || (!state.dataOrderStatus && filter.id === "all") ? "is-active" : ""}" data-order-status="${filter.id}" type="button">
                   ${escapeHtml(filter.label)}
@@ -6640,7 +6849,7 @@ function renderOrderSearchData() {
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Productos</th><th>Detalle</th></tr></thead>
+            <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Postpago</th><th>Productos</th><th>Detalle</th></tr></thead>
             <tbody>
               ${
                 rows.length
@@ -6655,6 +6864,7 @@ function renderOrderSearchData() {
                             <td><span class="shift-status ${record.recordType === "Cobrada" ? "is-active" : ""}">${escapeHtml(record.recordType)}</span></td>
                             <td>${escapeHtml(record.payment)}</td>
                             <td><strong>${money.format(record.total)}</strong></td>
+                            <td>${renderPostpaidTicketCell(record)}</td>
                             <td>${escapeHtml(record.products)}</td>
                             <td>
                               ${
@@ -6667,7 +6877,7 @@ function renderOrderSearchData() {
                         `,
                       )
                       .join("")
-                  : `<tr><td colspan="9">No hay ordenes con esos filtros.</td></tr>`
+                  : `<tr><td colspan="10">No hay ordenes con esos filtros.</td></tr>`
               }
             </tbody>
           </table>
@@ -7453,6 +7663,16 @@ function bindEvents() {
   document.querySelectorAll("[data-close-order]").forEach((button) => {
     button.addEventListener("click", () => openCheckout(button.dataset.closeOrder));
   });
+  document.querySelectorAll("[data-print-prepaid-order]").forEach((button) => {
+    button.addEventListener("click", () => printPrepaidOrderReceipt(button.dataset.printPrepaidOrder));
+  });
+  document.querySelectorAll("[data-print-postpaid-sale]").forEach((button) => {
+    button.addEventListener("click", () => printPostpaidSaleReceipt(button.dataset.printPostpaidSale));
+  });
+  document.querySelectorAll("[data-dismiss-postpaid-warning]").forEach((button) => {
+    button.addEventListener("click", () => dismissPostpaidTicketWarning(button.dataset.dismissPostpaidWarning));
+  });
+  document.querySelector("[data-print-pending-postpaid]")?.addEventListener("click", printFilteredPendingPostpaidTickets);
   const checkoutForm = document.querySelector("[data-checkout-form]");
   checkoutForm?.addEventListener("submit", confirmCheckoutPayment);
   checkoutForm?.addEventListener("input", updateCheckoutPaymentPreview);
@@ -8199,6 +8419,11 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     closedAt,
     chargedAt: closedAt,
     waitMinutes: minutesBetween(order.openedAt, closedAt),
+    postpaidReceiptPrintedAt: "",
+    postpaidReceiptPrintedBy: "",
+    postpaidReceiptWarningDismissedAt: "",
+    postpaidReceiptWarningDismissedBy: "",
+    postpaidReceiptError: "",
   };
   state.sales.unshift(saleRecord);
   order.status = "closed";
