@@ -838,15 +838,6 @@ async function resolveTicketLogoFile(logoDataUrl = "") {
   };
 }
 
-function removeReceiptLogoMarker(text) {
-  return String(text || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .filter((line) => line !== RECEIPT_LOGO_MARKER)
-    .join("\n");
-}
-
 function replaceLibrePosLineWithLogoMarker(text, includeLogo = false) {
   if (!includeLogo) return text;
   const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
@@ -944,6 +935,181 @@ async function printWithCups(printerName, filePath, { marginMm = null } = {}) {
     maxBuffer: 128 * 1024,
   });
   return { method: "cups-lp" };
+}
+
+function pdfNumber(value) {
+  return Number(value).toFixed(2).replace(/\.?0+$/, "");
+}
+
+function pdfEscapeText(value) {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function pdfObject(number, body) {
+  return Buffer.from(`${number} 0 obj\n${body}\nendobj\n`, "binary");
+}
+
+function pdfStreamObject(number, dictionary, stream) {
+  return Buffer.concat([
+    Buffer.from(`${number} 0 obj\n<< ${dictionary} /Length ${stream.length} >>\nstream\n`, "binary"),
+    stream,
+    Buffer.from("\nendstream\nendobj\n", "binary"),
+  ]);
+}
+
+function pdfDocument(objects) {
+  const header = Buffer.from("%PDF-1.4\n%\xE2\xE3\xCF\xD3\n", "binary");
+  const buffers = [header];
+  const offsets = [0];
+  let offset = header.length;
+  objects.forEach((object, index) => {
+    offsets[index + 1] = offset;
+    buffers.push(object);
+    offset += object.length;
+  });
+  const xrefOffset = offset;
+  const xref = [
+    "xref",
+    `0 ${objects.length + 1}`,
+    "0000000000 65535 f ",
+    ...offsets.slice(1).map((item) => `${String(item).padStart(10, "0")} 00000 n `),
+    "trailer",
+    `<< /Size ${objects.length + 1} /Root 1 0 R >>`,
+    "startxref",
+    String(xrefOffset),
+    "%%EOF",
+    "",
+  ].join("\n");
+  return Buffer.concat([...buffers, Buffer.from(xref, "binary")]);
+}
+
+function jpegDimensions(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
+  let offset = 2;
+  const startOfFrameMarkers = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
+  while (offset + 4 < buffer.length) {
+    if (buffer[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    while (buffer[offset] === 0xff) offset += 1;
+    const marker = buffer[offset];
+    offset += 1;
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (offset + 2 > buffer.length) break;
+    const length = buffer.readUInt16BE(offset);
+    if (startOfFrameMarkers.has(marker) && offset + 7 <= buffer.length) {
+      return {
+        height: buffer.readUInt16BE(offset + 3),
+        width: buffer.readUInt16BE(offset + 5),
+      };
+    }
+    offset += length;
+  }
+  return null;
+}
+
+async function resolveTicketLogoJpeg(logoDataUrl = "") {
+  const logoFile = await resolveTicketLogoFile(logoDataUrl);
+  const extraCleanupFiles = [];
+  const cleanup = async () => {
+    await Promise.all(extraCleanupFiles.map((file) => rm(file, { force: true })));
+    await logoFile.cleanup();
+  };
+  try {
+    let filePath = logoFile.filePath;
+    if (path.extname(filePath).toLowerCase() === ".png") {
+      const jpegPath = path.join(tmpdir(), `librepos-ticket-logo-${Date.now()}-${randomBytes(4).toString("hex")}.jpg`);
+      await execFile("sips", ["-s", "format", "jpeg", filePath, "--out", jpegPath], { timeout: 15000, maxBuffer: 512 * 1024 });
+      extraCleanupFiles.push(jpegPath);
+      filePath = jpegPath;
+    }
+    const buffer = await readFile(filePath);
+    const dimensions = jpegDimensions(buffer);
+    if (!dimensions) {
+      await cleanup();
+      return null;
+    }
+    return {
+      buffer,
+      ...dimensions,
+      cleanup,
+    };
+  } catch {
+    await cleanup();
+    return null;
+  }
+}
+
+async function createReceiptPdfFile(text, { marginMm = DEFAULT_TICKET_MARGIN_MM, logoDataUrl = "", logoWidthMm = DEFAULT_TICKET_LOGO_WIDTH_MM } = {}) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const logo = lines.some((line) => line === RECEIPT_LOGO_MARKER) ? await resolveTicketLogoJpeg(logoDataUrl) : null;
+  const paperWidth = 58 * 72 / 25.4;
+  const sideMargin = marginMmToPoints(marginMm);
+  const availableWidth = Math.max(1, paperWidth - (sideMargin * 2));
+  const logoWidth = Math.min(logoWidthMmToHundredthsInch(logoWidthMm) * 72 / 100, availableWidth);
+  const logoHeight = logo ? Math.max(1, logoWidth * (logo.height / logo.width)) : 0;
+  const fontSize = 7;
+  const lineHeight = 9;
+  const topMargin = 8;
+  const bottomMargin = 18;
+  const contentHeight = lines.reduce((height, line) => {
+    if (line === RECEIPT_LOGO_MARKER) return height + (logo ? logoHeight + 6 : 0);
+    return height + lineHeight;
+  }, 0);
+  const pageHeight = Math.max(260, topMargin + contentHeight + bottomMargin);
+  const contentCommands = [];
+  let cursorTop = pageHeight - topMargin;
+  lines.forEach((line) => {
+    if (line === RECEIPT_LOGO_MARKER) {
+      if (logo) {
+        const x = Math.max(sideMargin, (paperWidth - logoWidth) / 2);
+        const y = cursorTop - logoHeight;
+        contentCommands.push(`q ${pdfNumber(logoWidth)} 0 0 ${pdfNumber(logoHeight)} ${pdfNumber(x)} ${pdfNumber(y)} cm /Im1 Do Q`);
+        cursorTop -= logoHeight + 6;
+      }
+      return;
+    }
+    const y = cursorTop - fontSize;
+    contentCommands.push(`BT /F1 ${fontSize} Tf 1 0 0 1 ${pdfNumber(sideMargin)} ${pdfNumber(y)} Tm (${pdfEscapeText(line)}) Tj ET`);
+    cursorTop -= lineHeight;
+  });
+  const content = Buffer.from(`${contentCommands.join("\n")}\n`, "binary");
+  const resources = logo
+    ? "<< /Font << /F1 5 0 R >> /XObject << /Im1 6 0 R >> >>"
+    : "<< /Font << /F1 5 0 R >> >>";
+  const objects = [
+    pdfObject(1, "<< /Type /Catalog /Pages 2 0 R >>"),
+    pdfObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+    pdfObject(3, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pdfNumber(paperWidth)} ${pdfNumber(pageHeight)}] /Resources ${resources} /Contents 4 0 R >>`),
+    pdfStreamObject(4, "", content),
+    pdfObject(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>"),
+  ];
+  if (logo) {
+    objects.push(pdfStreamObject(6, `/Type /XObject /Subtype /Image /Width ${logo.width} /Height ${logo.height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, logo.buffer));
+  }
+  const filePath = path.join(tmpdir(), `librepos-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.pdf`);
+  try {
+    await writeFile(filePath, pdfDocument(objects));
+  } finally {
+    if (logo) await logo.cleanup();
+  }
+  return filePath;
+}
+
+async function printReceiptWithCupsDocument(printerName, text, options = {}) {
+  const marginMm = typeof options === "object" && options !== null ? options.marginMm : options;
+  const hasLogoMarker = String(text || "").split(/\r\n|\r|\n/).some((line) => line === RECEIPT_LOGO_MARKER);
+  const filePath = hasLogoMarker
+    ? await createReceiptPdfFile(text, options)
+    : path.join(tmpdir(), `librepos-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+  if (!hasLogoMarker) await writeFile(filePath, text, "utf8");
+  try {
+    const result = await printWithCups(printerName, filePath, { marginMm: hasLogoMarker ? null : marginMm });
+    return { method: hasLogoMarker ? "cups-lp-pdf-logo" : result.method };
+  } finally {
+    await rm(filePath, { force: true });
+  }
 }
 
 async function printWithWindowsRaw(printerName, payload) {
@@ -1267,13 +1433,7 @@ export async function printFakeReceiptTicket(printerName, ticketText = "", optio
   if (process.platform === "win32") {
     result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
   } else {
-    const filePath = path.join(tmpdir(), `librepos-fake-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
-    await writeFile(filePath, `${removeReceiptLogoMarker(text)}\n\n\n`, "utf8");
-    try {
-      result = await printWithCups(cleanName, filePath, { marginMm });
-    } finally {
-      await rm(filePath, { force: true });
-    }
+    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
   }
   return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: cleanTicketMarginMm(marginMm), printedAt: new Date().toISOString(), ticketText: text };
 }
@@ -1290,13 +1450,7 @@ export async function printReceiptHeaderTicket(printerName, options = {}) {
   if (process.platform === "win32") {
     result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
   } else {
-    const filePath = path.join(tmpdir(), `librepos-receipt-header-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
-    await writeFile(filePath, `${removeReceiptLogoMarker(text)}\n\n\n`, "utf8");
-    try {
-      result = await printWithCups(cleanName, filePath, { marginMm });
-    } finally {
-      await rm(filePath, { force: true });
-    }
+    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
   }
   return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: cleanTicketMarginMm(marginMm), printedAt: new Date().toISOString(), ticketText: text };
 }
@@ -1341,13 +1495,7 @@ export async function printSaleReceiptTicket(printerName, ticketText = "", optio
   if (process.platform === "win32") {
     result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
   } else {
-    const filePath = path.join(tmpdir(), `librepos-sale-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
-    await writeFile(filePath, `${removeReceiptLogoMarker(text)}\n\n\n`, "utf8");
-    try {
-      result = await printWithCups(cleanName, filePath, { marginMm });
-    } finally {
-      await rm(filePath, { force: true });
-    }
+    result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
   }
   return { ok: true, printerName: cleanName, method: result?.method || "", marginMm: cleanTicketMarginMm(marginMm), printedAt: new Date().toISOString(), ticketText: text };
 }
