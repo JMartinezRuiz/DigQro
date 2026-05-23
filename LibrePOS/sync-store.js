@@ -596,20 +596,54 @@ async function listCupsPrinters() {
   })));
 }
 
+function powerShellCandidates() {
+  if (process.platform !== "win32") return ["pwsh", "pwsh.exe", "powershell", "powershell.exe"];
+  const windowsDir = process.env.SystemRoot || process.env.WINDIR || "C:\\Windows";
+  return [
+    path.join(windowsDir, "Sysnative", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    path.join(windowsDir, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    "powershell.exe",
+    "powershell",
+    "pwsh.exe",
+    "pwsh",
+  ].filter((command, index, list) => command && list.indexOf(command) === index);
+}
+
 async function runPowerShell(script, args = [], options = {}) {
-  const commands = process.platform === "win32" ? ["powershell.exe", "pwsh"] : ["pwsh", "powershell.exe"];
-  let lastError = null;
-  for (const command of commands) {
+  const scriptPath = path.join(tmpdir(), `librepos-powershell-${Date.now()}-${randomBytes(4).toString("hex")}.ps1`);
+  await writeFile(scriptPath, script, "utf8");
+  const attempts = [];
+  try {
+    for (const command of powerShellCandidates()) {
+      const commandArgs = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, ...args];
+      if (process.platform !== "win32" && command.startsWith("pwsh")) {
+        commandArgs.splice(1, 2);
+      }
+      try {
+        return await execFile(command, commandArgs, {
+          timeout: options.timeout ?? 10000,
+          maxBuffer: options.maxBuffer ?? 512 * 1024,
+          windowsHide: true,
+        });
+      } catch (error) {
+        attempts.push(`${command}: ${compactError(error)}`);
+        if (error?.code !== "ENOENT") {
+          const wrapped = new Error(`powershell-failed ${attempts.join(" | ")}`);
+          wrapped.stderr = error.stderr;
+          wrapped.stdout = error.stdout;
+          wrapped.code = error.code;
+          throw wrapped;
+        }
+      }
+    }
+    throw new Error(`powershell-not-found ${attempts.join(" | ")}`);
+  } finally {
     try {
-      return await execFile(command, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, ...args], {
-        timeout: options.timeout ?? 10000,
-        maxBuffer: options.maxBuffer ?? 512 * 1024,
-      });
-    } catch (error) {
-      lastError = error;
+      await rm(scriptPath, { force: true });
+    } catch {
+      // Best effort cleanup.
     }
   }
-  throw lastError || new Error("powershell-not-found");
 }
 
 async function listWindowsPrinters() {
@@ -782,7 +816,7 @@ async function removeWindowsPrinter(printerName) {
     "$printerName = $args[0]",
     "$printer = Get-CimInstance Win32_Printer | Where-Object { $_.Name -eq $printerName } | Select-Object -First 1",
     "if (-not $printer) { throw \"printer-not-found:$printerName\" }",
-    "Remove-Printer -Name $printerName -ErrorAction Stop",
+    "try { Remove-Printer -Name $printerName -ErrorAction Stop } catch { $result = $printer.Delete(); if ($result.ReturnValue -ne 0) { throw \"printer-delete-failed:$($result.ReturnValue) $($_.Exception.Message)\" } }",
   ].join("; ");
   await runPowerShell(script, [printerName], { timeout: 20000, maxBuffer: 512 * 1024 });
 }

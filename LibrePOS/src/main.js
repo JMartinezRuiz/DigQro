@@ -5737,6 +5737,8 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-required")) return "Selecciona una impresora.";
   if (normalized.includes("printer-not-found")) return "No existe una impresora con ese nombre exacto.";
   if (normalized.includes("printer-offline")) return "Windows marca esa impresora como offline.";
+  if (normalized.includes("powershell-not-found")) return "No se encontro Windows PowerShell en este equipo.";
+  if (normalized.includes("powershell-failed")) return `PowerShell devolvio error: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
   if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
   if (normalized.includes("printer-remove-failed")) return `No se pudo eliminar la impresora: ${value}`;
