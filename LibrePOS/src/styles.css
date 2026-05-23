@@ -4565,6 +4565,32 @@ button:disabled {
   gap: 10px;
 }
 
+.printer-preview-body,
+.printer-preview-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.printer-preview-actions {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.printer-receipt-preview {
+  width: min(100%, 38ch);
+  margin: 0 auto;
+  padding: 14px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #111;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  white-space: pre;
+  box-shadow: var(--shadow-xs);
+}
+
 .expense-layout {
   display: grid;
   gap: 18px;

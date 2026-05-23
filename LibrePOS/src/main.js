@@ -671,12 +671,15 @@ let printerRuntime = {
   loading: false,
   printing: false,
   legacyPrinting: false,
+  fakeReceiptLoading: false,
+  fakeReceiptPrinting: false,
   removing: false,
   printers: [],
   selectedName: loadPrinterName(),
   manualName: "",
   error: "",
   lastPrintedAt: "",
+  fakeReceiptText: "",
 };
 
 const app = document.querySelector("#app");
@@ -5730,6 +5733,25 @@ function renderPrinterTest() {
           </div>
         </div>
       </section>
+      <section class="panel data-grid-wide printer-preview-panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Previsualizacion 58mm</h2>
+            <p class="panel-kicker">Cuenta falsa para validar cortes, extras y propina.</p>
+          </div>
+        </div>
+        <div class="panel-body printer-preview-body">
+          <div class="printer-preview-actions">
+            <button class="secondary-button" data-generate-fake-receipt type="button" ${printerRuntime.fakeReceiptLoading ? "disabled" : ""}>
+              ${svg("transfer")}${printerRuntime.fakeReceiptLoading ? "Generando" : "Generar cuenta falsa"}
+            </button>
+            <button class="primary-button" data-print-fake-receipt type="button" ${printerRuntime.fakeReceiptPrinting || !printerRuntime.selectedName || !printerRuntime.fakeReceiptText ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.fakeReceiptPrinting ? "Imprimiendo" : "Imprimir cuenta falsa"}
+            </button>
+          </div>
+          <pre class="printer-receipt-preview">${escapeHtml(printerRuntime.fakeReceiptText || "Genera una cuenta falsa para previsualizar el ticket de 58mm.")}</pre>
+        </div>
+      </section>
     </div>
   `;
 }
@@ -5744,6 +5766,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("powershell-not-found")) return "No se encontro Windows PowerShell en este equipo.";
   if (normalized.includes("powershell-failed")) return `PowerShell devolvio error: ${value}`;
   if (normalized.includes("printer-legacy-print-failed")) return `No se pudo imprimir en modo legacy: ${value}`;
+  if (normalized.includes("printer-fake-receipt-failed")) return `No se pudo imprimir la cuenta falsa: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
   if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
   if (normalized.includes("printer-remove-failed")) return `No se pudo eliminar la impresora: ${value}`;
@@ -5864,6 +5887,64 @@ async function sendPrinterLegacyTest() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.legacyPrinting = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
+async function loadFakeReceiptPreview(force = false) {
+  if (!isAdminUser()) return;
+  if (printerRuntime.fakeReceiptLoading || (printerRuntime.fakeReceiptText && !force)) return;
+  printerRuntime.fakeReceiptLoading = true;
+  printerRuntime.error = "";
+  render();
+  try {
+    const userId = encodeURIComponent(currentUser()?.id || "");
+    const response = await fetch(`/api/printers/fake-receipt?userId=${userId}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-preview-error");
+    printerRuntime.fakeReceiptText = String(payload.ticketText || "");
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.fakeReceiptLoading = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
+async function printFakeReceiptPreview() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede imprimir pruebas.");
+    return;
+  }
+  const printerName = printerRuntime.selectedName;
+  if (!printerName) {
+    showToast("Selecciona una impresora.");
+    return;
+  }
+  if (!printerRuntime.fakeReceiptText) {
+    await loadFakeReceiptPreview(true);
+  }
+  if (!printerRuntime.fakeReceiptText) return;
+  printerRuntime.fakeReceiptPrinting = true;
+  printerRuntime.error = "";
+  render();
+  try {
+    const response = await fetch("/api/printers/fake-receipt/print", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName, ticketText: printerRuntime.fakeReceiptText }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-error");
+    printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
+    if (payload.ticketText) printerRuntime.fakeReceiptText = String(payload.ticketText);
+    showToast("Cuenta falsa enviada.");
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.fakeReceiptPrinting = false;
     if (currentUser() && state.view === "printer") render();
   }
 }
@@ -7108,6 +7189,7 @@ function bindEvents() {
   });
   if (document.querySelector("[data-printer-panel]")) {
     loadPrinterList();
+    loadFakeReceiptPreview();
     document.querySelector("[data-printer-manual]")?.addEventListener("input", (event) => {
       printerRuntime.manualName = event.target.value;
     });
@@ -7120,6 +7202,8 @@ function bindEvents() {
     document.querySelector("[data-clear-printer]")?.addEventListener("click", clearSavedPrinter);
     document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
     document.querySelector("[data-print-legacy]")?.addEventListener("click", sendPrinterLegacyTest);
+    document.querySelector("[data-generate-fake-receipt]")?.addEventListener("click", () => loadFakeReceiptPreview(true));
+    document.querySelector("[data-print-fake-receipt]")?.addEventListener("click", printFakeReceiptPreview);
     document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
   }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);

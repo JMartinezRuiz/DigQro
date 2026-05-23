@@ -26,6 +26,7 @@ const PRESERVED_UPDATE_DIRS = new Set([".git", ".librepos", ".vite", "node_modul
 const PRESERVED_UPDATE_FILES = new Set([".DS_Store", ".env", ".env.local"]);
 const IGNORED_LOCAL_UPDATE_DIRS = new Set(["__pycache__"]);
 const IGNORED_LOCAL_UPDATE_EXTENSIONS = new Set([".pyc", ".pyo"]);
+const RECEIPT_WIDTH = 32;
 const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
   "User-Agent": "LibrePOS-Updater",
@@ -687,6 +688,115 @@ function legacyTicketText() {
   return "PRUEBA IMPRESORA BT\nHola desde PowerShell\n\n\n";
 }
 
+const FAKE_RECEIPT_PRODUCTS = [
+  { name: "Bocoles maiz", price: 165, extras: [{ name: "Extra queso", price: 20 }, { name: "Salsa verde", price: 10 }] },
+  { name: "Enchiladas rojas", price: 180, extras: [{ name: "Cecina", price: 45 }, { name: "Aguacate", price: 25 }] },
+  { name: "Tamales hoja platano", price: 45, extras: [{ name: "Crema", price: 12 }] },
+  { name: "Zacahuil", price: 95, extras: [{ name: "Salsa extra", price: 10 }] },
+  { name: "Molotes platano", price: 120, extras: [{ name: "Queso extra", price: 20 }] },
+  { name: "Cafe de olla", price: 35, extras: [] },
+  { name: "Agua mineral", price: 45, extras: [{ name: "Limon", price: 8 }] },
+  { name: "Hojuelas", price: 65, extras: [{ name: "Miel extra", price: 15 }] },
+];
+
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function sampleItems(items, count) {
+  const pool = [...items];
+  const selected = [];
+  while (selected.length < count && pool.length) {
+    selected.push(pool.splice(randomInt(0, pool.length - 1), 1)[0]);
+  }
+  return selected;
+}
+
+function receiptMoney(value) {
+  return `$${Math.round(Number(value) || 0).toLocaleString("es-MX")}`;
+}
+
+function receiptSanitize(value) {
+  return stripAccents(value)
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function receiptCenter(value, width = RECEIPT_WIDTH) {
+  const text = receiptSanitize(value).slice(0, width);
+  const left = Math.max(0, Math.floor((width - text.length) / 2));
+  return `${" ".repeat(left)}${text}`;
+}
+
+function receiptRule(char = "-") {
+  return char.repeat(RECEIPT_WIDTH);
+}
+
+function receiptColumns(left, right, width = RECEIPT_WIDTH) {
+  const cleanRight = receiptSanitize(right);
+  const maxLeft = Math.max(1, width - cleanRight.length - 1);
+  const cleanLeft = receiptSanitize(left).slice(0, maxLeft);
+  const spaces = Math.max(1, width - cleanLeft.length - cleanRight.length);
+  return `${cleanLeft}${" ".repeat(spaces)}${cleanRight}`;
+}
+
+function localReceiptDate(date = new Date()) {
+  return [
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+    `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`,
+  ].join(" ");
+}
+
+function fakeReceiptText() {
+  const now = new Date();
+  const table = randomInt(1, 13);
+  const folio = `PRB-${randomInt(1000, 9999)}`;
+  const selected = sampleItems(FAKE_RECEIPT_PRODUCTS, randomInt(3, 5));
+  const lines = [];
+  let subtotal = 0;
+  selected.forEach((product) => {
+    const qty = randomInt(1, product.price > 100 ? 2 : 3);
+    const lineTotal = qty * product.price;
+    subtotal += lineTotal;
+    lines.push(receiptColumns(`${qty} ${product.name}`, receiptMoney(lineTotal)));
+    if (product.extras.length && Math.random() > 0.45) {
+      const extra = product.extras[randomInt(0, product.extras.length - 1)];
+      subtotal += extra.price;
+      lines.push(receiptColumns(`  + ${extra.name}`, receiptMoney(extra.price)));
+    }
+  });
+  const tipRate = [10, 12, 15][randomInt(0, 2)];
+  const tip = Math.round(subtotal * tipRate / 100);
+  const total = subtotal + tip;
+  const card = Math.random() > 0.5;
+  const paid = card ? total : Math.ceil(total / 50) * 50;
+  const change = Math.max(0, paid - total);
+  return [
+    receiptCenter("LOS TATAS"),
+    receiptCenter("LibrePOS"),
+    receiptCenter("CUENTA DE PRUEBA"),
+    receiptRule(),
+    receiptColumns("Folio", folio),
+    localReceiptDate(now),
+    receiptColumns(`Mesa ${table}`, "Mesero Ivanna"),
+    receiptRule(),
+    ...lines,
+    receiptRule(),
+    receiptColumns("Subtotal", receiptMoney(subtotal)),
+    receiptColumns(`Propina ${tipRate}%`, receiptMoney(tip)),
+    receiptColumns("TOTAL", receiptMoney(total)),
+    receiptColumns(card ? "Pago tarjeta" : "Pago efectivo", receiptMoney(paid)),
+    card ? null : receiptColumns("Cambio", receiptMoney(change)),
+    receiptRule(),
+    receiptCenter("Gracias por su visita"),
+    receiptCenter("Ticket 58mm"),
+    "",
+    "",
+    "",
+  ].filter((line) => line !== null).join("\n");
+}
+
 function windowsTicketPayload(printerName) {
   const text = testTicketText(printerName).replace(/\n/g, "\r\n");
   return Buffer.concat([
@@ -814,16 +924,20 @@ async function printWithWindows(printerName) {
   }
 }
 
-async function printWithWindowsLegacy(printerName) {
+async function printTextWithWindowsLegacy(printerName, text, method = "windows-out-printer-legacy") {
   const script = [
     "$ErrorActionPreference = 'Stop'",
     "$printer = $args[0]",
-    "$text = \"PRUEBA IMPRESORA BT`nHola desde PowerShell`n`n`n\"",
+    "$text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($args[1]))",
     "$text | Out-Printer -Name $printer",
-    "Write-Output (\"legacy-printed:\" + $printer)",
+    `Write-Output ("${method}:" + $printer)`,
   ].join("\n");
-  await runPowerShell(script, [printerName], { timeout: 25000, maxBuffer: 1024 * 1024 });
-  return { method: "windows-out-printer-legacy" };
+  await runPowerShell(script, [printerName, Buffer.from(text, "utf8").toString("base64")], { timeout: 25000, maxBuffer: 1024 * 1024 });
+  return { method };
+}
+
+async function printWithWindowsLegacy(printerName) {
+  return printTextWithWindowsLegacy(printerName, legacyTicketText(), "windows-out-printer-legacy");
 }
 
 async function removeWindowsPrinter(printerName) {
@@ -871,6 +985,34 @@ export async function printLegacyTestTicket(printerName) {
     }
   }
   return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString() };
+}
+
+function cleanReceiptPayload(value) {
+  const text = String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return text.slice(0, 6000);
+}
+
+export function previewFakeReceiptTicket() {
+  return { ticketText: fakeReceiptText(), width: RECEIPT_WIDTH, createdAt: new Date().toISOString() };
+}
+
+export async function printFakeReceiptTicket(printerName, ticketText = "") {
+  const cleanName = String(printerName || "").trim();
+  if (!cleanName) throw new Error("printer-required");
+  const text = cleanReceiptPayload(ticketText) || fakeReceiptText();
+  let result = null;
+  if (process.platform === "win32") {
+    result = await printTextWithWindowsLegacy(cleanName, `${text}\n\n\n`, "windows-out-printer-fake-receipt");
+  } else {
+    const filePath = path.join(tmpdir(), `librepos-fake-receipt-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+    await writeFile(filePath, `${text}\n\n\n`, "utf8");
+    try {
+      result = await printWithCups(cleanName, filePath);
+    } finally {
+      await rm(filePath, { force: true });
+    }
+  }
+  return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString(), ticketText: text };
 }
 
 export async function printTestTicket(printerName) {
@@ -1159,6 +1301,24 @@ export function createSyncMiddleware() {
           sendJson(res, 200, await printLegacyTestTicket(payload.printerName));
         } catch (error) {
           sendJson(res, 500, { error: "printer-legacy-print-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/printers/fake-receipt" && req.method === "GET") {
+        if (!(await requireAdminUser(res, url.searchParams.get("userId")))) return;
+        sendJson(res, 200, previewFakeReceiptTicket());
+        return;
+      }
+
+      if (url.pathname === "/api/printers/fake-receipt/print" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requireAdminUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printFakeReceiptTicket(payload.printerName, payload.ticketText));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-fake-receipt-failed", detail: compactError(error) });
         }
         return;
       }
