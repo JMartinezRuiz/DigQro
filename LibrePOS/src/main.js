@@ -10,6 +10,7 @@ const APP_VERSION = packageData.version || "0.1.0";
 const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
+const DEFAULT_TICKET_LOGO_POSITION = "below-title";
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
 const SHARED_STATE_KEYS = [
@@ -650,6 +651,7 @@ const defaultState = {
     ticketLogoDataUrl: "",
     ticketLogoWidthMm: DEFAULT_TICKET_LOGO_WIDTH_MM,
     ticketLogoEnabled: false,
+    ticketLogoPosition: DEFAULT_TICKET_LOGO_POSITION,
   },
   users: defaultUsers,
   orders: [],
@@ -939,11 +941,29 @@ function ticketLogoWidthMmFromValue(value) {
   return Math.max(10, Math.min(48, width));
 }
 
+function ticketLogoPosition() {
+  return state.settings?.ticketLogoPosition === "above-title" ? "above-title" : DEFAULT_TICKET_LOGO_POSITION;
+}
+
+function ticketLogoPositionLabel() {
+  return ticketLogoPosition() === "above-title" ? "arriba" : "abajo";
+}
+
+function setTicketLogoPosition(value) {
+  state.settings = {
+    ...state.settings,
+    ticketLogoPosition: value === "above-title" ? "above-title" : DEFAULT_TICKET_LOGO_POSITION,
+  };
+  persist();
+  render();
+}
+
 function ticketLogoPayload() {
   if (!ticketLogoEnabled()) return {};
   return {
     logoDataUrl: ticketLogoDataUrl(),
     logoWidthMm: ticketLogoWidthMm(),
+    logoPosition: ticketLogoPosition(),
   };
 }
 
@@ -5844,15 +5864,30 @@ function renderPrinterOptions() {
 
 function receiptTextWithLogoMarker(text) {
   const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const normalizedLines = lines.map((line) => (line === RECEIPT_LOGO_MARKER ? receiptPrintCenter("LibrePOS") : line));
+  const normalizedLines = lines.map((line) => {
+    if (line === RECEIPT_LOGO_MARKER) return receiptPrintCenter("LibrePOS");
+    if (line.trim() === "LOS TATAS") return receiptPrintCenter("LOS TATAS");
+    return line;
+  });
   if (!ticketLogoEnabled()) return normalizedLines.join("\n");
-  const index = normalizedLines.findIndex((line) => line.trim() === "LibrePOS");
-  if (index >= 0) normalizedLines[index] = RECEIPT_LOGO_MARKER;
-  return normalizedLines.join("\n");
+  const withoutLibrePos = normalizedLines.filter((line) => line.trim() !== "LibrePOS");
+  const titleIndex = withoutLibrePos.findIndex((line) => line.trim() === "LOS TATAS");
+  if (titleIndex >= 0) {
+    withoutLibrePos[titleIndex] = receiptPrintCenter("LOS TATAS");
+    const markerIndex = ticketLogoPosition() === "above-title" ? titleIndex : titleIndex + 1;
+    withoutLibrePos.splice(markerIndex, 0, RECEIPT_LOGO_MARKER);
+    return withoutLibrePos.join("\n");
+  }
+  return withoutLibrePos.join("\n");
 }
 
-function receiptLogoLine() {
-  return ticketLogoEnabled() ? RECEIPT_LOGO_MARKER : receiptPrintCenter("LibrePOS");
+function receiptBrandLines() {
+  const titleLine = receiptPrintCenter("LOS TATAS");
+  const textLogoLine = receiptPrintCenter("LibrePOS");
+  if (!ticketLogoEnabled()) return [titleLine, textLogoLine];
+  return ticketLogoPosition() === "above-title"
+    ? [RECEIPT_LOGO_MARKER, titleLine]
+    : [titleLine, RECEIPT_LOGO_MARKER];
 }
 
 function ticketLogoPreviewWidthPx() {
@@ -5880,6 +5915,9 @@ function renderReceiptPreviewHtml(text) {
               <img data-ticket-logo-preview-img src="${escapeAttr(ticketLogoSrc())}" alt="Logo ticket" style="width: ${ticketLogoPreviewWidthPx()}px" />
             </div>
           `;
+        }
+        if (line.trim() === "LOS TATAS") {
+          return `<div class="printer-receipt-line printer-receipt-title-line">${escapeHtml(line.trim())}</div>`;
         }
         return `<div class="printer-receipt-line">${line ? escapeHtml(line) : "&nbsp;"}</div>`;
       }).join("")}
@@ -5909,7 +5947,7 @@ function renderPrinterTest() {
         ${renderSummaryCard("Impresoras", String(printersCount))}
         ${renderSummaryCard("Ticket", escapeHtml(selectedLabel))}
         ${renderSummaryCard("Margen", `${marginMm} mm/lado`)}
-        ${renderSummaryCard("Logo", ticketLogoEnabled() ? `${logoWidthMm} mm` : "No incluido")}
+        ${renderSummaryCard("Logo", ticketLogoEnabled() ? `${logoWidthMm} mm ${ticketLogoPositionLabel()}` : "No incluido")}
         ${renderSummaryCard("Ultima prueba", printerRuntime.lastPrintedAt ? formatDateTime(printerRuntime.lastPrintedAt) : "Sin prueba")}
       </section>
       <section class="panel data-grid-wide printer-panel">
@@ -5948,8 +5986,22 @@ function renderPrinterTest() {
           <label class="field printer-logo-toggle">
             <span>Incluir logo en ticket</span>
             <input data-ticket-logo-enabled type="checkbox" ${ticketLogoEnabled() ? "checked" : ""} />
-            <small>Sustituye la linea LibrePOS en la cuenta falsa y en los tickets cobrados.</small>
+            <small>Sustituye la linea LibrePOS y se coloca junto al titulo LOS TATAS.</small>
           </label>
+          <div class="field printer-logo-position-field">
+            <span>Posicion del logo</span>
+            <div class="printer-logo-position" role="radiogroup" aria-label="Posicion del logo">
+              <label>
+                <input data-ticket-logo-position name="ticket-logo-position" type="radio" value="above-title" ${ticketLogoPosition() === "above-title" ? "checked" : ""} />
+                <span>Arriba del titulo</span>
+              </label>
+              <label>
+                <input data-ticket-logo-position name="ticket-logo-position" type="radio" value="below-title" ${ticketLogoPosition() === "below-title" ? "checked" : ""} />
+                <span>Abajo del titulo</span>
+              </label>
+            </div>
+            <small>El titulo LOS TATAS queda centrado en ambos modos.</small>
+          </div>
           ${printerRuntime.error ? `<div class="checkout-warning">${svg("alert")}${escapeHtml(printerRuntime.error)}</div>` : ""}
           <div class="printer-action-row">
             <button class="secondary-button" data-select-printer type="button" ${printerRuntime.loading ? "disabled" : ""}>
@@ -6134,8 +6186,7 @@ function buildSaleReceiptText(sale) {
   }
   if (!paymentLines.length) paymentLines.push(receiptPrintColumns(`Pago ${sale.paymentMethod || "Efectivo"}`, receiptPrintMoney(saleTotal(sale))));
   const lines = [
-    receiptPrintCenter("LOS TATAS"),
-    receiptLogoLine(),
+    ...receiptBrandLines(),
     ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
     receiptPrintCenter("TICKET DE VENTA"),
     receiptPrintRule(),
@@ -7702,6 +7753,11 @@ function bindEvents() {
     });
     document.querySelector("[data-ticket-logo-enabled]")?.addEventListener("change", (event) => {
       setTicketLogoEnabled(event.target.checked);
+    });
+    document.querySelectorAll("[data-ticket-logo-position]").forEach((input) => {
+      input.addEventListener("change", (event) => {
+        if (event.target.checked) setTicketLogoPosition(event.target.value);
+      });
     });
     document.querySelector("[data-clear-ticket-logo]")?.addEventListener("click", clearTicketLogo);
     document.querySelector("[data-select-printer]")?.addEventListener("click", selectPrinterFromList);

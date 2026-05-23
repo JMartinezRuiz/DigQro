@@ -4606,6 +4606,12 @@ button:disabled {
   white-space: pre;
 }
 
+.printer-receipt-title-line {
+  font-weight: 700;
+  text-align: center;
+  white-space: normal;
+}
+
 .printer-receipt-logo-row {
   display: flex;
   justify-content: center;
@@ -4652,6 +4658,34 @@ button:disabled {
 .printer-logo-toggle input {
   width: 22px;
   height: 22px;
+}
+
+.printer-logo-position-field {
+  align-content: start;
+}
+
+.printer-logo-position {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.printer-logo-position label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.printer-logo-position input {
+  width: 18px;
+  height: 18px;
 }
 
 .expense-layout {

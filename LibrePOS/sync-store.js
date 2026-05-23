@@ -31,6 +31,7 @@ const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 
 const BRAND_IMAGE_FILE = path.join(ROOT_DIR, "assets", "brand.jpg");
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
+const DEFAULT_TICKET_LOGO_POSITION = "below-title";
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const GITHUB_API_HEADERS = {
   Accept: "application/vnd.github+json",
@@ -809,6 +810,10 @@ function cleanTicketLogoWidthMm(value) {
   return Math.max(10, Math.min(48, width));
 }
 
+function cleanTicketLogoPosition(value) {
+  return value === "above-title" ? "above-title" : DEFAULT_TICKET_LOGO_POSITION;
+}
+
 function marginMmToHundredthsInch(value) {
   return Math.round(cleanTicketMarginMm(value) * 100 / 25.4);
 }
@@ -838,12 +843,18 @@ async function resolveTicketLogoFile(logoDataUrl = "") {
   };
 }
 
-function replaceLibrePosLineWithLogoMarker(text, includeLogo = false) {
+function replaceLibrePosLineWithLogoMarker(text, includeLogo = false, logoPosition = DEFAULT_TICKET_LOGO_POSITION) {
   if (!includeLogo) return text;
   const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  const index = lines.findIndex((line) => line.trim() === "LibrePOS");
-  if (index >= 0) lines[index] = RECEIPT_LOGO_MARKER;
-  return lines.join("\n");
+  const normalizedLines = lines.map((line) => (line.trim() === "LOS TATAS" ? receiptCenter("LOS TATAS") : line));
+  const withoutLibrePos = normalizedLines.filter((line) => line.trim() !== "LibrePOS");
+  const titleIndex = withoutLibrePos.findIndex((line) => line.trim() === "LOS TATAS");
+  if (titleIndex >= 0) {
+    withoutLibrePos[titleIndex] = receiptCenter("LOS TATAS");
+    const markerIndex = cleanTicketLogoPosition(logoPosition) === "above-title" ? titleIndex : titleIndex + 1;
+    withoutLibrePos.splice(markerIndex, 0, RECEIPT_LOGO_MARKER);
+  }
+  return withoutLibrePos.join("\n");
 }
 
 function localReceiptDate(date = new Date()) {
@@ -1443,9 +1454,10 @@ export async function printReceiptHeaderTicket(printerName, options = {}) {
   const logoDataUrl = typeof options === "object" && options !== null ? options.logoDataUrl : "";
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
   const includeLogo = Boolean(typeof options === "object" && options !== null && options.includeLogo);
+  const logoPosition = typeof options === "object" && options !== null ? options.logoPosition : DEFAULT_TICKET_LOGO_POSITION;
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
-  const text = replaceLibrePosLineWithLogoMarker(receiptHeaderText(), includeLogo);
+  const text = replaceLibrePosLineWithLogoMarker(receiptHeaderText(), includeLogo, logoPosition);
   let result = null;
   if (process.platform === "win32") {
     result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, { marginMm, logoDataUrl, logoWidthMm });
@@ -1822,6 +1834,7 @@ export function createSyncMiddleware() {
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
             includeLogo: payload.includeLogo,
+            logoPosition: payload.logoPosition,
           }));
         } catch (error) {
           sendJson(res, 500, { error: "printer-header-print-failed", detail: compactError(error) });
