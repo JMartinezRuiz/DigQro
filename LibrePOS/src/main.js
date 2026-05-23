@@ -670,6 +670,7 @@ let printerRuntime = {
   loaded: false,
   loading: false,
   printing: false,
+  legacyPrinting: false,
   removing: false,
   printers: [],
   selectedName: loadPrinterName(),
@@ -5720,6 +5721,9 @@ function renderPrinterTest() {
             <button class="primary-button" data-print-test type="button" ${printerRuntime.printing || !printerRuntime.selectedName ? "disabled" : ""}>
               ${svg("print")}${printerRuntime.printing ? "Imprimiendo" : "Imprimir ticket de prueba"}
             </button>
+            <button class="secondary-button" data-print-legacy type="button" ${printerRuntime.legacyPrinting || !printerRuntime.selectedName ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.legacyPrinting ? "Imprimiendo" : "Impresion legacy"}
+            </button>
             <button class="danger-button" data-remove-system-printer type="button" ${printerRuntime.loading || printerRuntime.removing || !removeTarget ? "disabled" : ""}>
               ${svg("trash")}${printerRuntime.removing ? "Eliminando" : "Eliminar del sistema"}
             </button>
@@ -5739,6 +5743,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-offline")) return "Windows marca esa impresora como offline.";
   if (normalized.includes("powershell-not-found")) return "No se encontro Windows PowerShell en este equipo.";
   if (normalized.includes("powershell-failed")) return `PowerShell devolvio error: ${value}`;
+  if (normalized.includes("printer-legacy-print-failed")) return `No se pudo imprimir en modo legacy: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
   if (normalized.includes("windows-print-failed")) return `Windows no pudo imprimir: ${value}`;
   if (normalized.includes("printer-remove-failed")) return `No se pudo eliminar la impresora: ${value}`;
@@ -5827,6 +5832,38 @@ async function sendPrinterTest() {
     showToast(printerRuntime.error);
   } finally {
     printerRuntime.printing = false;
+    if (currentUser() && state.view === "printer") render();
+  }
+}
+
+async function sendPrinterLegacyTest() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede imprimir pruebas.");
+    return;
+  }
+  const printerName = printerRuntime.selectedName;
+  if (!printerName) {
+    showToast("Selecciona una impresora.");
+    return;
+  }
+  printerRuntime.legacyPrinting = true;
+  printerRuntime.error = "";
+  render();
+  try {
+    const response = await fetch("/api/printers/test-legacy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-legacy-test-error");
+    printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
+    showToast("Impresion legacy enviada.");
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.legacyPrinting = false;
     if (currentUser() && state.view === "printer") render();
   }
 }
@@ -7082,6 +7119,7 @@ function bindEvents() {
     document.querySelector("[data-select-printer]")?.addEventListener("click", selectPrinterFromList);
     document.querySelector("[data-clear-printer]")?.addEventListener("click", clearSavedPrinter);
     document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
+    document.querySelector("[data-print-legacy]")?.addEventListener("click", sendPrinterLegacyTest);
     document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
   }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);

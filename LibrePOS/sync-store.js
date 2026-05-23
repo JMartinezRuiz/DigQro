@@ -683,6 +683,10 @@ function testTicketText(printerName) {
   ].join("\n");
 }
 
+function legacyTicketText() {
+  return "PRUEBA IMPRESORA BT\nHola desde PowerShell\n\n\n";
+}
+
 function windowsTicketPayload(printerName) {
   const text = testTicketText(printerName).replace(/\n/g, "\r\n");
   return Buffer.concat([
@@ -810,6 +814,18 @@ async function printWithWindows(printerName) {
   }
 }
 
+async function printWithWindowsLegacy(printerName) {
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$printer = $args[0]",
+    "$text = \"PRUEBA IMPRESORA BT`nHola desde PowerShell`n`n`n\"",
+    "$text | Out-Printer -Name $printer",
+    "Write-Output (\"legacy-printed:\" + $printer)",
+  ].join("\n");
+  await runPowerShell(script, [printerName], { timeout: 25000, maxBuffer: 1024 * 1024 });
+  return { method: "windows-out-printer-legacy" };
+}
+
 async function removeWindowsPrinter(printerName) {
   const script = [
     "$ErrorActionPreference = 'Stop'",
@@ -837,6 +853,24 @@ export async function removeSystemPrinter(printerName) {
     await removeCupsPrinter(cleanName);
   }
   return { ok: true, printerName: cleanName, removedAt: new Date().toISOString() };
+}
+
+export async function printLegacyTestTicket(printerName) {
+  const cleanName = String(printerName || "").trim();
+  if (!cleanName) throw new Error("printer-required");
+  let result = null;
+  if (process.platform === "win32") {
+    result = await printWithWindowsLegacy(cleanName);
+  } else {
+    const filePath = path.join(tmpdir(), `librepos-legacy-${Date.now()}-${randomBytes(4).toString("hex")}.txt`);
+    await writeFile(filePath, legacyTicketText(), "utf8");
+    try {
+      result = await printWithCups(cleanName, filePath);
+    } finally {
+      await rm(filePath, { force: true });
+    }
+  }
+  return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString() };
 }
 
 export async function printTestTicket(printerName) {
@@ -1113,6 +1147,18 @@ export function createSyncMiddleware() {
           sendJson(res, 200, await printTestTicket(payload.printerName));
         } catch (error) {
           sendJson(res, 500, { error: "printer-print-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
+      if (url.pathname === "/api/printers/test-legacy" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requireAdminUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printLegacyTestTicket(payload.printerName));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-legacy-print-failed", detail: compactError(error) });
         }
         return;
       }
