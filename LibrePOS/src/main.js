@@ -3000,7 +3000,7 @@ function renderOrderCard(order) {
       <span class="order-card-meta">
         <em class="order-card-status">${tableStateMeta[status].label}</em>
         <strong>${money.format(totals.total)}</strong>
-        <small>${totals.pending} pendientes · ${totals.commanded} comandados</small>
+        <small>${totals.pending} pendientes · ${totals.commanded} comandados · ${escapeHtml(ivaLabel(totals.ivaRate))}</small>
       </span>
     </button>
   `;
@@ -3016,6 +3016,7 @@ function renderTicket(order) {
         <div>
           <h2>${escapeHtml(orderLabel(order))}</h2>
           <p>${escapeHtml(waiterName(order.waiterId))}${order.guests ? ` · ${order.guests} comensales` : ""} · ${elapsed(order.openedAt)}</p>
+          <span class="tax-snapshot-pill">${escapeHtml(orderTaxLabel(order))}</span>
           ${order.comments ? `<p class="ticket-comment">${escapeHtml(order.comments)}</p>` : ""}
           ${renderOrderAlerts(order)}
         </div>
@@ -3176,7 +3177,7 @@ function renderMenu(order) {
           <h2>Menu</h2>
           <p>${escapeHtml(state.activeSection)} · ${products.length} productos</p>
         </div>
-        <span>${escapeHtml(orderLabel(order))}</span>
+        <span>${escapeHtml(orderLabel(order))} · ${escapeHtml(orderTaxLabel(order))}</span>
       </div>
       <div class="menu-toolbar">
         <div class="search-wrap">
@@ -3240,7 +3241,7 @@ function renderMenu(order) {
       <div class="menu-grid">
         ${
           products.length
-            ? products.map((item) => renderMenuItem(item)).join("")
+            ? products.map((item) => renderMenuItem(item, order)).join("")
             : `<div class="empty-state">No hay productos en esta combinacion.</div>`
         }
       </div>
@@ -3248,10 +3249,10 @@ function renderMenu(order) {
   `;
 }
 
-function renderMenuItem(item) {
+function renderMenuItem(item, order = null) {
   const hasOptions = item.options.length > 0;
   const stock = estimateProductStock(item, defaultSelectionsFor(item));
-  const tax = taxBreakdownForGross(item.price);
+  const tax = order ? taxBreakdownForOrder(order, item.price) : taxBreakdownForGross(item.price);
   return `
     <button class="menu-item" data-configure-product="${item.id}">
       <span class="menu-item-top">
@@ -3298,6 +3299,7 @@ function getProductConfigHost() {
 function applySelectionUpdateInPlace() {
   if (!state.productConfig) return;
   const product = getProduct(state.productConfig.productId);
+  const order = getActiveOrder();
   const side = getProductConfigHost();
   if (!product || !side) return;
   const extras = normalizeExtras(state.productConfig.extras);
@@ -3376,7 +3378,7 @@ function applySelectionUpdateInPlace() {
   if (totalEl) totalEl.textContent = money.format(total);
   if (unitEl) unitEl.textContent = `${money.format(price)} c/u`;
   if (taxEl) {
-    const tax = taxBreakdownForGross(total);
+    const tax = order ? taxBreakdownForOrder(order, total) : taxBreakdownForGross(total);
     taxEl.textContent = `Incluye ${ivaLabel(tax.ivaRate)} ${money.format(tax.iva)}`;
   }
 
@@ -3493,6 +3495,7 @@ function bindProductConfigEvents() {
 function renderProductConfig() {
   const product = getProduct(state.productConfig.productId);
   if (!product) return "";
+  const order = getActiveOrder();
   const extras = normalizeExtras(state.productConfig.extras);
   const isMixto = Array.isArray(state.productConfig.parts) && state.productConfig.parts.length >= 2;
   const fakeLine = {
@@ -3504,6 +3507,7 @@ function renderProductConfig() {
   };
   const price = combinedUnitPrice(product, fakeLine, extras);
   const total = price * state.productConfig.qty;
+  const tax = order ? taxBreakdownForOrder(order, total) : taxBreakdownForGross(total);
   const stock = estimateProductStock(product, state.productConfig.selections, extras, isMixto ? state.productConfig.parts : null);
   const canServe = lineHasAvailableParts(product, fakeLine);
   const splittable = productIsSplittable(product);
@@ -3548,7 +3552,7 @@ function renderProductConfig() {
             <span>Precio</span>
             <strong data-config-total>${money.format(total)}</strong>
             <small data-config-unit>${money.format(price)} c/u</small>
-            <small data-config-tax>Incluye ${escapeHtml(ivaLabel(taxBreakdownForGross(total).ivaRate))} ${money.format(taxBreakdownForGross(total).iva)}</small>
+            <small data-config-tax>Incluye ${escapeHtml(ivaLabel(tax.ivaRate))} ${money.format(tax.iva)}</small>
           </div>
         </div>
         <button class="primary-button" data-add-configured ${canServe ? "" : "disabled"}>${svg(submitIcon)}${submitLabel}</button>
@@ -3851,6 +3855,7 @@ function renderOrderContext(order) {
           <span><strong>Inicio</strong>${formatTime(order.openedAt)}</span>
           ${order.guests ? `<span><strong>Comensales</strong>${order.guests}</span>` : ""}
           <span><strong>Comandas</strong>${order.commandBatches.length}</span>
+          <span><strong>IVA orden</strong>${escapeHtml(orderTaxLabel(order))}</span>
         </div>
         <div class="command-history">
           <h3 class="mini-title">Comandas digitales</h3>
@@ -8488,6 +8493,11 @@ function orderIvaRate(order) {
   return 0;
 }
 
+function orderTaxLabel(order) {
+  const rate = orderIvaRate(order);
+  return rate > 0 ? `${ivaLabel(rate)} activo` : "IVA 0";
+}
+
 function ivaLabel(rate = currentIvaRate()) {
   return `IVA ${formatPlainNumber(cleanIvaRate(rate) * 100)}%`;
 }
@@ -8505,6 +8515,10 @@ function taxBreakdownForGross(value, rate = currentIvaEnabled() ? currentIvaRate
     iva: roundCurrency(gross - netSubtotal),
     ivaRate,
   };
+}
+
+function taxBreakdownForOrder(order, value) {
+  return taxBreakdownForGross(value, orderIvaRate(order));
 }
 
 function readCheckoutTip(subtotal, form = document) {
@@ -9250,6 +9264,7 @@ function updateConfigQty(delta) {
   const product = getProduct(state.productConfig.productId);
   if (!product) return;
   const unitPrice = configuredUnitPrice(product, state.productConfig.selections, state.productConfig.extras);
+  const order = getActiveOrder();
   const stock = estimateProductStock(product, state.productConfig.selections, state.productConfig.extras);
   const qtyTarget = document.querySelector("[data-config-qty-value]");
   const totalTarget = document.querySelector("[data-config-total]");
@@ -9262,7 +9277,8 @@ function updateConfigQty(delta) {
   if (totalTarget) totalTarget.textContent = money.format(unitPrice * state.productConfig.qty);
   if (unitTarget) unitTarget.textContent = `${money.format(unitPrice)} c/u`;
   if (taxTarget) {
-    const tax = taxBreakdownForGross(unitPrice * state.productConfig.qty);
+    const total = unitPrice * state.productConfig.qty;
+    const tax = order ? taxBreakdownForOrder(order, total) : taxBreakdownForGross(total);
     taxTarget.textContent = `Incluye ${ivaLabel(tax.ivaRate)} ${money.format(tax.iva)}`;
   }
   if (stockPanel && stockMessage) {
