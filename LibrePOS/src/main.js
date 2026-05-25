@@ -6627,9 +6627,29 @@ function dismissPostpaidTicketWarning(saleId) {
   render();
 }
 
+function dismissFilteredPostpaidTicketWarnings() {
+  const warningSaleIds = filteredOrderSearchRecords({ limit: 0 })
+    .filter((record) => record.saleId && record.postpaidWarningVisible)
+    .map((record) => record.saleId);
+  if (!warningSaleIds.length) {
+    showToast("No hay avisos postpago para quitar con este filtro.");
+    return;
+  }
+  const now = new Date().toISOString();
+  warningSaleIds.forEach((saleId) => {
+    const sale = state.sales.find((item) => item.id === saleId);
+    if (!sale || postpaidReceiptPrinted(sale)) return;
+    sale.postpaidReceiptWarningDismissedAt = now;
+    sale.postpaidReceiptWarningDismissedBy = currentUser()?.id || "";
+  });
+  persist();
+  render();
+  showToast(`${warningSaleIds.length} aviso${warningSaleIds.length === 1 ? "" : "s"} postpago quitado${warningSaleIds.length === 1 ? "" : "s"}.`);
+}
+
 async function printFilteredPendingPostpaidTickets() {
   if (postpaidTicketPrinting) return;
-  const pendingSaleIds = filteredOrderSearchRecords()
+  const pendingSaleIds = filteredOrderSearchRecords({ limit: 0 })
     .filter((record) => record.saleId && record.postpaidPending)
     .map((record) => record.saleId);
   if (!pendingSaleIds.length) {
@@ -7023,12 +7043,12 @@ function orderRecordMatchesStatus(record, status) {
   return record.statusKey === status;
 }
 
-function filteredOrderSearchRecords() {
+function filteredOrderSearchRecords({ limit = 100 } = {}) {
   const query = normalize(state.dataOrderSearch);
   const from = state.dataOrderFrom || "";
   const to = state.dataOrderTo || "";
   const status = state.dataOrderStatus || "all";
-  return orderSearchRecords()
+  const records = orderSearchRecords()
     .filter((record) => {
       if (!orderRecordMatchesStatus(record, status)) return false;
       const dateKey = localDateValue(record.date);
@@ -7037,8 +7057,8 @@ function filteredOrderSearchRecords() {
       if (!query) return true;
       const haystack = normalize(`${record.id} ${record.uid} ${record.label} ${record.waiter} ${record.payment} ${record.products}`);
       return haystack.includes(query);
-    })
-    .slice(0, 100);
+    });
+  return limit ? records.slice(0, limit) : records;
 }
 
 function orderStatusFilters() {
@@ -7083,8 +7103,10 @@ function renderPostpaidTicketCell(record) {
 
 function renderOrderSearchData() {
   const rows = filteredOrderSearchRecords();
+  const actionRows = filteredOrderSearchRecords({ limit: 0 });
   const allRows = orderSearchRecords();
-  const pendingPostpaidRows = rows.filter((record) => record.saleId && record.postpaidPending);
+  const pendingPostpaidRows = actionRows.filter((record) => record.saleId && record.postpaidPending);
+  const warningPostpaidRows = actionRows.filter((record) => record.saleId && record.postpaidWarningVisible);
   return `
     <section class="panel data-grid-wide order-search-panel">
       <div class="panel-header">
@@ -7092,9 +7114,14 @@ function renderOrderSearchData() {
           <h2 class="panel-title">Buscador de ordenes</h2>
           <p class="panel-kicker">Busca por ID, UID, mesa, pago, producto o rango de fechas</p>
         </div>
-        <button class="secondary-button" data-print-pending-postpaid type="button" ${postpaidTicketPrinting || !pendingPostpaidRows.length ? "disabled" : ""}>
-          ${svg("print")}${postpaidTicketPrinting ? "Imprimiendo" : `Imprimir pendientes (${pendingPostpaidRows.length})`}
-        </button>
+        <div class="header-actions">
+          <button class="secondary-button" data-dismiss-filtered-postpaid-warnings type="button" ${postpaidTicketPrinting || !warningPostpaidRows.length ? "disabled" : ""}>
+            ${svg("check")}Quitar avisos (${warningPostpaidRows.length})
+          </button>
+          <button class="secondary-button" data-print-pending-postpaid type="button" ${postpaidTicketPrinting || !pendingPostpaidRows.length ? "disabled" : ""}>
+            ${svg("print")}${postpaidTicketPrinting ? "Imprimiendo" : `Imprimir pendientes (${pendingPostpaidRows.length})`}
+          </button>
+        </div>
       </div>
       <div class="panel-body field-grid">
         <div class="order-search-grid">
@@ -8017,6 +8044,7 @@ function bindEvents() {
   document.querySelectorAll("[data-dismiss-postpaid-warning]").forEach((button) => {
     button.addEventListener("click", () => dismissPostpaidTicketWarning(button.dataset.dismissPostpaidWarning));
   });
+  document.querySelector("[data-dismiss-filtered-postpaid-warnings]")?.addEventListener("click", dismissFilteredPostpaidTicketWarnings);
   document.querySelector("[data-print-pending-postpaid]")?.addEventListener("click", printFilteredPendingPostpaidTickets);
   const checkoutForm = document.querySelector("[data-checkout-form]");
   checkoutForm?.addEventListener("submit", confirmCheckoutPayment);
