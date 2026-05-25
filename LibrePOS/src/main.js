@@ -6629,10 +6629,10 @@ function dismissPostpaidTicketWarning(saleId) {
 
 function dismissFilteredPostpaidTicketWarnings() {
   const warningSaleIds = filteredOrderSearchRecords({ limit: 0 })
-    .filter((record) => record.saleId && record.postpaidWarningVisible)
+    .filter((record) => record.saleId && record.postpaidPending)
     .map((record) => record.saleId);
   if (!warningSaleIds.length) {
-    showToast("No hay avisos postpago para quitar con este filtro.");
+    showToast("No hay postpagos pendientes para omitir con este filtro.");
     return;
   }
   const now = new Date().toISOString();
@@ -6644,7 +6644,7 @@ function dismissFilteredPostpaidTicketWarnings() {
   });
   persist();
   render();
-  showToast(`${warningSaleIds.length} aviso${warningSaleIds.length === 1 ? "" : "s"} postpago quitado${warningSaleIds.length === 1 ? "" : "s"}.`);
+  showToast(`${warningSaleIds.length} postpago${warningSaleIds.length === 1 ? "" : "s"} omitido${warningSaleIds.length === 1 ? "" : "s"}.`);
 }
 
 async function printFilteredPendingPostpaidTickets() {
@@ -6989,8 +6989,16 @@ function postpaidReceiptPrinted(sale) {
   return Boolean(sale?.postpaidReceiptPrintedAt);
 }
 
+function postpaidReceiptDismissed(sale) {
+  return Boolean(sale?.postpaidReceiptWarningDismissedAt);
+}
+
+function postpaidReceiptPending(sale) {
+  return !postpaidReceiptPrinted(sale) && !postpaidReceiptDismissed(sale);
+}
+
 function postpaidReceiptWarningVisible(sale) {
-  return !postpaidReceiptPrinted(sale) && !sale?.postpaidReceiptWarningDismissedAt;
+  return postpaidReceiptPending(sale);
 }
 
 function orderSearchRecords() {
@@ -7021,10 +7029,10 @@ function orderSearchRecords() {
     saleId: sale.id,
     postpaidPrinted: postpaidReceiptPrinted(sale),
     postpaidPrintedAt: sale.postpaidReceiptPrintedAt || "",
-    postpaidPending: !postpaidReceiptPrinted(sale),
+    postpaidPending: postpaidReceiptPending(sale),
     postpaidWarningVisible: postpaidReceiptWarningVisible(sale),
     postpaidError: sale.postpaidReceiptError || "",
-    postpaidWarningDismissed: Boolean(sale.postpaidReceiptWarningDismissedAt),
+    postpaidWarningDismissed: postpaidReceiptDismissed(sale),
     date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
     label: sale.label || sale.orderId || "Venta",
     waiter: waiterName(sale.waiterId),
@@ -7093,7 +7101,7 @@ function renderPostpaidTicketCell(record) {
               <button class="icon-button compact" data-dismiss-postpaid-warning="${escapeAttr(record.saleId)}" title="Quitar aviso">${svg("check")}</button>
             </div>
           `
-          : `<span class="shift-status">Pendiente</span>`
+          : `<span class="shift-status">Omitido</span>`
       }
       ${record.postpaidError ? `<small>${escapeHtml(record.postpaidError)}</small>` : ""}
       <button class="secondary-button compact" data-print-postpaid-sale="${escapeAttr(record.saleId)}" type="button" ${postpaidTicketPrinting ? "disabled" : ""}>${svg("print")}Imprimir postpago</button>
@@ -7106,7 +7114,7 @@ function renderOrderSearchData() {
   const actionRows = filteredOrderSearchRecords({ limit: 0 });
   const allRows = orderSearchRecords();
   const pendingPostpaidRows = actionRows.filter((record) => record.saleId && record.postpaidPending);
-  const warningPostpaidRows = actionRows.filter((record) => record.saleId && record.postpaidWarningVisible);
+  const warningPostpaidRows = actionRows.filter((record) => record.saleId && record.postpaidPending);
   return `
     <section class="panel data-grid-wide order-search-panel">
       <div class="panel-header">
@@ -7116,7 +7124,7 @@ function renderOrderSearchData() {
         </div>
         <div class="header-actions">
           <button class="secondary-button" data-dismiss-filtered-postpaid-warnings type="button" ${postpaidTicketPrinting || !warningPostpaidRows.length ? "disabled" : ""}>
-            ${svg("check")}Quitar avisos (${warningPostpaidRows.length})
+            ${svg("check")}Omitir postpagos (${warningPostpaidRows.length})
           </button>
           <button class="secondary-button" data-print-pending-postpaid type="button" ${postpaidTicketPrinting || !pendingPostpaidRows.length ? "disabled" : ""}>
             ${svg("print")}${postpaidTicketPrinting ? "Imprimiendo" : `Imprimir pendientes (${pendingPostpaidRows.length})`}
