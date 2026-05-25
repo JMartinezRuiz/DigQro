@@ -843,21 +843,37 @@ function paymentUidForSale(sale) {
   return String(sale?.uid || sale?.paymentUid || sale?.payment?.uid || "");
 }
 
+function orderNumberValue(record) {
+  const value = record?.orderNumber;
+  if (value === undefined || value === null || value === "") return "";
+  return String(value).trim();
+}
+
+function orderNumberLabel(record, fallback = "-") {
+  return orderNumberValue(record) || fallback;
+}
+
+function numericOrderNumber(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+$/.test(text)) return 0;
+  return Number(text) || 0;
+}
+
 function nextOrderNumber() {
   const records = [
     ...(Array.isArray(state.orders) ? state.orders : []),
     ...(Array.isArray(state.sales) ? state.sales : []),
   ];
-  const max = records.reduce((current, record) => Math.max(current, Number(record?.orderNumber) || 0), 0);
+  const max = records.reduce((current, record) => Math.max(current, numericOrderNumber(record?.orderNumber)), 0);
   return max + 1;
 }
 
 function ensureOrderNumber(order) {
-  if (!order) return 0;
-  if (!Number(order.orderNumber)) {
+  if (!order) return "";
+  if (!orderNumberValue(order)) {
     order.orderNumber = nextOrderNumber();
   }
-  return Number(order.orderNumber);
+  return order.orderNumber;
 }
 
 function loadClientId() {
@@ -3912,6 +3928,7 @@ function renderModal() {
     "edit-ingredient": isAdminUser() && ingredientTarget ? renderIngredientModal(ingredientTarget) : "",
     "new-extra": isAdminUser() ? renderExtraModal() : "",
     "edit-extra": isAdminUser() && extraTarget ? renderExtraModal(extraTarget) : "",
+    "reset-folios": isAdminUser() ? renderResetFoliosModal() : "",
     command: order ? renderCommandModal(order) : "",
     price: order ? renderPriceModal(order) : "",
     checkout: modalOrder ? renderCheckoutModal(modalOrder) : "",
@@ -4244,7 +4261,7 @@ function renderSaleDetailModal(sale) {
   const changeGiven = Number(sale.payment?.changeGiven) || 0;
   const items = Array.isArray(sale.items) ? sale.items : [];
   const uid = paymentUidForSale(sale);
-  const orderNumber = Number(sale.orderNumber) || "-";
+  const orderNumber = orderNumberLabel(sale);
   const waitMinutes = Number(sale.waitMinutes) || minutesBetween(sale.openedAt, closedAt);
   return `
     <section class="panel modal-panel sale-detail-modal">
@@ -5644,7 +5661,7 @@ function renderCashSessionSales(session) {
                         const cashDue = Number(sale.payment?.cashDue) || 0;
                         return `
                           <tr>
-                            <td><strong>${escapeHtml(paymentUidForSale(sale) || "-")}</strong><small>ID ${Number(sale.orderNumber) || ""}</small></td>
+                            <td><strong>${escapeHtml(paymentUidForSale(sale) || "-")}</strong><small>ID ${escapeHtml(orderNumberLabel(sale, ""))}</small></td>
                             <td>${formatDateTime(saleClosedAt(sale))}</td>
                             <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
                             <td>${escapeHtml(waiterName(sale.cashierId))}</td>
@@ -6076,6 +6093,7 @@ function renderGeneralConfig() {
   const enabled = currentIvaEnabled();
   const rate = currentIvaRate();
   const ratePercent = formatPlainNumber(rate * 100);
+  const folioPlan = resetFolioPlan();
   return `
     <section class="summary-grid">
       ${renderSummaryCard("IVA", enabled ? "Activo" : "Inactivo", enabled ? "ok" : "")}
@@ -6101,6 +6119,62 @@ function renderGeneralConfig() {
           <small>Valor usado por defecto: 16%. Se guarda como porcentaje para nuevas ordenes.</small>
         </label>
       </div>
+    </section>
+    <section class="panel data-grid-wide config-general-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Folios de facturacion</h2>
+          <p class="panel-kicker">Renombra folios actuales y vuelve a iniciar el consecutivo desde 1.</p>
+        </div>
+      </div>
+      <div class="panel-body field-grid">
+        <div class="context-grid">
+          <span><strong>Siguiente folio</strong>${nextOrderNumber()}</span>
+          <span><strong>Folios a renombrar</strong>${folioPlan.count}</span>
+          <span><strong>Prefijo disponible</strong>${escapeHtml(folioPlan.prefix)}</span>
+          <span><strong>Despues del reset</strong>1</span>
+        </div>
+        <p class="muted-text compact-text">
+          Al resetear, los folios numericos existentes pasan a ${escapeHtml(folioPlan.prefix)}1, ${escapeHtml(folioPlan.prefix)}2, ${escapeHtml(folioPlan.prefix)}3... y las nuevas ordenes vuelven a 1, 2, 3.
+        </p>
+        <button class="danger-button" data-open-modal="reset-folios" type="button" ${folioPlan.count ? "" : "disabled"}>
+          ${svg("alert")}Resetear folios
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function renderResetFoliosModal() {
+  const plan = resetFolioPlan();
+  return `
+    <section class="panel modal-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Resetear folios</h2>
+          <p class="panel-kicker">Accion administrativa irreversible para iniciar un nuevo consecutivo.</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-reset-folios-form>
+        <div class="checkout-warning">
+          ${svg("alert")}Se renombraran ${plan.count} folio${plan.count === 1 ? "" : "s"} numerico${plan.count === 1 ? "" : "s"} con el prefijo ${escapeHtml(plan.prefix)}. Las nuevas ordenes empezaran en 1.
+        </div>
+        <div class="context-grid">
+          <span><strong>Ejemplo anterior</strong>1, 2, 3</span>
+          <span><strong>Quedaran como</strong>${escapeHtml(plan.prefix)}1, ${escapeHtml(plan.prefix)}2, ${escapeHtml(plan.prefix)}3</span>
+          <span><strong>Siguiente folio</strong>1</span>
+          <span><strong>Prefijo usado</strong>${escapeHtml(plan.prefix)}</span>
+        </div>
+        <label class="field">
+          <span>Escribe RESET para confirmar</span>
+          <input name="confirm" autocomplete="off" placeholder="RESET" required />
+          <small>Los datos, ventas e inventario se conservan; solo cambia el folio visible de pedidos existentes.</small>
+        </label>
+        <button class="danger-button" type="submit" ${plan.count ? "" : "disabled"}>
+          ${svg("check")}Confirmar reset
+        </button>
+      </form>
     </section>
   `;
 }
@@ -6907,7 +6981,7 @@ function orderSearchRecords() {
       return {
         recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
         statusKey: order.status === "cancelled" ? "cancelled" : "open",
-        id: Number(order.orderNumber) || "",
+        id: orderNumberLabel(order, ""),
         uid: order.status === "cancelled" ? "" : "Pendiente cobro",
         saleId: "",
         date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
@@ -6922,7 +6996,7 @@ function orderSearchRecords() {
   const paidRecords = (Array.isArray(state.sales) ? state.sales : []).map((sale) => ({
     recordType: "Cobrada",
     statusKey: "paid",
-    id: Number(sale.orderNumber) || "",
+    id: orderNumberLabel(sale, ""),
     uid: paymentUidForSale(sale),
     saleId: sale.id,
     postpaidPrinted: postpaidReceiptPrinted(sale),
@@ -7061,7 +7135,7 @@ function renderOrderSearchData() {
                       .map(
                         (record) => `
                           <tr>
-                            <td><strong>${record.id || "-"}</strong></td>
+                            <td><strong>${escapeHtml(record.id || "-")}</strong></td>
                             <td>${record.uid ? `<strong>${escapeHtml(record.uid)}</strong>` : "-"}</td>
                             <td>${formatDateTime(record.date)}</td>
                             <td><strong>${escapeHtml(record.label)}</strong><small>${escapeHtml(record.waiter)}</small></td>
@@ -7690,7 +7764,7 @@ function renderProfileClosedSales(user, sales = []) {
                           <td>
                             <strong>${escapeHtml(sale.label || sale.orderId || "Venta")}</strong>
                             <small>${sale.cashierId === user.id ? "Cerrada por ti" : `Mesero ${escapeHtml(waiterName(sale.waiterId))}`}</small>
-                            <small>ID ${Number(sale.orderNumber) || "-"}</small>
+                            <small>ID ${escapeHtml(orderNumberLabel(sale))}</small>
                           </td>
                           <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
                           <td>${money.format(tip)}<small>${escapeHtml(saleTipPaymentMethod(sale))}</small></td>
@@ -8226,6 +8300,7 @@ function bindEvents() {
   document.querySelector("[data-iva-rate]")?.addEventListener("change", (event) => {
     saveIvaRatePercent(event.target.value);
   });
+  document.querySelector("[data-reset-folios-form]")?.addEventListener("submit", resetOrderFolios);
   if (document.querySelector("[data-printer-panel]")) {
     loadPrinterList();
     loadFakeReceiptPreview();
@@ -8486,6 +8561,43 @@ function saveIvaRatePercent(value, { rerender = true } = {}) {
   if (rerender) render();
 }
 
+function resetOrderFolios(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede resetear folios.");
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const confirmation = String(form.get("confirm") || "").trim().toUpperCase();
+  if (confirmation !== "RESET") {
+    showToast("Escribe RESET para confirmar.");
+    return;
+  }
+  const records = numericFolioRecords();
+  if (!records.length) {
+    showToast("No hay folios numericos para resetear.");
+    state.modal = null;
+    persist();
+    render();
+    return;
+  }
+  const prefix = nextAvailableFolioPrefix();
+  const renamedFolios = new Set(records.map((record) => numericOrderNumber(record.orderNumber)).filter((value) => value > 0));
+  const now = new Date().toISOString();
+  records.forEach((record) => {
+    const previous = orderNumberValue(record);
+    record.orderNumber = `${prefix}${numericOrderNumber(previous)}`;
+    record.previousOrderNumber = previous;
+    record.folioResetPrefix = prefix;
+    record.folioResetAt = now;
+    record.folioResetBy = currentUser()?.id || "";
+  });
+  state.modal = null;
+  persist();
+  showToast(`Folios reseteados. ${renamedFolios.size} anteriores pasan a ${prefix}1... y el siguiente sera 1.`);
+  render();
+}
+
 function orderIvaRate(order) {
   if (order?.ivaEnabled === true || order?.taxEnabled === true) {
     return cleanIvaRate(order.ivaRate ?? order.taxRate);
@@ -8496,6 +8608,53 @@ function orderIvaRate(order) {
 function orderTaxLabel(order) {
   const rate = orderIvaRate(order);
   return rate > 0 ? `${ivaLabel(rate)} activo` : "IVA 0";
+}
+
+function allFolioRecords() {
+  return [
+    ...(Array.isArray(state.orders) ? state.orders : []),
+    ...(Array.isArray(state.sales) ? state.sales : []),
+  ].filter((record) => orderNumberValue(record));
+}
+
+function alphabeticPrefix(index) {
+  let value = Number(index) || 0;
+  let label = "";
+  do {
+    label = String.fromCharCode(65 + (value % 26)) + label;
+    value = Math.floor(value / 26) - 1;
+  } while (value >= 0);
+  return label;
+}
+
+function usedFolioPrefixes(records = allFolioRecords()) {
+  return new Set(
+    records
+      .map((record) => orderNumberValue(record).toUpperCase().match(/^([A-Z]+)\d+$/)?.[1])
+      .filter(Boolean),
+  );
+}
+
+function nextAvailableFolioPrefix(records = allFolioRecords()) {
+  const used = usedFolioPrefixes(records);
+  for (let index = 0; index < 702; index += 1) {
+    const prefix = alphabeticPrefix(index);
+    if (!used.has(prefix)) return prefix;
+  }
+  return `R${Date.now().toString(36).toUpperCase()}`;
+}
+
+function numericFolioRecords() {
+  return allFolioRecords().filter((record) => numericOrderNumber(record.orderNumber) > 0);
+}
+
+function resetFolioPlan() {
+  const records = allFolioRecords();
+  const numericFolios = new Set(records.map((record) => numericOrderNumber(record.orderNumber)).filter((value) => value > 0));
+  return {
+    prefix: nextAvailableFolioPrefix(records),
+    count: numericFolios.size,
+  };
 }
 
 function ivaLabel(rate = currentIvaRate()) {
@@ -11526,7 +11685,7 @@ function exportData(kind) {
         ],
         ...state.sales.map((sale) => [
           paymentUidForSale(sale),
-          Number(sale.orderNumber) || "",
+          orderNumberLabel(sale, ""),
           formatCsvDateTime(saleClosedAt(sale)),
           sale.label || sale.orderId,
           waiterName(sale.waiterId),
