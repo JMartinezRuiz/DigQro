@@ -875,6 +875,50 @@ function nextOrderNumber() {
   return max + 1;
 }
 
+function orderDailyDateValue(record, fallback = new Date().toISOString()) {
+  return record?.openedAt || record?.createdAt || record?.closedAt || fallback;
+}
+
+function orderIdentityKey(record) {
+  return record?.orderId || record?.id || `${localDateKey(orderDailyDateValue(record))}:${orderNumberValue(record)}`;
+}
+
+function dailyOrderRecords(dateValue = new Date().toISOString()) {
+  const dateKey = localDateKey(dateValue);
+  const seen = new Set();
+  return [
+    ...(Array.isArray(state.orders) ? state.orders : []),
+    ...(Array.isArray(state.sales) ? state.sales : []),
+  ]
+    .filter((record) => localDateKey(orderDailyDateValue(record, dateValue)) === dateKey)
+    .filter((record) => {
+      const key = orderIdentityKey(record);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => {
+      const timeDiff = new Date(orderDailyDateValue(a, dateValue)) - new Date(orderDailyDateValue(b, dateValue));
+      if (timeDiff) return timeDiff;
+      return numericOrderNumber(a?.orderNumber) - numericOrderNumber(b?.orderNumber);
+    });
+}
+
+function nextDailyOrderNumber(dateValue = new Date().toISOString()) {
+  const records = dailyOrderRecords(dateValue);
+  const maxStored = records.reduce((current, record) => Math.max(current, numericOrderNumber(record?.dailyOrderNumber)), 0);
+  return Math.max(maxStored, records.length) + 1;
+}
+
+function orderDailyNumber(record, dateValue = new Date().toISOString()) {
+  const stored = numericOrderNumber(record?.dailyOrderNumber);
+  if (stored > 0) return stored;
+  const records = dailyOrderRecords(orderDailyDateValue(record, dateValue));
+  const targetKey = orderIdentityKey(record);
+  const index = records.findIndex((item) => orderIdentityKey(item) === targetKey);
+  return index >= 0 ? index + 1 : records.length + 1;
+}
+
 function ensureOrderNumber(order) {
   if (!order) return "";
   if (!orderNumberValue(order)) {
@@ -6673,11 +6717,15 @@ function commandReceiptLineLines(line) {
 function buildCommandReceiptText(order, batch) {
   const createdAt = batch?.createdAt || new Date().toISOString();
   const orderNumber = orderNumberLabel(order);
+  const dailyNumber = orderDailyNumber(order, createdAt);
   const createdBy = batch?.createdBy || order?.waiterId || currentUser()?.id || "";
   const lines = [
     receiptPrintCenter("COMANDA"),
     receiptPrintRule("="),
-    receiptPrintColumns(orderLabel(order), formatCsvDateTime(createdAt)),
+    receiptPrintColumns("Orden dia", dailyNumber || "-"),
+    receiptPrintColumns("Fecha", localDateKey(createdAt)),
+    receiptPrintColumns("Hora", formatTime(createdAt)),
+    receiptPrintColumns("Mesa/orden", orderLabel(order)),
     receiptPrintColumns("Folio", orderNumber || "-"),
     receiptPrintColumns("Mesero", waiterName(createdBy)),
     receiptPrintRule(),
@@ -6695,6 +6743,8 @@ function buildSampleCommandReceiptText() {
     type: "table",
     tableNumber: 4,
     orderNumber: "12",
+    dailyOrderNumber: 3,
+    openedAt: new Date().toISOString(),
     waiterId: currentUser()?.id || "",
   };
   const sampleBatch = {
@@ -8877,9 +8927,11 @@ function openTable(formElement) {
     render();
     return;
   }
+  const openedAt = new Date().toISOString();
   const order = {
     id: safeId("order"),
     orderNumber: nextOrderNumber(),
+    dailyOrderNumber: nextDailyOrderNumber(openedAt),
     type: "table",
     tableNumber,
     guests: Math.max(1, Number(form.get("guests")) || 1),
@@ -8890,7 +8942,7 @@ function openTable(formElement) {
     items: [],
     commandBatches: [],
     ...currentOrderTaxSnapshot(),
-    openedAt: new Date().toISOString(),
+    openedAt,
     openedBy: currentUser().id,
   };
   state.orders.push(order);
@@ -8943,9 +8995,11 @@ function openTakeout(event) {
     return;
   }
   const form = new FormData(event.currentTarget);
+  const openedAt = new Date().toISOString();
   const order = {
     id: safeId("order"),
     orderNumber: nextOrderNumber(),
+    dailyOrderNumber: nextDailyOrderNumber(openedAt),
     type: "takeout",
     tableNumber: null,
     guests: 0,
@@ -8955,7 +9009,7 @@ function openTakeout(event) {
     items: [],
     commandBatches: [],
     ...currentOrderTaxSnapshot(),
-    openedAt: new Date().toISOString(),
+    openedAt,
     openedBy: currentUser().id,
   };
   state.orders.push(order);
@@ -9443,6 +9497,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     paymentUid,
     orderId: order.id,
     orderNumber,
+    dailyOrderNumber: orderDailyNumber(order, closedAt),
     type: order.type,
     tableNumber: order.tableNumber,
     label: orderLabel(order),
