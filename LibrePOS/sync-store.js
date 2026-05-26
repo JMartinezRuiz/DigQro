@@ -2003,6 +2003,22 @@ export function createSyncMiddleware() {
         return;
       }
 
+      if (url.pathname === "/api/printers/command/print" && req.method === "POST") {
+        const rawBody = await readBody(req);
+        const payload = rawBody ? JSON.parse(rawBody) : {};
+        if (!(await requirePrinterUser(res, String(payload.userId || "")))) return;
+        try {
+          sendJson(res, 200, await printSaleReceiptTicket(payload.printerName, payload.ticketText, {
+            marginMm: payload.marginMm,
+            marginLeftMm: payload.marginLeftMm,
+            marginRightMm: payload.marginRightMm,
+          }));
+        } catch (error) {
+          sendJson(res, 500, { error: "printer-command-failed", detail: compactError(error) });
+        }
+        return;
+      }
+
       if (url.pathname === "/api/printers/remove" && req.method === "POST") {
         const rawBody = await readBody(req);
         const payload = rawBody ? JSON.parse(rawBody) : {};

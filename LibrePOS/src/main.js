@@ -624,6 +624,7 @@ const defaultState = {
   view: "sale",
   navPage: 0,
   configTab: "general",
+  printingTab: "tickets",
   activeOrderId: null,
   activeSection: "Para picar",
   activeSubsection: "Todos",
@@ -651,6 +652,8 @@ const defaultState = {
     subtitle: "Los Tatas · POS restaurante",
     theme: "tatias",
     ticketPrinterName: "",
+    commandPrinterName: "",
+    commandAutoPrint: false,
     ticketMarginMm: DEFAULT_TICKET_MARGIN_MM,
     ticketMarginLeftMm: DEFAULT_TICKET_MARGIN_MM,
     ticketMarginRightMm: DEFAULT_TICKET_MARGIN_MM,
@@ -703,8 +706,12 @@ let printerRuntime = {
   printers: [],
   selectedName: loadPrinterName(),
   manualName: "",
+  manualCommandName: "",
   error: "",
   lastPrintedAt: "",
+  commandPrinting: false,
+  commandLastPrintedAt: "",
+  commandPreviewText: "",
   fakeReceiptText: "",
   fakeReceiptType: "prepaid",
 };
@@ -898,6 +905,35 @@ function loadPrinterName() {
 
 function selectedTicketPrinterName() {
   return String(state.settings?.ticketPrinterName || printerRuntime.selectedName || loadPrinterName() || "").trim();
+}
+
+function savedCommandPrinterName() {
+  return String(state.settings?.commandPrinterName || "").trim();
+}
+
+function selectedCommandPrinterName() {
+  return savedCommandPrinterName() || selectedTicketPrinterName();
+}
+
+function commandAutoPrintEnabled() {
+  return Boolean(state.settings?.commandAutoPrint);
+}
+
+function saveCommandPrinterName(name) {
+  state.settings = {
+    ...state.settings,
+    commandPrinterName: String(name || "").trim(),
+  };
+  persist();
+}
+
+function saveCommandAutoPrint(enabled) {
+  state.settings = {
+    ...state.settings,
+    commandAutoPrint: Boolean(enabled),
+  };
+  persist();
+  render();
 }
 
 function ticketMarginLeftMm() {
@@ -3162,14 +3198,15 @@ function renderMixtoBreakdown(product, item) {
 function renderCommandOptions(order) {
   const pending = order.items.filter((item) => item.status === "pending");
   const cashOpen = isCashOpen();
+  const autoPrint = commandAutoPrintEnabled();
   return `
     <div class="command-box">
       ${cashOpen ? "" : renderCashClosedNotice()}
       <p class="mini-title">Enviar ${pending.length} linea${pending.length === 1 ? "" : "s"}</p>
       <div class="command-grid">
-        <button class="command-option" data-command-mode="digital" ${cashOpen ? "" : "disabled"}>${svg("digital")}Digital</button>
-        <button class="command-option" disabled title="Pendiente de impresora">${svg("print")}Impresa</button>
-        <button class="command-option" disabled title="Pendiente de impresora">${svg("print")}Ambas</button>
+        <button class="command-option" data-command-mode="digital" ${cashOpen ? "" : "disabled"}>${svg(autoPrint ? "print" : "digital")}${autoPrint ? "Digital + impresa" : "Digital"}</button>
+        <button class="command-option" disabled title="Usa Configuracion > Impresion > Comandas">${svg("print")}Impresa</button>
+        <button class="command-option" disabled title="Usa Configuracion > Impresion > Comandas">${svg("print")}Ambas</button>
       </div>
     </div>
   `;
@@ -5929,9 +5966,31 @@ function printerCandidateName() {
   return manualPrinterName() || printerChoiceName();
 }
 
+function commandPrinterChoiceName() {
+  const select = document.querySelector("[data-command-printer-select]");
+  return String(select?.value || "").trim();
+}
+
+function manualCommandPrinterName() {
+  const input = document.querySelector("[data-command-printer-manual]");
+  return cleanUserText(input?.value || printerRuntime.manualCommandName);
+}
+
+function commandPrinterCandidateName() {
+  return manualCommandPrinterName() || commandPrinterChoiceName();
+}
+
 function renderedPrinterValue() {
   const selectedTicketPrinter = selectedTicketPrinterName();
   if (selectedTicketPrinter) return selectedTicketPrinter;
+  const ticketPrinter = printerRuntime.printers.find((printer) => printer.isTicketLikely);
+  const defaultPrinter = printerRuntime.printers.find((printer) => printer.isDefault);
+  return ticketPrinter?.name || defaultPrinter?.name || printerRuntime.printers[0]?.name || "";
+}
+
+function renderedCommandPrinterValue() {
+  const selectedCommandPrinter = selectedCommandPrinterName();
+  if (selectedCommandPrinter) return selectedCommandPrinter;
   const ticketPrinter = printerRuntime.printers.find((printer) => printer.isTicketLikely);
   const defaultPrinter = printerRuntime.printers.find((printer) => printer.isDefault);
   return ticketPrinter?.name || defaultPrinter?.name || printerRuntime.printers[0]?.name || "";
@@ -5942,6 +6001,26 @@ function renderPrinterOptions() {
   const options = [];
   if (selected && !printerRuntime.printers.some((printer) => printer.name === selected)) {
     options.push(`<option value="${escapeAttr(selected)}" selected>${escapeHtml(selected)} (tickets)</option>`);
+  }
+  printerRuntime.printers.forEach((printer) => {
+    const details = [printer.portName, printer.driverName].filter(Boolean).join(" · ");
+    const status = printer.workOffline ? " · offline" : "";
+    options.push(`
+      <option value="${escapeAttr(printer.name)}" ${printer.name === selected ? "selected" : ""}>
+        ${escapeHtml(printer.name)}${printer.isTicketLikely ? " (sugerida)" : printer.isDefault ? " (predeterminada)" : ""}${details ? ` · ${escapeHtml(details)}` : ""}${status}
+      </option>
+    `);
+  });
+  if (options.length) return options.join("");
+  if (printerRuntime.loading) return `<option value="">Buscando impresoras...</option>`;
+  return `<option value="">Sin impresoras detectadas</option>`;
+}
+
+function renderCommandPrinterOptions() {
+  const selected = renderedCommandPrinterValue();
+  const options = [];
+  if (selected && !printerRuntime.printers.some((printer) => printer.name === selected)) {
+    options.push(`<option value="${escapeAttr(selected)}" selected>${escapeHtml(selected)} (comandas)</option>`);
   }
   printerRuntime.printers.forEach((printer) => {
     const details = [printer.portName, printer.driverName].filter(Boolean).join(" · ");
@@ -6038,6 +6117,19 @@ function renderReceiptPreviewHtml(text) {
   `;
 }
 
+function renderCommandReceiptPreviewHtml(text) {
+  const value = String(text || "");
+  if (!value) {
+    return `<div class="printer-receipt-preview printer-receipt-placeholder">Genera una comanda para previsualizarla.</div>`;
+  }
+  const lines = value.split("\n");
+  return `
+    <div class="printer-receipt-preview">
+      ${lines.map((line) => `<div class="printer-receipt-line">${line ? escapeHtml(line) : "&nbsp;"}</div>`).join("")}
+    </div>
+  `;
+}
+
 function configTabs() {
   return [
     ["general", "General"],
@@ -6045,8 +6137,19 @@ function configTabs() {
   ];
 }
 
+function printingTabs() {
+  return [
+    ["tickets", "Tickets"],
+    ["commands", "Comandas"],
+  ];
+}
+
 function activeConfigTab() {
   return state.configTab === "printing" ? "printing" : "general";
+}
+
+function activePrintingTab() {
+  return state.printingTab === "commands" ? "commands" : "tickets";
 }
 
 function isPrintingConfigView() {
@@ -6055,6 +6158,12 @@ function isPrintingConfigView() {
 
 function setConfigTab(tab) {
   state.configTab = tab === "printing" ? "printing" : "general";
+  persist();
+  render();
+}
+
+function setPrintingTab(tab) {
+  state.printingTab = tab === "commands" ? "commands" : "tickets";
   persist();
   render();
 }
@@ -6179,8 +6288,28 @@ function renderResetFoliosModal() {
   `;
 }
 
+function renderPrintingTabPanel() {
+  const active = activePrintingTab();
+  return `
+    <section class="panel data-grid-wide config-tabs-panel">
+      <div class="panel-body">
+        <div class="chip-row compact-chip-row">
+          ${printingTabs()
+            .map(([id, label]) => `
+              <button class="chip ${active === id ? "is-active" : ""}" data-printing-tab="${id}" type="button">
+                ${escapeHtml(label)}
+              </button>
+            `)
+            .join("")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function renderPrinterTest() {
   if (!isAdminUser()) return "";
+  if (activePrintingTab() === "commands") return renderCommandPrinterSettings();
   const printersCount = printerRuntime.printers.length;
   const selectedTicketName = selectedTicketPrinterName();
   const selectedLabel = selectedTicketName || "Pendiente";
@@ -6200,6 +6329,7 @@ function renderPrinterTest() {
       : `${printersCount} impresora${printersCount === 1 ? "" : "s"}`;
   return `
     <div class="data-layout printer-layout" data-printer-panel ${ticketMarginPreviewStyle()}>
+      ${renderPrintingTabPanel()}
       <section class="summary-grid">
         ${renderSummaryCard("Impresoras", String(printersCount))}
         ${renderSummaryCard("Ticket", escapeHtml(selectedLabel))}
@@ -6327,6 +6457,92 @@ function renderPrinterTest() {
   `;
 }
 
+function renderCommandPrinterSettings() {
+  const printersCount = printerRuntime.printers.length;
+  const savedCommandName = savedCommandPrinterName();
+  const selectedCommandName = selectedCommandPrinterName();
+  const selectedTicketName = selectedTicketPrinterName();
+  const selectedLabel = selectedCommandName || "Pendiente";
+  const autoEnabled = commandAutoPrintEnabled();
+  const removeTarget = renderedCommandPrinterValue() || printerRuntime.manualCommandName;
+  const fallbackLabel = savedCommandName ? "Dedicada" : (selectedTicketName ? "Usa tickets" : "Pendiente");
+  const status = printerRuntime.error
+    ? printerRuntime.error
+    : printerRuntime.loading
+      ? "Buscando impresoras"
+      : `${printersCount} impresora${printersCount === 1 ? "" : "s"}`;
+  const previewText = commandPreviewText();
+  return `
+    <div class="data-layout printer-layout" data-printer-panel ${ticketMarginPreviewStyle()}>
+      ${renderPrintingTabPanel()}
+      <section class="summary-grid">
+        ${renderSummaryCard("Impresoras", String(printersCount))}
+        ${renderSummaryCard("Comandas", autoEnabled ? "Automaticas" : "Desactivadas", autoEnabled ? "ok" : "")}
+        ${renderSummaryCard("Impresora", escapeHtml(selectedLabel))}
+        ${renderSummaryCard("Modo", escapeHtml(fallbackLabel))}
+        ${renderSummaryCard("Ultima comanda", printerRuntime.commandLastPrintedAt ? formatDateTime(printerRuntime.commandLastPrintedAt) : "Sin prueba")}
+      </section>
+      <section class="panel data-grid-wide printer-panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Comandas de cocina</h2>
+            <p class="panel-kicker">${escapeHtml(status)}</p>
+          </div>
+        </div>
+        <div class="panel-body field-grid">
+          <label class="field printer-logo-toggle">
+            <span>Impresion automatica</span>
+            <input data-command-print-enabled type="checkbox" ${autoEnabled ? "checked" : ""} />
+            <small>Cuando una mesa se comanda, se envia una comanda simple a cocina.</small>
+          </label>
+          <label class="field">
+            <span>Impresora de comandas</span>
+            <select data-command-printer-select ${printerRuntime.loading ? "disabled" : ""}>
+              ${renderCommandPrinterOptions()}
+            </select>
+            <small>${savedCommandName ? `Guardada: ${escapeHtml(savedCommandName)}` : "Si no guardas una dedicada, usa la impresora de tickets."}</small>
+          </label>
+          <label class="field">
+            <span>Nombre manual</span>
+            <input data-command-printer-manual value="${escapeAttr(printerRuntime.manualCommandName)}" placeholder="Nombre exacto para comandas" ${printerRuntime.loading ? "disabled" : ""} />
+          </label>
+          ${printerRuntime.error ? `<div class="checkout-warning">${svg("alert")}${escapeHtml(printerRuntime.error)}</div>` : ""}
+          <div class="printer-action-row">
+            <button class="secondary-button" data-select-command-printer type="button" ${printerRuntime.loading ? "disabled" : ""}>
+              ${svg("print")}Seleccionar para comandas
+            </button>
+            <button class="secondary-button" data-clear-command-printer type="button" ${printerRuntime.loading || (!savedCommandName && !printerRuntime.manualCommandName) ? "disabled" : ""}>
+              ${svg("trash")}Quitar guardada
+            </button>
+            <button class="primary-button" data-print-command-preview type="button" ${printerRuntime.commandPrinting || !selectedCommandName ? "disabled" : ""}>
+              ${svg("print")}${printerRuntime.commandPrinting ? "Imprimiendo" : "Imprimir prueba comanda"}
+            </button>
+            <button class="danger-button" data-remove-system-printer type="button" ${printerRuntime.loading || printerRuntime.removing || !removeTarget ? "disabled" : ""}>
+              ${svg("trash")}${printerRuntime.removing ? "Eliminando" : "Eliminar del sistema"}
+            </button>
+          </div>
+        </div>
+      </section>
+      <section class="panel data-grid-wide printer-preview-panel">
+        <div class="panel-header">
+          <div>
+            <h2 class="panel-title">Previsualizacion comanda</h2>
+            <p class="panel-kicker">Formato simple para cocina, sin precios, propina ni IVA.</p>
+          </div>
+        </div>
+        <div class="panel-body printer-preview-body">
+          <div class="printer-preview-actions">
+            <button class="secondary-button" data-refresh-command-preview type="button">
+              ${svg("transfer")}Actualizar previsualizacion
+            </button>
+          </div>
+          ${renderCommandReceiptPreviewHtml(previewText)}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function printerErrorMessage(error) {
   const value = String(error || "");
   const normalized = normalize(value);
@@ -6342,6 +6558,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-fake-receipt-failed")) return `No se pudo imprimir la cuenta falsa: ${value}`;
   if (normalized.includes("printer-header-print-failed")) return `No se pudo imprimir la cabecera: ${value}`;
   if (normalized.includes("printer-logo-print-failed")) return `No se pudo imprimir el logo: ${value}`;
+  if (normalized.includes("printer-command-failed")) return `No se pudo imprimir la comanda: ${value}`;
   if (normalized.includes("printer-receipt-failed")) return `No se pudo imprimir el ticket: ${value}`;
   if (normalized.includes("printer-sale-receipt-failed")) return `No se pudo imprimir el ticket de cobro: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
@@ -6429,6 +6646,76 @@ function saleReceiptItemLines(item) {
   if (item.optionsText) lines.push(...receiptPrintWrap(item.optionsText));
   if (item.note) lines.push(...receiptPrintWrap(`Nota: ${item.note}`));
   return lines;
+}
+
+function commandReceiptPartLines(line) {
+  const parts = lineParts(line);
+  if (!parts) return [];
+  return parts.flatMap((part, index) => {
+    const label = part?.label || part?.name || `Parte ${index + 1}`;
+    const productName = part?.productName || part?.product?.name || "";
+    const text = productName ? `${label}: ${productName}` : label;
+    return receiptPrintWrap(text);
+  });
+}
+
+function commandReceiptLineLines(line) {
+  const qty = formatPlainNumber(line.qty || 1);
+  const name = line.name || "Producto";
+  const station = line.station ? receiptPrintSanitize(line.station).slice(0, 8) : "";
+  const lines = station ? [receiptPrintColumns(`${qty} ${name}`, station)] : receiptPrintWrap(`${qty} ${name}`, "");
+  lines.push(...commandReceiptPartLines(line));
+  if (line.optionsText) lines.push(...receiptPrintWrap(line.optionsText));
+  if (line.note) lines.push(...receiptPrintWrap(`Nota: ${line.note}`));
+  return lines;
+}
+
+function buildCommandReceiptText(order, batch) {
+  const createdAt = batch?.createdAt || new Date().toISOString();
+  const orderNumber = orderNumberLabel(order);
+  const createdBy = batch?.createdBy || order?.waiterId || currentUser()?.id || "";
+  const lines = [
+    receiptPrintCenter("COMANDA"),
+    receiptPrintRule("="),
+    receiptPrintColumns(orderLabel(order), formatCsvDateTime(createdAt)),
+    receiptPrintColumns("Folio", orderNumber || "-"),
+    receiptPrintColumns("Mesero", waiterName(createdBy)),
+    receiptPrintRule(),
+    ...(Array.isArray(batch?.lines) ? batch.lines.flatMap(commandReceiptLineLines) : []),
+    receiptPrintRule(),
+    receiptPrintCenter("COCINA"),
+    "",
+    "",
+  ].filter((line) => line !== "");
+  return lines.join("\n");
+}
+
+function buildSampleCommandReceiptText() {
+  const sampleOrder = {
+    type: "table",
+    tableNumber: 4,
+    orderNumber: "12",
+    waiterId: currentUser()?.id || "",
+  };
+  const sampleBatch = {
+    createdAt: new Date().toISOString(),
+    createdBy: currentUser()?.id || "",
+    lines: [
+      { qty: 2, name: "Tacos de cecina", station: "Cocina", optionsText: "Salsa aparte", note: "Sin cebolla" },
+      { qty: 1, name: "Quesadilla", station: "Cocina", optionsText: "Queso extra" },
+      { qty: 1, name: "Agua fresca", station: "Barra", note: "Poco hielo" },
+    ],
+  };
+  return buildCommandReceiptText(sampleOrder, sampleBatch);
+}
+
+function commandPreviewText() {
+  return printerRuntime.commandPreviewText || buildSampleCommandReceiptText();
+}
+
+function refreshCommandPreview() {
+  printerRuntime.commandPreviewText = buildSampleCommandReceiptText();
+  render();
 }
 
 function saleReceiptTipLabel(sale) {
@@ -6528,6 +6815,95 @@ async function sendReceiptPrintRequest(ticketText) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.detail || payload.error || "printer-receipt-error");
   return payload;
+}
+
+async function sendCommandPrintRequest(ticketText) {
+  const printerName = selectedCommandPrinterName();
+  if (!printerName) {
+    throw new Error("printer-required");
+  }
+  const response = await fetch("/api/printers/command/print", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: currentUser()?.id || "",
+      printerName,
+      ...ticketMarginPayload(),
+      ticketText,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || payload.error || "printer-command-error");
+  return payload;
+}
+
+function markCommandBatchPrinted(batch, payload = {}) {
+  if (!batch) return;
+  batch.printedAt = payload.printedAt || new Date().toISOString();
+  batch.printedBy = currentUser()?.id || batch.printedBy || "";
+  batch.printMethod = payload.method || "";
+  batch.printError = "";
+  batch.printFailedAt = "";
+}
+
+function markCommandBatchFailed(batch, error) {
+  if (!batch) return;
+  batch.printError = printerErrorMessage(error?.message || error);
+  batch.printFailedAt = new Date().toISOString();
+}
+
+async function printCommandBatch(orderId, batchId, { silent = false, force = false } = {}) {
+  if (!force && !commandAutoPrintEnabled()) return false;
+  const order = getOrder(orderId);
+  const batch = order?.commandBatches?.find((item) => item.id === batchId);
+  if (!order || !batch) {
+    if (!silent) showToast("No se encontro la comanda para imprimir.");
+    return false;
+  }
+  printerRuntime.commandPrinting = true;
+  if (isPrintingConfigView()) render();
+  try {
+    const payload = await sendCommandPrintRequest(buildCommandReceiptText(order, batch));
+    markCommandBatchPrinted(batch, payload);
+    printerRuntime.commandLastPrintedAt = payload.printedAt || new Date().toISOString();
+    persist();
+    if (!silent) showToast("Comanda impresa.");
+    return true;
+  } catch (error) {
+    markCommandBatchFailed(batch, error);
+    persist();
+    if (!silent) showToast(`Comanda enviada, pero no se imprimio: ${printerErrorMessage(error.message)}`);
+    return false;
+  } finally {
+    printerRuntime.commandPrinting = false;
+    if (currentUser() && (isPrintingConfigView() || state.view === "sale" || state.view === "kitchen")) render();
+  }
+}
+
+async function printCommandPreview() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede imprimir pruebas.");
+    return;
+  }
+  if (!selectedCommandPrinterName()) {
+    showToast("Selecciona una impresora para comandas.");
+    return;
+  }
+  printerRuntime.commandPrinting = true;
+  printerRuntime.error = "";
+  printerRuntime.commandPreviewText = commandPreviewText();
+  render();
+  try {
+    const payload = await sendCommandPrintRequest(printerRuntime.commandPreviewText);
+    printerRuntime.commandLastPrintedAt = payload.printedAt || new Date().toISOString();
+    showToast("Prueba de comanda enviada.");
+  } catch (error) {
+    printerRuntime.error = printerErrorMessage(error.message);
+    showToast(printerRuntime.error);
+  } finally {
+    printerRuntime.commandPrinting = false;
+    if (isPrintingConfigView()) render();
+  }
 }
 
 function markPostpaidReceiptPrinted(sale, payload = {}) {
@@ -6718,6 +7094,34 @@ function clearSavedPrinter() {
   printerRuntime.manualName = "";
   printerRuntime.error = "";
   showToast("Impresora quitada de LibrePOS.");
+  render();
+}
+
+async function selectCommandPrinterFromList() {
+  if (!isAdminUser()) {
+    showToast("Solo admin puede seleccionar impresora.");
+    return;
+  }
+  if (!printerRuntime.loaded && !printerRuntime.loading) {
+    await loadPrinterList(true);
+  }
+  const printerName = commandPrinterCandidateName();
+  if (!printerName) {
+    showToast("Selecciona una impresora o escribe el nombre manual.");
+    return;
+  }
+  saveCommandPrinterName(printerName);
+  printerRuntime.manualCommandName = "";
+  printerRuntime.error = "";
+  showToast(`Impresora de comandas: ${printerName}`);
+  render();
+}
+
+function clearSavedCommandPrinter() {
+  saveCommandPrinterName("");
+  printerRuntime.manualCommandName = "";
+  printerRuntime.error = "";
+  showToast("Impresora de comandas quitada. Se usara la de tickets.");
   render();
 }
 
@@ -6939,7 +7343,9 @@ async function removeSelectedSystemPrinter() {
     showToast("Solo admin puede eliminar impresoras.");
     return;
   }
-  const printerName = printerCandidateName() || selectedTicketPrinterName();
+  const printerName = activePrintingTab() === "commands"
+    ? (commandPrinterCandidateName() || selectedCommandPrinterName())
+    : (printerCandidateName() || selectedTicketPrinterName());
   if (!printerName) {
     showToast("Selecciona una impresora.");
     return;
@@ -6957,7 +7363,9 @@ async function removeSelectedSystemPrinter() {
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-remove-error");
     if (selectedTicketPrinterName() === printerName) savePrinterName("");
+    if (savedCommandPrinterName() === printerName) saveCommandPrinterName("");
     printerRuntime.manualName = "";
+    printerRuntime.manualCommandName = "";
     printerRuntime.loaded = false;
     printerRuntime.printers = [];
     showToast(`Impresora eliminada: ${printerName}`);
@@ -8330,6 +8738,9 @@ function bindEvents() {
   document.querySelectorAll("[data-config-tab]").forEach((button) => {
     button.addEventListener("click", () => setConfigTab(button.dataset.configTab));
   });
+  document.querySelectorAll("[data-printing-tab]").forEach((button) => {
+    button.addEventListener("click", () => setPrintingTab(button.dataset.printingTab));
+  });
   document.querySelector("[data-iva-enabled]")?.addEventListener("change", (event) => {
     saveIvaEnabled(event.target.checked);
   });
@@ -8339,7 +8750,7 @@ function bindEvents() {
   document.querySelector("[data-reset-folios-form]")?.addEventListener("submit", resetOrderFolios);
   if (document.querySelector("[data-printer-panel]")) {
     loadPrinterList();
-    loadFakeReceiptPreview();
+    if (activePrintingTab() === "tickets") loadFakeReceiptPreview();
     document.querySelector("[data-printer-manual]")?.addEventListener("input", (event) => {
       printerRuntime.manualName = event.target.value;
     });
@@ -8347,6 +8758,17 @@ function bindEvents() {
       if (event.key !== "Enter") return;
       event.preventDefault();
       selectPrinterFromList();
+    });
+    document.querySelector("[data-command-printer-manual]")?.addEventListener("input", (event) => {
+      printerRuntime.manualCommandName = event.target.value;
+    });
+    document.querySelector("[data-command-printer-manual]")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      selectCommandPrinterFromList();
+    });
+    document.querySelector("[data-command-print-enabled]")?.addEventListener("change", (event) => {
+      saveCommandAutoPrint(event.target.checked);
     });
     document.querySelectorAll("[data-ticket-margin-mm]").forEach((input) => {
       input.addEventListener("change", (event) => {
@@ -8375,6 +8797,8 @@ function bindEvents() {
     document.querySelector("[data-clear-ticket-logo]")?.addEventListener("click", clearTicketLogo);
     document.querySelector("[data-select-printer]")?.addEventListener("click", selectPrinterFromList);
     document.querySelector("[data-clear-printer]")?.addEventListener("click", clearSavedPrinter);
+    document.querySelector("[data-select-command-printer]")?.addEventListener("click", selectCommandPrinterFromList);
+    document.querySelector("[data-clear-command-printer]")?.addEventListener("click", clearSavedCommandPrinter);
     document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
     document.querySelector("[data-print-legacy]")?.addEventListener("click", sendPrinterLegacyTest);
     document.querySelectorAll("[data-generate-fake-receipt]").forEach((button) => {
@@ -8385,6 +8809,8 @@ function bindEvents() {
     });
     document.querySelector("[data-print-receipt-header]")?.addEventListener("click", printReceiptHeader);
     document.querySelector("[data-print-logo]")?.addEventListener("click", printLogoTest);
+    document.querySelector("[data-refresh-command-preview]")?.addEventListener("click", refreshCommandPreview);
+    document.querySelector("[data-print-command-preview]")?.addEventListener("click", printCommandPreview);
     document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
   }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);
@@ -9748,6 +10174,9 @@ function commandPending(mode, source) {
   showToast(`Comanda digital enviada para ${orderLabel(order)}.`);
   celebrateAction("kitchen", source, "A cocina");
   render();
+  if (commandAutoPrintEnabled()) {
+    void printCommandBatch(order.id, batch.id);
+  }
 }
 
 function finalizeOrder(source) {
