@@ -679,9 +679,9 @@ const defaultState = {
 };
 
 let state = loadState();
-const savedTicketPrinterName = loadPrinterName();
-if (!state.settings.ticketPrinterName && savedTicketPrinterName) {
-  state.settings = { ...state.settings, ticketPrinterName: savedTicketPrinterName };
+const storedTicketPrinterName = loadPrinterName();
+if (!state.settings.ticketPrinterName && storedTicketPrinterName) {
+  state.settings = { ...state.settings, ticketPrinterName: storedTicketPrinterName };
 }
 let toastTimer;
 let celebrationTimer;
@@ -947,7 +947,7 @@ function loadPrinterName() {
   }
 }
 
-function selectedTicketPrinterName() {
+function savedTicketPrinterName() {
   return String(state.settings?.ticketPrinterName || printerRuntime.selectedName || loadPrinterName() || "").trim();
 }
 
@@ -955,8 +955,12 @@ function savedCommandPrinterName() {
   return String(state.settings?.commandPrinterName || "").trim();
 }
 
+function selectedTicketPrinterName() {
+  return savedTicketPrinterName() || savedCommandPrinterName();
+}
+
 function selectedCommandPrinterName() {
-  return savedCommandPrinterName() || selectedTicketPrinterName();
+  return savedCommandPrinterName() || savedTicketPrinterName();
 }
 
 function commandAutoPrintEnabled() {
@@ -6355,6 +6359,7 @@ function renderPrinterTest() {
   if (!isAdminUser()) return "";
   if (activePrintingTab() === "commands") return renderCommandPrinterSettings();
   const printersCount = printerRuntime.printers.length;
+  const savedTicketName = savedTicketPrinterName();
   const selectedTicketName = selectedTicketPrinterName();
   const selectedLabel = selectedTicketName || "Pendiente";
   const marginLeftMm = ticketMarginLeftMm();
@@ -6443,7 +6448,7 @@ function renderPrinterTest() {
             <button class="secondary-button" data-select-printer type="button" ${printerRuntime.loading ? "disabled" : ""}>
               ${svg("print")}Seleccionar para tickets
             </button>
-            <button class="secondary-button" data-clear-printer type="button" ${printerRuntime.loading || printerRuntime.removing || (!selectedTicketName && !printerRuntime.manualName) ? "disabled" : ""}>
+            <button class="secondary-button" data-clear-printer type="button" ${printerRuntime.loading || printerRuntime.removing || (!savedTicketName && !printerRuntime.manualName) ? "disabled" : ""}>
               ${svg("trash")}Quitar guardada
             </button>
             <button class="primary-button" data-print-test type="button" ${printerRuntime.printing || !selectedTicketName ? "disabled" : ""}>
@@ -6603,6 +6608,8 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-header-print-failed")) return `No se pudo imprimir la cabecera: ${value}`;
   if (normalized.includes("printer-logo-print-failed")) return `No se pudo imprimir el logo: ${value}`;
   if (normalized.includes("printer-command-failed")) return `No se pudo imprimir la comanda: ${value}`;
+  if (normalized.includes("printer-command-fallback-error")) return `No se pudo imprimir la comanda con la ruta de compatibilidad: ${value}`;
+  if (normalized.includes("printer-fetch-failed") || normalized.includes("failed to fetch") || normalized.includes("load failed")) return `No se pudo contactar la API local de impresion: ${value}`;
   if (normalized.includes("printer-receipt-failed")) return `No se pudo imprimir el ticket: ${value}`;
   if (normalized.includes("printer-sale-receipt-failed")) return `No se pudo imprimir el ticket de cobro: ${value}`;
   if (normalized.includes("access is denied") || normalized.includes("acceso denegado")) return "Windows denego el acceso a la impresora. Ejecuta LibrePOS como administrador o revisa permisos.";
@@ -6706,8 +6713,7 @@ function commandReceiptPartLines(line) {
 function commandReceiptLineLines(line) {
   const qty = formatPlainNumber(line.qty || 1);
   const name = line.name || "Producto";
-  const station = line.station ? receiptPrintSanitize(line.station).slice(0, 8) : "";
-  const lines = station ? [receiptPrintColumns(`${qty} ${name}`, station)] : receiptPrintWrap(`${qty} ${name}`, "");
+  const lines = receiptPrintWrap(`${qty} ${name}`, "");
   lines.push(...commandReceiptPartLines(line));
   if (line.optionsText) lines.push(...receiptPrintWrap(line.optionsText));
   if (line.note) lines.push(...receiptPrintWrap(`Nota: ${line.note}`));
@@ -6731,7 +6737,8 @@ function buildCommandReceiptText(order, batch) {
     receiptPrintRule(),
     ...(Array.isArray(batch?.lines) ? batch.lines.flatMap(commandReceiptLineLines) : []),
     receiptPrintRule(),
-    receiptPrintCenter("COCINA"),
+    receiptPrintRule("="),
+    receiptPrintRule("-"),
     "",
     "",
   ].filter((line) => line !== "");
@@ -6846,25 +6853,39 @@ function buildPostpaidReceiptText(sale) {
   return lines.join("\n");
 }
 
+async function postPrinterRequest(path, body, fallbackError) {
+  let response;
+  try {
+    response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    const detail = `${path} ${error?.message || error || "fetch-error"}`;
+    throw new Error(`printer-fetch-failed ${detail}`);
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload.detail || payload.error || fallbackError);
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
 async function sendReceiptPrintRequest(ticketText) {
   const printerName = selectedTicketPrinterName();
   if (!printerName) {
     throw new Error("printer-required");
   }
-  const response = await fetch("/api/printers/order-receipt/print", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      userId: currentUser()?.id || "",
-      printerName,
-      ...ticketMarginPayload(),
-      ...ticketLogoPayload(),
-      ticketText,
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || payload.error || "printer-receipt-error");
-  return payload;
+  return postPrinterRequest("/api/printers/order-receipt/print", {
+    userId: currentUser()?.id || "",
+    printerName,
+    ...ticketMarginPayload(),
+    ...ticketLogoPayload(),
+    ticketText,
+  }, "printer-receipt-error");
 }
 
 async function sendCommandPrintRequest(ticketText) {
@@ -6872,19 +6893,19 @@ async function sendCommandPrintRequest(ticketText) {
   if (!printerName) {
     throw new Error("printer-required");
   }
-  const response = await fetch("/api/printers/command/print", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      userId: currentUser()?.id || "",
-      printerName,
-      ...ticketMarginPayload(),
-      ticketText,
-    }),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.detail || payload.error || "printer-command-error");
-  return payload;
+  const body = {
+    userId: currentUser()?.id || "",
+    printerName,
+    ...ticketMarginPayload(),
+    ticketText,
+  };
+  try {
+    return await postPrinterRequest("/api/printers/command/print", body, "printer-command-error");
+  } catch (error) {
+    if (error.status !== 404 && !normalize(error.message).includes("printer-fetch-failed")) throw error;
+    const payload = await postPrinterRequest("/api/printers/order-receipt/print", body, "printer-command-fallback-error");
+    return { ...payload, method: payload.method ? `${payload.method}:command-fallback` : "command-fallback" };
+  }
 }
 
 function markCommandBatchPrinted(batch, payload = {}) {
@@ -7189,13 +7210,10 @@ async function sendPrinterTest() {
   printerRuntime.error = "";
   render();
   try {
-    const response = await fetch("/api/printers/test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-test-error");
+    const payload = await postPrinterRequest("/api/printers/test", {
+      userId: currentUser()?.id || "",
+      printerName,
+    }, "printer-test-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
     showToast(payload.method ? `Ticket enviado por ${payload.method}.` : "Ticket de prueba enviado.");
   } catch (error) {
@@ -7221,13 +7239,10 @@ async function sendPrinterLegacyTest() {
   printerRuntime.error = "";
   render();
   try {
-    const response = await fetch("/api/printers/test-legacy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-legacy-test-error");
+    const payload = await postPrinterRequest("/api/printers/test-legacy", {
+      userId: currentUser()?.id || "",
+      printerName,
+    }, "printer-legacy-test-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
     showToast("Impresion legacy enviada.");
   } catch (error) {
@@ -7287,20 +7302,14 @@ async function printFakeReceiptPreview(type = printerRuntime.fakeReceiptType) {
   printerRuntime.error = "";
   render();
   try {
-    const response = await fetch("/api/printers/fake-receipt/print", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: currentUser()?.id || "",
-        printerName,
-        ...ticketMarginPayload(),
-        ...ticketLogoPayload(),
-        type: receiptType,
-        ticketText: receiptTextWithLogoMarker(printerRuntime.fakeReceiptText),
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-error");
+    const payload = await postPrinterRequest("/api/printers/fake-receipt/print", {
+      userId: currentUser()?.id || "",
+      printerName,
+      ...ticketMarginPayload(),
+      ...ticketLogoPayload(),
+      type: receiptType,
+      ticketText: receiptTextWithLogoMarker(printerRuntime.fakeReceiptText),
+    }, "printer-fake-receipt-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
     if (payload.ticketText && !printerRuntime.fakeReceiptText) printerRuntime.fakeReceiptText = String(payload.ticketText);
     showToast(`Prueba ${receiptType === "postpaid" ? "postpago" : "prepago"} enviada.`);
@@ -7327,19 +7336,13 @@ async function printReceiptHeader() {
   printerRuntime.error = "";
   render();
   try {
-    const response = await fetch("/api/printers/receipt-header/print", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: currentUser()?.id || "",
-        printerName,
-        ...ticketMarginPayload(),
-        includeLogo: ticketLogoEnabled(),
-        ...ticketLogoPayload(),
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-header-print-error");
+    const payload = await postPrinterRequest("/api/printers/receipt-header/print", {
+      userId: currentUser()?.id || "",
+      printerName,
+      ...ticketMarginPayload(),
+      includeLogo: ticketLogoEnabled(),
+      ...ticketLogoPayload(),
+    }, "printer-header-print-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
     showToast("Cabecera enviada.");
   } catch (error) {
@@ -7365,18 +7368,12 @@ async function printLogoTest() {
   printerRuntime.error = "";
   render();
   try {
-    const response = await fetch("/api/printers/logo/print", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: currentUser()?.id || "",
-        printerName,
-        ...ticketMarginPayload(),
-        ...logoOnlyPayload(),
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.detail || payload.error || "printer-logo-print-error");
+    const payload = await postPrinterRequest("/api/printers/logo/print", {
+      userId: currentUser()?.id || "",
+      printerName,
+      ...ticketMarginPayload(),
+      ...logoOnlyPayload(),
+    }, "printer-logo-print-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
     showToast("Logo enviado.");
   } catch (error) {
