@@ -663,6 +663,9 @@ const defaultState = {
     ticketLogoPosition: DEFAULT_TICKET_LOGO_POSITION,
     ivaEnabled: false,
     ivaRate: DEFAULT_IVA_RATE,
+    ivaBasePriceConversionAppliedAt: "",
+    ivaBasePriceConversionRate: 0,
+    ivaBasePriceConversionCount: 0,
   },
   users: defaultUsers,
   orders: [],
@@ -1356,6 +1359,7 @@ function normalizeExtraCatalog(extras = [], inventory = []) {
         inventoryItemName: inventoryItem?.name || String(extra.inventoryItemName || extra.itemName || "").trim().toUpperCase(),
         unit: inventoryItem?.unit || String(extra.unit || "PZ").trim().toUpperCase(),
         qty: Math.max(0, Number(extra.qty ?? extra.gramaje ?? extra.grams) || 0),
+        priceHistory: normalizeProductHistory(extra.priceHistory),
         active: extra.active !== false,
         createdAt: extra.createdAt || new Date().toISOString(),
         createdBy: extra.createdBy || "",
@@ -4014,6 +4018,7 @@ function renderModal() {
     "new-extra": isAdminUser() ? renderExtraModal() : "",
     "edit-extra": isAdminUser() && extraTarget ? renderExtraModal(extraTarget) : "",
     "reset-folios": isAdminUser() ? renderResetFoliosModal() : "",
+    "iva-price-conversion": isAdminUser() ? renderIvaPriceConversionModal(state.modal) : "",
     command: order ? renderCommandModal(order) : "",
     price: order ? renderPriceModal(order) : "",
     checkout: modalOrder ? renderCheckoutModal(modalOrder) : "",
@@ -6251,6 +6256,7 @@ function renderGeneralConfig() {
   const rate = currentIvaRate();
   const ratePercent = formatPlainNumber(rate * 100);
   const folioPlan = resetFolioPlan();
+  const pricePlan = ivaPriceConversionPlan();
   return `
     <section class="summary-grid">
       ${renderSummaryCard("IVA", enabled ? "Activo" : "Inactivo", enabled ? "ok" : "")}
@@ -6299,6 +6305,32 @@ function renderGeneralConfig() {
         </button>
       </div>
     </section>
+    <section class="panel data-grid-wide config-general-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Opciones avanzadas</h2>
+          <p class="panel-kicker">Acciones puntuales de administracion fiscal y catalogo</p>
+        </div>
+      </div>
+      <div class="panel-body field-grid">
+        <details class="advanced-settings">
+          <summary>Conversion de precios por IVA</summary>
+          <div class="context-grid">
+            <span><strong>IVA actual</strong>${escapeHtml(ivaLabel(pricePlan.rate))}</span>
+            <span><strong>Productos</strong>${pricePlan.productsCount}</span>
+            <span><strong>Extras</strong>${pricePlan.extrasCount}</span>
+            <span><strong>Estado</strong>${pricePlan.alreadyApplied ? `Aplicado ${formatDateTime(state.settings.ivaBasePriceConversionAppliedAt)}` : "Pendiente"}</span>
+          </div>
+          <p class="muted-text compact-text">
+            Convierte el catalogo para que el precio actual pase a ser base sin IVA. Ejemplo: un precio actual de $100.00 quedara como $${formatPlainNumber(convertBasePriceToGross(100, pricePlan.rate))}; el ticket mostrara $100.00 de base y ${escapeHtml(ivaLabel(pricePlan.rate))} aparte.
+          </p>
+          <button class="danger-button" data-open-modal="iva-price-conversion" type="button" ${pricePlan.enabled && pricePlan.candidatesCount && !pricePlan.alreadyApplied ? "" : "disabled"}>
+            ${svg("alert")}Convertir precios base + IVA
+          </button>
+          <small>${pricePlan.enabled ? "Revisa los ejemplos antes de ejecutar." : "Activa IVA antes de convertir precios."}</small>
+        </details>
+      </div>
+    </section>
   `;
 }
 
@@ -6330,6 +6362,68 @@ function renderResetFoliosModal() {
         </label>
         <button class="danger-button" type="submit" ${plan.count ? "" : "disabled"}>
           ${svg("check")}Confirmar reset
+        </button>
+      </form>
+    </section>
+  `;
+}
+
+function renderIvaPriceConversionModal(modal = {}) {
+  const plan = ivaPriceConversionPlan();
+  const limit = Math.max(3, Number(modal?.exampleLimit) || 3);
+  const seed = Number(modal?.exampleSeed) || Date.now();
+  const examples = ivaPriceConversionExamples(limit, seed);
+  return `
+    <section class="panel modal-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Convertir precios base + IVA</h2>
+          <p class="panel-kicker">Los precios actuales pasan a ser base sin IVA y el total sube por ${escapeHtml(ivaLabel(plan.rate))}.</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-iva-price-conversion-form>
+        <div class="checkout-warning">
+          ${svg("alert")}Esta accion cambia el catalogo hacia delante. No modifica ordenes abiertas, ventas cerradas, inventario ni folios.
+        </div>
+        <div class="context-grid">
+          <span><strong>IVA usado</strong>${escapeHtml(ivaLabel(plan.rate))}</span>
+          <span><strong>Precios afectados</strong>${plan.candidatesCount}</span>
+          <span><strong>Productos</strong>${plan.productsCount}</span>
+          <span><strong>Extras</strong>${plan.extrasCount}</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Tipo</th><th>Nombre</th><th>Actual base</th><th>IVA</th><th>Nuevo total</th></tr>
+            </thead>
+            <tbody>
+              ${
+                examples.length
+                  ? examples.map((item) => `
+                    <tr>
+                      <td>${escapeHtml(item.kind)}</td>
+                      <td>${escapeHtml(item.name)}</td>
+                      <td>${money.format(item.price)}</td>
+                      <td>${money.format(item.iva)}</td>
+                      <td><strong>${money.format(item.nextPrice)}</strong></td>
+                    </tr>
+                  `).join("")
+                  : `<tr><td colspan="5">No hay precios disponibles para convertir.</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+        <button class="secondary-button" type="button" data-more-iva-price-examples ${examples.length >= plan.candidatesCount ? "disabled" : ""}>
+          ${svg("plus")}Ver mas ejemplos
+        </button>
+        <label class="field">
+          <span>Escribe IVA para confirmar</span>
+          <input name="confirm" autocomplete="off" placeholder="IVA" ${plan.enabled && !plan.alreadyApplied ? "" : "disabled"} />
+          <small>Ejemplo: $100.00 actual se guardara como ${money.format(convertBasePriceToGross(100, plan.rate))}; el ticket mostrara base $100.00 + ${escapeHtml(ivaLabel(plan.rate))}.</small>
+        </label>
+        <button class="danger-button" type="submit" ${plan.enabled && plan.candidatesCount && !plan.alreadyApplied ? "" : "disabled"}>
+          ${svg("check")}Aplicar conversion
         </button>
       </form>
     </section>
@@ -8467,6 +8561,10 @@ function bindEvents() {
       if (button.dataset.ingredientId) modal.ingredientId = button.dataset.ingredientId;
       if (button.dataset.ingredientCategory) modal.ingredientCategory = button.dataset.ingredientCategory;
       if (button.dataset.extraId) modal.extraId = button.dataset.extraId;
+      if (modal.type === "iva-price-conversion") {
+        modal.exampleSeed = Date.now();
+        modal.exampleLimit = 3;
+      }
       state.modal = modal;
       persist();
       render();
@@ -8795,6 +8893,8 @@ function bindEvents() {
     saveIvaRatePercent(event.target.value);
   });
   document.querySelector("[data-reset-folios-form]")?.addEventListener("submit", resetOrderFolios);
+  document.querySelector("[data-iva-price-conversion-form]")?.addEventListener("submit", applyIvaBasePriceConversion);
+  document.querySelector("[data-more-iva-price-examples]")?.addEventListener("click", showMoreIvaPriceExamples);
   if (document.querySelector("[data-printer-panel]")) {
     loadPrinterList();
     if (activePrintingTab() === "tickets") loadFakeReceiptPreview();
@@ -9111,6 +9211,59 @@ function resetOrderFolios(event) {
   render();
 }
 
+function showMoreIvaPriceExamples() {
+  if (!state.modal || state.modal.type !== "iva-price-conversion") return;
+  state.modal = {
+    ...state.modal,
+    exampleLimit: Math.min(ivaPriceConversionCandidates().length, Math.max(3, Number(state.modal.exampleLimit) || 3) + 5),
+  };
+  render();
+}
+
+function applyIvaBasePriceConversion(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede convertir precios.");
+    return;
+  }
+  const plan = ivaPriceConversionPlan();
+  if (!plan.enabled) {
+    showToast("Activa IVA antes de convertir precios.");
+    return;
+  }
+  if (plan.alreadyApplied) {
+    showToast("La conversion de precios ya fue aplicada.");
+    state.modal = null;
+    persist();
+    render();
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const confirmation = String(form.get("confirm") || "").trim().toUpperCase();
+  if (confirmation !== "IVA") {
+    showToast("Escribe IVA para confirmar.");
+    return;
+  }
+  const now = new Date().toISOString();
+  const rate = currentIvaRate();
+  const historyMeta = { changedAt: now, changedBy: currentUser()?.id || "" };
+  const convertedProducts = menuProducts({ includeInactive: true }).map((product) => convertedProductForIva(product, rate, historyMeta));
+  const convertedExtras = extraCatalog({ includeInactive: true }).map((extra) => convertedExtraForIva(extra, rate, historyMeta));
+  state.menuProducts = normalizeMenuProducts(convertedProducts);
+  state.extraCatalog = normalizeExtraCatalog(convertedExtras, currentInventory());
+  state.settings = {
+    ...state.settings,
+    ivaBasePriceConversionAppliedAt: now,
+    ivaBasePriceConversionRate: rate,
+    ivaBasePriceConversionCount: plan.candidatesCount,
+  };
+  state.modal = null;
+  printerRuntime.fakeReceiptText = "";
+  persist();
+  showToast(`Precios convertidos: ${plan.candidatesCount} importe${plan.candidatesCount === 1 ? "" : "s"} ahora usan base + IVA.`);
+  render();
+}
+
 function orderIvaRate(order) {
   if (order?.ivaEnabled === true || order?.taxEnabled === true) {
     return cleanIvaRate(order.ivaRate ?? order.taxRate);
@@ -9167,6 +9320,167 @@ function resetFolioPlan() {
   return {
     prefix: nextAvailableFolioPrefix(records),
     count: numericFolios.size,
+  };
+}
+
+function convertBasePriceToGross(price, rate = currentIvaRate()) {
+  const value = roundCurrency(price);
+  const ivaRate = cleanIvaRate(rate);
+  return roundCurrency(value * (1 + ivaRate));
+}
+
+function ivaPriceConversionAlreadyApplied() {
+  return Boolean(state.settings?.ivaBasePriceConversionAppliedAt);
+}
+
+function ivaPriceConversionCandidates() {
+  const products = menuProducts({ includeInactive: true }).map((product) => ({
+    id: `product:${product.id}`,
+    kind: "Producto",
+    name: product.name,
+    price: Number(product.price) || 0,
+  }));
+  const extras = extraCatalog({ includeInactive: true }).map((extra) => ({
+    id: `extra:${extra.id}`,
+    kind: "Extra",
+    name: extra.name,
+    price: Number(extra.price) || 0,
+  }));
+  const variantPrices = menuProducts({ includeInactive: true }).flatMap((product) => (
+    normalizeProductOptions(product.options).flatMap((option) => (
+      option.choices
+        .map((choice, index) => {
+          if (Number.isFinite(Number(choice.price))) {
+            return {
+              id: `choice-price:${product.id}:${option.id}:${index}`,
+              kind: "Variante",
+              name: `${product.name} · ${choice.label}`,
+              price: Number(choice.price),
+            };
+          }
+          if (Number.isFinite(Number(choice.priceDelta)) && Number(choice.priceDelta) > 0) {
+            return {
+              id: `choice-delta:${product.id}:${option.id}:${index}`,
+              kind: "Ajuste",
+              name: `${product.name} · ${choice.label}`,
+              price: Number(choice.priceDelta),
+            };
+          }
+          return null;
+        })
+        .filter(Boolean)
+    ))
+  ));
+  return [...products, ...extras, ...variantPrices].filter((item) => item.price > 0);
+}
+
+function seededSortValue(text, seed = 0) {
+  const value = String(`${seed}:${text}`);
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function ivaPriceConversionExamples(limit = 3, seed = 1) {
+  const rate = currentIvaRate();
+  return ivaPriceConversionCandidates()
+    .map((item) => ({
+      ...item,
+      nextPrice: convertBasePriceToGross(item.price, rate),
+      iva: roundCurrency(convertBasePriceToGross(item.price, rate) - roundCurrency(item.price)),
+      sort: seededSortValue(item.id, seed),
+    }))
+    .sort((a, b) => a.sort - b.sort)
+    .slice(0, Math.max(1, Number(limit) || 3));
+}
+
+function ivaPriceConversionPlan() {
+  const rate = currentIvaRate();
+  const candidates = ivaPriceConversionCandidates();
+  return {
+    rate,
+    ratePercent: formatPlainNumber(rate * 100),
+    enabled: currentIvaEnabled(),
+    alreadyApplied: ivaPriceConversionAlreadyApplied(),
+    candidatesCount: candidates.length,
+    productsCount: menuProducts({ includeInactive: true }).length,
+    extrasCount: extraCatalog({ includeInactive: true }).length,
+  };
+}
+
+function convertChoicePriceForIva(choice = {}, rate, historyMeta) {
+  const nextChoice = { ...choice };
+  if (Number.isFinite(Number(choice.price))) {
+    nextChoice.price = convertBasePriceToGross(Number(choice.price), rate);
+  }
+  if (Number.isFinite(Number(choice.priceDelta))) {
+    nextChoice.priceDelta = convertBasePriceToGross(Number(choice.priceDelta), rate);
+  }
+  if (nextChoice.price !== choice.price || nextChoice.priceDelta !== choice.priceDelta) {
+    nextChoice.ivaBasePriceConvertedAt = historyMeta.changedAt;
+    nextChoice.ivaBasePriceConvertedRate = rate;
+  }
+  return nextChoice;
+}
+
+function convertOptionsForIva(options = [], rate, historyMeta) {
+  return normalizeProductOptions(options).map((option) => ({
+    ...option,
+    choices: option.choices.map((choice) => convertChoicePriceForIva(choice, rate, historyMeta)),
+  }));
+}
+
+function convertedProductForIva(product, rate, historyMeta) {
+  const previousPrice = roundCurrency(product.price);
+  const nextPrice = convertBasePriceToGross(previousPrice, rate);
+  const priceHistory = normalizeProductHistory(product.priceHistory);
+  if (previousPrice !== nextPrice) {
+    priceHistory.unshift({
+      id: safeId("price-history"),
+      changedAt: historyMeta.changedAt,
+      changedBy: historyMeta.changedBy,
+      reason: `Conversion IVA base + ${ivaLabel(rate)}`,
+      previous: { price: previousPrice },
+      next: { price: nextPrice },
+    });
+  }
+  return {
+    ...product,
+    price: nextPrice,
+    options: convertOptionsForIva(product.options, rate, historyMeta),
+    priceHistory,
+    ivaBasePriceConvertedAt: historyMeta.changedAt,
+    ivaBasePriceConvertedRate: rate,
+    updatedAt: historyMeta.changedAt,
+    updatedBy: historyMeta.changedBy,
+  };
+}
+
+function convertedExtraForIva(extra, rate, historyMeta) {
+  const previousPrice = roundCurrency(extra.price);
+  const nextPrice = convertBasePriceToGross(previousPrice, rate);
+  const priceHistory = normalizeProductHistory(extra.priceHistory);
+  if (previousPrice !== nextPrice) {
+    priceHistory.unshift({
+      id: safeId("price-history"),
+      changedAt: historyMeta.changedAt,
+      changedBy: historyMeta.changedBy,
+      reason: `Conversion IVA base + ${ivaLabel(rate)}`,
+      previous: { price: previousPrice },
+      next: { price: nextPrice },
+    });
+  }
+  return {
+    ...extra,
+    price: nextPrice,
+    priceHistory,
+    ivaBasePriceConvertedAt: historyMeta.changedAt,
+    ivaBasePriceConvertedRate: rate,
+    updatedAt: historyMeta.changedAt,
+    updatedBy: historyMeta.changedBy,
   };
 }
 
