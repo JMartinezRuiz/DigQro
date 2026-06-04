@@ -3687,16 +3687,19 @@ button:disabled {
   background: #fff8ec;
 }
 
+.receipt-ticket-cell,
 .postpaid-ticket-cell {
   display: grid;
   min-width: 180px;
   gap: 6px;
 }
 
+.receipt-ticket-cell small,
 .postpaid-ticket-cell small {
   color: var(--muted);
 }
 
+.receipt-ticket-warning,
 .postpaid-ticket-warning {
   display: flex;
   align-items: center;
@@ -3706,6 +3709,7 @@ button:disabled {
   font-weight: 700;
 }
 
+.receipt-ticket-warning .icon,
 .postpaid-ticket-warning .icon {
   flex: 0 0 auto;
 }

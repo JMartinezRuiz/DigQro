@@ -7017,6 +7017,21 @@ function markCommandBatchFailed(batch, error) {
   batch.printFailedAt = new Date().toISOString();
 }
 
+function markPrepaidReceiptPrinted(order, payload = {}) {
+  if (!order) return;
+  order.prepaidReceiptPrintedAt = payload.printedAt || new Date().toISOString();
+  order.prepaidReceiptPrintedBy = currentUser()?.id || order.prepaidReceiptPrintedBy || "";
+  order.prepaidReceiptMethod = payload.method || "";
+  order.prepaidReceiptError = "";
+  order.prepaidReceiptFailedAt = "";
+}
+
+function markPrepaidReceiptFailed(order, error) {
+  if (!order) return;
+  order.prepaidReceiptError = printerErrorMessage(error?.message || error);
+  order.prepaidReceiptFailedAt = new Date().toISOString();
+}
+
 async function printCommandBatch(orderId, batchId, { silent = false, force = false } = {}) {
   if (!force && !commandAutoPrintEnabled()) return false;
   const order = getOrder(orderId);
@@ -7102,13 +7117,15 @@ async function printPrepaidOrderReceipt(orderId) {
   try {
     const ticketText = buildPrepaidReceiptText(order);
     const payload = await sendReceiptPrintRequest(ticketText);
-    order.prepaidReceiptPrintedAt = payload.printedAt || new Date().toISOString();
-    order.prepaidReceiptPrintedBy = currentUser()?.id || "";
+    markPrepaidReceiptPrinted(order, payload);
     persist();
     showToast("Ticket prepago enviado.");
     if (currentUser()) render();
     return true;
   } catch (error) {
+    markPrepaidReceiptFailed(order, error);
+    persist();
+    if (currentUser()) render();
     showToast(`No se imprimio ticket prepago: ${printerErrorMessage(error.message)}`);
     return false;
   }
@@ -7534,6 +7551,28 @@ function orderItemsSummary(items = []) {
   return `${labels.join(" · ")}${remaining > 0 ? ` · +${remaining}` : ""}`;
 }
 
+function firstFilledValue(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function prepaidReceiptMeta(source = {}, fallback = {}) {
+  const printedAt = firstFilledValue(source.prepaidReceiptPrintedAt, fallback.prepaidReceiptPrintedAt);
+  return {
+    prepaidPrinted: Boolean(printedAt),
+    prepaidPrintedAt: printedAt,
+    prepaidError: firstFilledValue(source.prepaidReceiptError, fallback.prepaidReceiptError),
+    prepaidFailedAt: firstFilledValue(source.prepaidReceiptFailedAt, fallback.prepaidReceiptFailedAt),
+  };
+}
+
+function prepaidReceiptPending(record) {
+  return record.statusKey === "open" && record.hasItems && !record.prepaidPrinted;
+}
+
 function postpaidReceiptPrinted(sale) {
   return Boolean(sale?.postpaidReceiptPrintedAt);
 }
@@ -7551,50 +7590,73 @@ function postpaidReceiptWarningVisible(sale) {
 }
 
 function orderSearchRecords() {
-  const activeRecords = (Array.isArray(state.orders) ? state.orders : [])
-    .filter((order) => order.status !== "closed")
+  const orders = Array.isArray(state.orders) ? state.orders : [];
+  const sales = Array.isArray(state.sales) ? state.sales : [];
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const saleOrderIds = new Set(sales.map((sale) => sale.orderId).filter(Boolean));
+  const orderRecords = orders
+    .filter((order) => order.status !== "closed" || !saleOrderIds.has(order.id))
     .map((order) => {
       const totals = calculateTotals(order);
+      const isCancelled = order.status === "cancelled";
+      const isClosed = order.status === "closed";
+      const payment = order.payment || {};
+      const total = isClosed ? roundCurrency(payment.total ?? payment.subtotal ?? totals.total) : totals.total;
+      const iva = isClosed ? roundCurrency(payment.iva ?? payment.taxAmount ?? totals.iva) : totals.iva;
       return {
-        recordType: order.status === "cancelled" ? "Cancelada" : "Abierta",
-        statusKey: order.status === "cancelled" ? "cancelled" : "open",
+        recordType: isCancelled ? "Cancelada" : isClosed ? "Cerrada" : "Abierta",
+        statusKey: isCancelled ? "cancelled" : isClosed ? "closed" : "open",
         id: orderNumberLabel(order, ""),
-        uid: order.status === "cancelled" ? "" : "Pendiente cobro",
+        uid: isCancelled ? "" : isClosed ? firstFilledValue(order.paymentUid, payment.uid) : "Pendiente cobro",
         saleId: "",
-        date: order.cancelledAt || order.openedAt || order.createdAt || new Date().toISOString(),
+        orderId: order.id,
+        hasItems: Boolean(order.items?.length),
+        ...prepaidReceiptMeta(order),
+        postpaidPrinted: false,
+        postpaidPending: false,
+        postpaidWarningVisible: false,
+        date: order.cancelledAt || order.closedAt || order.openedAt || order.createdAt || new Date().toISOString(),
         label: orderLabel(order),
         waiter: waiterName(order.waiterId),
-        payment: order.status === "cancelled" ? "Sin cobro" : "Pendiente",
-        total: totals.total,
-        iva: totals.iva,
+        payment: isCancelled ? "Sin cobro" : isClosed ? (order.paymentMethod || payment.method || "Sin cobro") : "Pendiente",
+        total,
+        iva,
         products: orderItemsSummary(order.items),
       };
     });
-  const paidRecords = (Array.isArray(state.sales) ? state.sales : []).map((sale) => ({
-    recordType: "Cobrada",
-    statusKey: "paid",
-    id: orderNumberLabel(sale, ""),
-    uid: paymentUidForSale(sale),
-    saleId: sale.id,
-    postpaidPrinted: postpaidReceiptPrinted(sale),
-    postpaidPrintedAt: sale.postpaidReceiptPrintedAt || "",
-    postpaidPending: postpaidReceiptPending(sale),
-    postpaidWarningVisible: postpaidReceiptWarningVisible(sale),
-    postpaidError: sale.postpaidReceiptError || "",
-    postpaidWarningDismissed: postpaidReceiptDismissed(sale),
-    date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
-    label: sale.label || sale.orderId || "Venta",
-    waiter: waiterName(sale.waiterId),
-    payment: sale.paymentMethod || "Efectivo",
-    total: saleTotal(sale),
-    iva: saleIvaAmount(sale),
-    products: orderItemsSummary(sale.items),
-  }));
-  return [...paidRecords, ...activeRecords].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const paidRecords = sales.map((sale) => {
+    const sourceOrder = orderById.get(sale.orderId);
+    return {
+      recordType: "Cobrada",
+      statusKey: "paid",
+      id: orderNumberLabel(sale, ""),
+      uid: paymentUidForSale(sale),
+      saleId: sale.id,
+      orderId: sale.orderId || "",
+      hasItems: Boolean(sale.items?.length),
+      ...prepaidReceiptMeta(sale, sourceOrder),
+      postpaidPrinted: postpaidReceiptPrinted(sale),
+      postpaidPrintedAt: sale.postpaidReceiptPrintedAt || "",
+      postpaidPending: postpaidReceiptPending(sale),
+      postpaidWarningVisible: postpaidReceiptWarningVisible(sale),
+      postpaidError: sale.postpaidReceiptError || "",
+      postpaidWarningDismissed: postpaidReceiptDismissed(sale),
+      date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
+      label: sale.label || sale.orderId || "Venta",
+      waiter: waiterName(sale.waiterId),
+      payment: sale.paymentMethod || "Efectivo",
+      total: saleTotal(sale),
+      iva: saleIvaAmount(sale),
+      products: orderItemsSummary(sale.items),
+    };
+  });
+  return [...paidRecords, ...orderRecords].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 function orderRecordMatchesStatus(record, status) {
   if (!status || status === "all") return true;
+  if (status === "prepaid-pending") return prepaidReceiptPending(record);
+  if (status === "prepaid-printed") return record.prepaidPrinted;
   if (status === "postpaid-pending") return record.statusKey === "paid" && record.postpaidPending;
   if (status === "postpaid-printed") return record.statusKey === "paid" && record.postpaidPrinted;
   return record.statusKey === status;
@@ -7623,10 +7685,54 @@ function orderStatusFilters() {
     { id: "all", label: "Todos" },
     { id: "open", label: "Abiertas" },
     { id: "paid", label: "Cobradas" },
+    { id: "prepaid-pending", label: "Prepago pendiente" },
+    { id: "prepaid-printed", label: "Prepago impreso" },
     { id: "postpaid-pending", label: "Postpago pendiente" },
     { id: "postpaid-printed", label: "Postpago impreso" },
+    { id: "closed", label: "Cerradas sin venta" },
     { id: "cancelled", label: "Canceladas" },
   ];
+}
+
+function renderPrepaidTicketCell(record) {
+  if (!record.hasItems) return "-";
+  if (record.prepaidPrinted) {
+    return `
+      <div class="receipt-ticket-cell is-printed">
+        <span class="shift-status is-active">Impreso</span>
+        <small>${record.prepaidPrintedAt ? formatDateTime(record.prepaidPrintedAt) : ""}</small>
+        ${
+          record.statusKey === "open" && record.orderId
+            ? `<button class="secondary-button compact" data-print-prepaid-order="${escapeAttr(record.orderId)}" type="button">${svg("print")}Reimprimir</button>`
+            : ""
+        }
+      </div>
+    `;
+  }
+  if (record.prepaidError) {
+    return `
+      <div class="receipt-ticket-cell is-pending">
+        <div class="receipt-ticket-warning">
+          ${svg("alert")}<span>No impreso</span>
+        </div>
+        <small>${escapeHtml(record.prepaidError)}</small>
+        ${
+          record.statusKey === "open" && record.orderId
+            ? `<button class="secondary-button compact" data-print-prepaid-order="${escapeAttr(record.orderId)}" type="button">${svg("print")}Reintentar prepago</button>`
+            : ""
+        }
+      </div>
+    `;
+  }
+  if (record.statusKey === "open" && record.orderId) {
+    return `
+      <div class="receipt-ticket-cell is-pending">
+        <span class="shift-status">Pendiente</span>
+        <button class="secondary-button compact" data-print-prepaid-order="${escapeAttr(record.orderId)}" type="button">${svg("print")}Imprimir prepago</button>
+      </div>
+    `;
+  }
+  return `<span class="shift-status">No impreso</span>`;
 }
 
 function renderPostpaidTicketCell(record) {
@@ -7711,7 +7817,7 @@ function renderOrderSearchData() {
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Postpago</th><th>Productos</th><th>Detalle</th></tr></thead>
+            <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Prepago</th><th>Postpago</th><th>Productos</th><th>Detalle</th></tr></thead>
             <tbody>
               ${
                 rows.length
@@ -7726,6 +7832,7 @@ function renderOrderSearchData() {
                             <td><span class="shift-status ${record.recordType === "Cobrada" ? "is-active" : ""}">${escapeHtml(record.recordType)}</span></td>
                             <td>${escapeHtml(record.payment)}</td>
                             <td><strong>${money.format(record.total)}</strong><small>IVA ${money.format(record.iva || 0)}</small></td>
+                            <td>${renderPrepaidTicketCell(record)}</td>
                             <td>${renderPostpaidTicketCell(record)}</td>
                             <td>${escapeHtml(record.products)}</td>
                             <td>
@@ -7739,7 +7846,7 @@ function renderOrderSearchData() {
                         `,
                       )
                       .join("")
-                  : `<tr><td colspan="10">No hay ordenes con esos filtros.</td></tr>`
+                  : `<tr><td colspan="11">No hay ordenes con esos filtros.</td></tr>`
               }
             </tbody>
           </table>
@@ -9827,6 +9934,11 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     closedAt,
     chargedAt: closedAt,
     waitMinutes: minutesBetween(order.openedAt, closedAt),
+    prepaidReceiptPrintedAt: order.prepaidReceiptPrintedAt || "",
+    prepaidReceiptPrintedBy: order.prepaidReceiptPrintedBy || "",
+    prepaidReceiptMethod: order.prepaidReceiptMethod || "",
+    prepaidReceiptError: order.prepaidReceiptError || "",
+    prepaidReceiptFailedAt: order.prepaidReceiptFailedAt || "",
     postpaidReceiptPrintedAt: "",
     postpaidReceiptPrintedBy: "",
     postpaidReceiptWarningDismissedAt: "",
