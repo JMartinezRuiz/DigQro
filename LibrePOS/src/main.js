@@ -6785,11 +6785,19 @@ function receiptPrintCenteredWrap(value) {
   return receiptPrintWrap(value, "").map((line) => receiptPrintCenter(line));
 }
 
-function saleReceiptItemLines(item) {
+function saleReceiptLineNetTotal(item, ivaRate = 0) {
+  return taxBreakdownForGross(saleLineTotal(item), ivaRate).netSubtotal;
+}
+
+function receiptPrintOptionsText(value) {
+  return String(value || "").replace(/\s*\(\+\$[0-9.,]+\)/g, "");
+}
+
+function saleReceiptItemLines(item, ivaRate = 0) {
   const qty = formatPlainNumber(item.qty);
   const name = item.name || "Producto";
-  const lines = [receiptPrintColumns(`${qty} ${name}`, receiptPrintMoney(saleLineTotal(item)))];
-  if (item.optionsText) lines.push(...receiptPrintWrap(item.optionsText));
+  const lines = [receiptPrintColumns(`${qty} ${name}`, receiptPrintMoney(saleReceiptLineNetTotal(item, ivaRate)))];
+  if (item.optionsText) lines.push(...receiptPrintWrap(receiptPrintOptionsText(item.optionsText)));
   if (item.note) lines.push(...receiptPrintWrap(`Nota: ${item.note}`));
   return lines;
 }
@@ -6810,7 +6818,7 @@ function commandReceiptLineLines(line) {
   const name = line.name || "Producto";
   const lines = receiptPrintWrap(`${qty} ${name}`, "");
   lines.push(...commandReceiptPartLines(line));
-  if (line.optionsText) lines.push(...receiptPrintWrap(line.optionsText));
+  if (line.optionsText) lines.push(...receiptPrintWrap(receiptPrintOptionsText(line.optionsText)));
   if (line.note) lines.push(...receiptPrintWrap(`Nota: ${line.note}`));
   return lines;
 }
@@ -6891,7 +6899,7 @@ function buildPrepaidReceiptText(order) {
     formatCsvDateTime(printedAt),
     receiptPrintColumns(orderLabelText, `Mesero ${waiterName(order.waiterId)}`),
     receiptPrintRule(),
-    ...(Array.isArray(order.items) ? order.items.flatMap(saleReceiptItemLines) : []),
+    ...(Array.isArray(order.items) ? order.items.flatMap((item) => saleReceiptItemLines(item, totals.ivaRate)) : []),
     receiptPrintRule(),
     receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(totals.netSubtotal)),
     receiptPrintColumns(ivaLabel(totals.ivaRate), receiptPrintMoney(totals.iva)),
@@ -6932,7 +6940,7 @@ function buildPostpaidReceiptText(sale) {
     formatCsvDateTime(closedAt),
     receiptPrintColumns(orderLabelText, `Mesero ${waiterName(sale.waiterId)}`),
     receiptPrintRule(),
-    ...(Array.isArray(sale.items) ? sale.items.flatMap(saleReceiptItemLines) : []),
+    ...(Array.isArray(sale.items) ? sale.items.flatMap((item) => saleReceiptItemLines(item, tax.ivaRate)) : []),
     receiptPrintRule(),
     receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(tax.netSubtotal)),
     receiptPrintColumns(ivaLabel(tax.ivaRate), receiptPrintMoney(tax.iva)),

@@ -757,7 +757,11 @@ function sampleItems(items, count) {
 }
 
 function receiptMoney(value) {
-  return `$${Math.round(Number(value) || 0).toLocaleString("es-MX")}`;
+  const number = roundCurrency(value);
+  return `$${new Intl.NumberFormat("es-MX", {
+    minimumFractionDigits: Number.isInteger(number) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(number)}`;
 }
 
 function roundCurrency(value) {
@@ -946,18 +950,19 @@ function fakeReceiptText(type = "prepaid") {
   const selected = sampleItems(FAKE_RECEIPT_PRODUCTS, randomInt(3, 5));
   const lines = [];
   let subtotal = 0;
+  const ivaRate = sharedIvaEnabled() ? sharedIvaRate() : 0;
   selected.forEach((product) => {
     const qty = randomInt(1, product.price > 100 ? 2 : 3);
     const lineTotal = qty * product.price;
     subtotal += lineTotal;
-    lines.push(receiptColumns(`${qty} ${product.name}`, receiptMoney(lineTotal)));
+    lines.push(receiptColumns(`${qty} ${product.name}`, receiptMoney(taxBreakdownForGross(lineTotal, ivaRate).netSubtotal)));
     if (product.extras.length && Math.random() > 0.45) {
       const extra = product.extras[randomInt(0, product.extras.length - 1)];
       subtotal += extra.price;
-      lines.push(receiptColumns(`  + ${extra.name}`, receiptMoney(extra.price)));
+      lines.push(receiptColumns(`  + ${extra.name}`, receiptMoney(taxBreakdownForGross(extra.price, ivaRate).netSubtotal)));
     }
   });
-  const tax = taxBreakdownForGross(subtotal);
+  const tax = taxBreakdownForGross(subtotal, ivaRate);
   const tipRate = [10, 12, 15][randomInt(0, 2)];
   const tip = receiptType === "postpaid" ? Math.round(subtotal * tipRate / 100) : 0;
   const total = subtotal + tip;
