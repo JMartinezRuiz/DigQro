@@ -6696,6 +6696,7 @@ function printerErrorMessage(error) {
   if (normalized.includes("printer-not-found")) return "No existe una impresora con ese nombre exacto.";
   if (normalized.includes("printer-offline")) return "Windows marca esa impresora como offline.";
   if (normalized.includes("powershell-not-found")) return "No se encontro Windows PowerShell en este equipo.";
+  if (normalized.includes("windows-receipt-print-failed")) return "Windows no pudo imprimir el ticket ni con el modo compatible. Revisa que la impresora no este pausada y prueba la impresion legacy.";
   if (normalized.includes("powershell-failed")) return `PowerShell devolvio error: ${value}`;
   if (normalized.includes("printer-legacy-print-failed")) return `No se pudo imprimir en modo legacy: ${value}`;
   if (normalized.includes("printer-fake-receipt-failed")) return `No se pudo imprimir la cuenta falsa: ${value}`;

@@ -1,7 +1,7 @@
 import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import https from "node:https";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -653,6 +653,13 @@ async function runPowerShell(script, args = [], options = {}) {
   const attempts = [];
   try {
     for (const command of powerShellCandidates()) {
+      if (path.isAbsolute(command)) {
+        try {
+          await access(command);
+        } catch {
+          continue;
+        }
+      }
       const commandArgs = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath, ...args];
       if (process.platform !== "win32" && command.startsWith("pwsh")) {
         commandArgs.splice(1, 2);
@@ -1330,6 +1337,31 @@ async function printTextWithWindowsLegacy(printerName, text, method = "windows-o
   return { method };
 }
 
+function windowsLegacyReceiptText(text) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => (line === RECEIPT_LOGO_MARKER ? RECEIPT_BRAND_TITLE : line))
+    .join("\n");
+}
+
+async function printReceiptWithWindowsFallback(printerName, text, options = {}, method = "windows-out-printer-receipt-fallback") {
+  try {
+    return await printReceiptWithWindowsDocument(printerName, text, options);
+  } catch (documentError) {
+    try {
+      const fallback = await printTextWithWindowsLegacy(printerName, windowsLegacyReceiptText(text), method);
+      return {
+        method: fallback?.method || method,
+        fallbackFrom: compactError(documentError),
+      };
+    } catch (fallbackError) {
+      throw new Error(`windows-receipt-print-failed document=${compactError(documentError)} legacy=${compactError(fallbackError)}`);
+    }
+  }
+}
+
 async function printWithWindowsLegacy(printerName) {
   return printTextWithWindowsLegacy(printerName, legacyTicketText(), "windows-out-printer-legacy");
 }
@@ -1537,7 +1569,7 @@ export async function printFakeReceiptTicket(printerName, ticketText = "", optio
   const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
-    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, printOptions);
+    result = await printReceiptWithWindowsFallback(cleanName, `${text}\n\n\n`, printOptions, "windows-out-printer-fake-receipt-fallback");
   } else {
     result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, printOptions);
   }
@@ -1557,7 +1589,7 @@ export async function printReceiptHeaderTicket(printerName, options = {}) {
   const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
-    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, printOptions);
+    result = await printReceiptWithWindowsFallback(cleanName, `${text}\n\n\n`, printOptions, "windows-out-printer-header-fallback");
   } else {
     result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, printOptions);
   }
@@ -1607,7 +1639,7 @@ export async function printSaleReceiptTicket(printerName, ticketText = "", optio
   const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
-    result = await printReceiptWithWindowsDocument(cleanName, `${text}\n\n\n`, printOptions);
+    result = await printReceiptWithWindowsFallback(cleanName, `${text}\n\n\n`, printOptions, "windows-out-printer-sale-receipt-fallback");
   } else {
     result = await printReceiptWithCupsDocument(cleanName, `${text}\n\n\n`, printOptions);
   }
