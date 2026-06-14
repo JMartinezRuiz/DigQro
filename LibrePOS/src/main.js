@@ -3250,15 +3250,13 @@ function renderMixtoBreakdown(product, item) {
 function renderCommandOptions(order) {
   const pending = order.items.filter((item) => item.status === "pending");
   const cashOpen = isCashOpen();
-  const autoPrint = commandAutoPrintEnabled();
   return `
     <div class="command-box">
       ${cashOpen ? "" : renderCashClosedNotice()}
       <p class="mini-title">Enviar ${pending.length} linea${pending.length === 1 ? "" : "s"}</p>
       <div class="command-grid">
-        <button class="command-option" data-command-mode="digital" ${cashOpen ? "" : "disabled"}>${svg(autoPrint ? "print" : "digital")}${autoPrint ? "Digital + impresa" : "Digital"}</button>
-        <button class="command-option" disabled title="Usa Configuracion > Impresion > Comandas">${svg("print")}Impresa</button>
-        <button class="command-option" disabled title="Usa Configuracion > Impresion > Comandas">${svg("print")}Ambas</button>
+        <button class="command-option" data-command-mode="digital-print" ${cashOpen ? "" : "disabled"}>${svg("print")}Digital + impresa</button>
+        <button class="command-option" data-command-mode="digital" ${cashOpen ? "" : "disabled"}>${svg("digital")}Digital</button>
       </div>
     </div>
   `;
@@ -5382,6 +5380,7 @@ function renderMenuProductModal(product = null) {
   const sectionOptions = [...new Set(activeMenuProducts().map((item) => item.section))];
   const subsectionOptions = [...new Set(activeMenuProducts().map((item) => item.subsection))];
   const iconOptions = ["plate", "bowl", "empanada", "steam", "fry", "dessert", "cup"];
+  const basePrice = product ? menuProductBasePriceFromGross(product.price) : 0;
   return `
     <section class="panel modal-panel menu-product-modal">
       <div class="panel-header">
@@ -5414,8 +5413,9 @@ function renderMenuProductModal(product = null) {
         </div>
         <div class="field-row">
           <label class="field">
-            <span>Precio venta</span>
-            <input name="price" type="number" min="0" step="0.01" required value="${product ? formatPlainNumber(product.price) : ""}" />
+            <span>Precio base sin IVA</span>
+            <input name="price" data-menu-product-base-price type="number" min="0" step="0.01" required value="${product ? formatPlainNumber(basePrice) : ""}" />
+            <small>LibrePOS suma el IVA al guardar si esta activo.</small>
           </label>
           <label class="field">
             <span>Icono</span>
@@ -5424,6 +5424,7 @@ function renderMenuProductModal(product = null) {
             </select>
           </label>
         </div>
+        ${renderMenuProductPricePreview(basePrice)}
         <label class="field">
           <span>Descripcion</span>
           <input name="description" value="${escapeAttr(product?.description || "")}" placeholder="Detalle corto para el menu" />
@@ -8842,8 +8843,9 @@ function bindEvents() {
   const menuProductForm = document.querySelector("[data-menu-product-form]");
   menuProductForm?.addEventListener("submit", saveMenuProduct);
   menuProductForm?.addEventListener("keydown", preventMenuProductEnterSubmit);
-  menuProductForm?.addEventListener("input", updateVariantSummaryFromEvent);
-  menuProductForm?.addEventListener("change", updateVariantSummaryFromEvent);
+  menuProductForm?.addEventListener("input", updateMenuProductFormPreviewFromEvent);
+  menuProductForm?.addEventListener("change", updateMenuProductFormPreviewFromEvent);
+  if (menuProductForm) updateMenuProductPricePreview(menuProductForm);
   document.querySelectorAll("[data-add-recipe-row]").forEach((button) => {
     button.addEventListener("click", () => addRecipeRow(button));
   });
@@ -9621,6 +9623,55 @@ function taxBreakdownForGross(value, rate = currentIvaEnabled() ? currentIvaRate
 
 function taxBreakdownForOrder(order, value) {
   return taxBreakdownForGross(value, orderIvaRate(order));
+}
+
+function menuProductCatalogIvaRate() {
+  return currentIvaEnabled() ? currentIvaRate() : 0;
+}
+
+function menuProductBasePriceFromGross(price) {
+  return taxBreakdownForGross(price, menuProductCatalogIvaRate()).netSubtotal;
+}
+
+function menuProductGrossPriceFromBase(price) {
+  const base = roundCurrency(Math.max(0, Number(price) || 0));
+  const rate = menuProductCatalogIvaRate();
+  return roundCurrency(base * (1 + rate));
+}
+
+function menuProductPriceBreakdownFromBase(price) {
+  const base = roundCurrency(Math.max(0, Number(price) || 0));
+  const total = menuProductGrossPriceFromBase(base);
+  const rate = menuProductCatalogIvaRate();
+  return {
+    base,
+    iva: roundCurrency(total - base),
+    total,
+    rate,
+  };
+}
+
+function renderMenuProductPricePreview(price = 0) {
+  const breakdown = menuProductPriceBreakdownFromBase(price);
+  return `
+    <div class="price-tax-preview" data-menu-product-price-preview>
+      <span><small>Base sin IVA</small><strong data-price-preview-base>${money.format(breakdown.base)}</strong></span>
+      <span><small>${escapeHtml(ivaLabel(breakdown.rate))}</small><strong data-price-preview-iva>${money.format(breakdown.iva)}</strong></span>
+      <span><small>Precio final</small><strong data-price-preview-total>${money.format(breakdown.total)}</strong></span>
+    </div>
+  `;
+}
+
+function updateMenuProductPricePreview(formElement) {
+  const form = formElement instanceof HTMLFormElement ? formElement : document.querySelector("[data-menu-product-form]");
+  if (!form) return;
+  const input = form.querySelector("[data-menu-product-base-price]");
+  const preview = form.querySelector("[data-menu-product-price-preview]");
+  if (!input || !preview) return;
+  const breakdown = menuProductPriceBreakdownFromBase(input.value);
+  preview.querySelector("[data-price-preview-base]").textContent = money.format(breakdown.base);
+  preview.querySelector("[data-price-preview-iva]").textContent = money.format(breakdown.iva);
+  preview.querySelector("[data-price-preview-total]").textContent = money.format(breakdown.total);
 }
 
 function readCheckoutTip(subtotal, form = document) {
@@ -10625,7 +10676,8 @@ function commandPending(mode, source) {
     showToast("No hay productos pendientes para comandar.");
     return;
   }
-  if (mode !== "digital") {
+  const shouldPrint = mode === "digital-print";
+  if (mode !== "digital" && !shouldPrint) {
     showToast("Por ahora solo esta activa la comanda digital.");
     return;
   }
@@ -10633,7 +10685,7 @@ function commandPending(mode, source) {
   const batchId = safeId("cmd");
   const batch = {
     id: batchId,
-    mode: "digital",
+    mode: shouldPrint ? "digital-print" : "digital",
     status: "new",
     createdAt: new Date().toISOString(),
     createdBy: currentUser().id,
@@ -10658,11 +10710,11 @@ function commandPending(mode, source) {
   order.commandBatches.push(batch);
   state.modal = null;
   persist();
-  showToast(`Comanda digital enviada para ${orderLabel(order)}.`);
+  showToast(`Comanda ${shouldPrint ? "digital + impresa" : "digital"} enviada para ${orderLabel(order)}.`);
   celebrateAction("kitchen", source, "A cocina");
   render();
-  if (commandAutoPrintEnabled()) {
-    void printCommandBatch(order.id, batch.id);
+  if (shouldPrint) {
+    void printCommandBatch(order.id, batch.id, { force: true });
   }
 }
 
@@ -11468,7 +11520,7 @@ function countRecipeRowsWithQty(container) {
 
 function variantMarginFromContainer(formElement, container) {
   const form = new FormData(formElement);
-  const basePrice = Math.max(0, Number(form.get("price")) || 0);
+  const basePrice = menuProductGrossPriceFromBase(form.get("price"));
   const product = getProduct(formElement.dataset.productId);
   const option = product?.options?.find((item) => item.id === container?.dataset.optionId);
   const choice = option?.choices?.find((item) => normalize(item.label) === normalize(container?.dataset.choiceLabel));
@@ -11508,6 +11560,11 @@ function updateVariantSummaryFromEvent(event) {
   if (target.matches("[data-variant-item], [data-variant-qty], [data-variant-active]")) {
     updateVariantSummary(target.closest("[data-variant-recipe]"));
   }
+}
+
+function updateMenuProductFormPreviewFromEvent(event) {
+  updateMenuProductPricePreview(event.currentTarget);
+  updateVariantSummaryFromEvent(event);
 }
 
 function addVariantChoice(button) {
@@ -11662,8 +11719,9 @@ function readMenuProductForm(formElement, existing = null) {
   const name = cleanUserText(form.get("name"));
   const section = cleanUserText(form.get("section"));
   const subsection = cleanUserText(form.get("subsection"));
-  const price = Math.max(0, Number(form.get("price")) || 0);
-  if (!name || !section || !subsection || price <= 0) {
+  const basePrice = roundCurrency(Math.max(0, Number(form.get("price")) || 0));
+  const price = menuProductGrossPriceFromBase(basePrice);
+  if (!name || !section || !subsection || basePrice <= 0) {
     showToast("Captura nombre, categoria, subcategoria y precio.");
     return null;
   }
@@ -11702,8 +11760,8 @@ function readMenuProductForm(formElement, existing = null) {
       changedAt: now,
       changedBy: currentUser()?.id,
       reason: "Cambio de precio de venta",
-      previous: { price: roundCurrency(existing.price) },
-      next: { price: roundCurrency(price) },
+      previous: { basePrice: menuProductBasePriceFromGross(existing.price), price: roundCurrency(existing.price) },
+      next: { basePrice, price: roundCurrency(price) },
     });
   }
   return {
