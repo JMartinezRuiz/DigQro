@@ -666,6 +666,7 @@ const defaultState = {
     ivaBasePriceConversionAppliedAt: "",
     ivaBasePriceConversionRate: 0,
     ivaBasePriceConversionCount: 0,
+    nextOrderNumberFloor: 1,
   },
   users: defaultUsers,
   orders: [],
@@ -875,7 +876,8 @@ function nextOrderNumber() {
     ...(Array.isArray(state.sales) ? state.sales : []),
   ];
   const max = records.reduce((current, record) => Math.max(current, numericOrderNumber(record?.orderNumber)), 0);
-  return max + 1;
+  const floor = Math.max(1, numericOrderNumber(state.settings?.nextOrderNumberFloor) || 1);
+  return Math.max(max + 1, floor);
 }
 
 function orderDailyDateValue(record, fallback = new Date().toISOString()) {
@@ -4026,6 +4028,7 @@ function renderModal() {
     "line-note": lineTarget ? renderLineNoteModal(lineTarget.order, lineTarget.line) : "",
     "adjust-tip": saleTarget ? renderAdjustTipModal(saleTarget) : "",
     "sale-detail": saleTarget ? renderSaleDetailModal(saleTarget) : "",
+    "delete-sale": isAdminUser() && saleTarget ? renderDeleteSaleModal(saleTarget) : "",
   }[state.modal.type] || "";
   if (!modalContent) return "";
   return `
@@ -4434,6 +4437,46 @@ function renderSaleDetailModal(sale) {
             : ""
         }
       </div>
+    </section>
+  `;
+}
+
+function saleDeletionChallenge(sale) {
+  return orderNumberValue(sale) || paymentUidForSale(sale) || String(sale?.id || "");
+}
+
+function renderDeleteSaleModal(sale) {
+  const challenge = saleDeletionChallenge(sale);
+  const orderNumber = orderNumberLabel(sale);
+  const uid = paymentUidForSale(sale);
+  return `
+    <section class="panel modal-panel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Borrar cuenta ${escapeHtml(orderNumber)}</h2>
+          <p class="panel-kicker">Accion administrativa irreversible</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <form class="panel-body field-grid" data-delete-sale-form data-sale-id="${escapeAttr(sale.id)}">
+        <div class="checkout-warning">
+          ${svg("alert")}Se borraran la venta, la orden cerrada, sus tickets e incidencias. El corte de caja se recalculara, pero el inventario consumido no se repondra.
+        </div>
+        <div class="context-grid">
+          <span><strong>Folio</strong>${escapeHtml(orderNumber)}</span>
+          <span><strong>UID</strong>${escapeHtml(uid || "-")}</span>
+          <span><strong>Orden</strong>${escapeHtml(sale.label || sale.orderId || "Venta")}</span>
+          <span><strong>Total</strong>${money.format(saleTotal(sale))}</span>
+        </div>
+        <label class="field">
+          <span>Escribe ${escapeHtml(challenge)} para confirmar</span>
+          <input name="confirm" autocomplete="off" placeholder="${escapeAttr(challenge)}" required />
+          <small>El consecutivo se conserva: este folio no se asignara de nuevo automaticamente.</small>
+        </label>
+        <button class="danger-button" type="submit">
+          ${svg("trash")}Borrar cuenta definitivamente
+        </button>
+      </form>
     </section>
   `;
 }
@@ -7905,7 +7948,16 @@ function renderOrderSearchData() {
                             <td>
                               ${
                                 record.saleId
-                                  ? `<button class="secondary-button compact" data-open-modal="sale-detail" data-sale-id="${escapeAttr(record.saleId)}" type="button">${svg("note")}Ver cuenta</button>`
+                                  ? `
+                                    <div class="row-actions">
+                                      <button class="secondary-button compact" data-open-modal="sale-detail" data-sale-id="${escapeAttr(record.saleId)}" type="button">${svg("note")}Ver cuenta</button>
+                                      ${
+                                        isAdminUser()
+                                          ? `<button class="icon-button compact subtle-danger" data-open-modal="delete-sale" data-sale-id="${escapeAttr(record.saleId)}" type="button" title="Borrar cuenta ${escapeAttr(record.id || record.uid || "")}">${svg("trash")}</button>`
+                                          : ""
+                                      }
+                                    </div>
+                                  `
                                   : "-"
                               }
                             </td>
@@ -8790,6 +8842,7 @@ function bindEvents() {
   checkoutForm?.addEventListener("change", updateCheckoutPaymentPreview);
   if (checkoutForm) updateCheckoutPaymentPreview();
   document.querySelector("[data-adjust-tip-form]")?.addEventListener("submit", saveSaleTip);
+  document.querySelector("[data-delete-sale-form]")?.addEventListener("submit", deleteSaleFromForm);
   document.querySelectorAll("[data-clear-alert]").forEach((button) => {
     button.addEventListener("click", () => clearOrderAlert(button.dataset.clearAlert));
   });
@@ -9383,6 +9436,10 @@ function resetOrderFolios(event) {
     record.folioResetAt = now;
     record.folioResetBy = currentUser()?.id || "";
   });
+  state.settings = {
+    ...state.settings,
+    nextOrderNumberFloor: 1,
+  };
   state.modal = null;
   persist();
   showToast(`Folios reseteados. ${renamedFolios.size} anteriores pasan a ${prefix}1... y el siguiente sera 1.`);
@@ -10131,6 +10188,83 @@ function saveSaleTip(event) {
   state.modal = null;
   persist();
   showToast(`Propina actualizada a ${money.format(amount)} en ${paymentMethod}.`);
+  render();
+}
+
+function recalculateCashSessionAfterSaleDeletion(session, sale) {
+  if (!session) return;
+  const now = new Date().toISOString();
+  session.adjustments = Array.isArray(session.adjustments) ? session.adjustments : [];
+  session.adjustments.unshift({
+    id: safeId("cash-adjustment"),
+    type: "sale-deleted",
+    saleId: sale.id,
+    orderId: sale.orderId || "",
+    orderNumber: orderNumberValue(sale),
+    amount: saleTotal(sale),
+    createdAt: now,
+    createdBy: currentUser()?.id || "",
+  });
+  if (session.status !== "closed") return;
+  const totals = cashSessionTotals(session);
+  const countedCash = Number(session.countedCash) || 0;
+  Object.assign(session, {
+    cashSales: totals.cash,
+    cardSales: totals.card,
+    totalSales: totals.total,
+    iva: totals.iva,
+    ivaEnabled: totals.iva > 0,
+    taxEnabled: totals.iva > 0,
+    cashExpenses: totals.cashExpenses || 0,
+    cashTips: totals.cashTips,
+    cardTips: totals.cardTips,
+    tips: totals.tips,
+    expectedCash: totals.expectedCash,
+    difference: roundCurrency(countedCash - totals.expectedCash),
+    adjustedAt: now,
+    adjustedBy: currentUser()?.id || "",
+  });
+}
+
+function deleteSaleFromForm(event) {
+  event.preventDefault();
+  if (!isAdminUser()) {
+    showToast("Solo admin puede borrar cuentas.");
+    return;
+  }
+  const sale = state.sales.find((item) => item.id === event.currentTarget.dataset.saleId);
+  if (!sale) {
+    showToast("No se encontro la cuenta.");
+    state.modal = null;
+    persist();
+    render();
+    return;
+  }
+  const form = new FormData(event.currentTarget);
+  const confirmation = String(form.get("confirm") || "").trim();
+  const challenge = saleDeletionChallenge(sale);
+  if (confirmation.toLocaleLowerCase("es-MX") !== challenge.toLocaleLowerCase("es-MX")) {
+    showToast("Cancelado. El folio no coincide.");
+    return;
+  }
+  const nextFolio = nextOrderNumber();
+  const orderId = sale.orderId || "";
+  const cashSession = state.cashSessions.find((session) => session.id === sale.cashSessionId);
+  state.sales = state.sales.filter((item) => item.id !== sale.id);
+  if (orderId) {
+    state.orders = state.orders.filter((order) => order.id !== orderId);
+    state.cancellations = (Array.isArray(state.cancellations) ? state.cancellations : [])
+      .filter((item) => item.orderId !== orderId);
+  }
+  state.settings = {
+    ...state.settings,
+    nextOrderNumberFloor: Math.max(nextFolio, numericOrderNumber(state.settings?.nextOrderNumberFloor) || 1),
+  };
+  recalculateCashSessionAfterSaleDeletion(cashSession, sale);
+  if (state.activeOrderId === orderId) state.activeOrderId = null;
+  state.modal = null;
+  persist();
+  showToast(`Cuenta ${orderNumberLabel(sale)} borrada.`);
   render();
 }
 
@@ -11036,6 +11170,7 @@ function resetData(action) {
     state.cancellations = [];
     state.inventoryMovements = [];
     state.expenses = normalizeExpenses(state.expenses).map((item) => ({ ...item, amount: 0 }));
+    state.settings = { ...state.settings, nextOrderNumberFloor: 1 };
     showToast("Operacion reiniciada.");
   }
   persist();
