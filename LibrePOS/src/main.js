@@ -4460,7 +4460,7 @@ function renderDeleteSaleModal(sale) {
       </div>
       <form class="panel-body field-grid" data-delete-sale-form data-sale-id="${escapeAttr(sale.id)}">
         <div class="checkout-warning">
-          ${svg("alert")}Se borraran la venta, la orden cerrada, sus tickets e incidencias. El corte de caja se recalculara, pero el inventario consumido no se repondra.
+          ${svg("alert")}Se borraran la venta, la orden cerrada, sus tickets e incidencias. El corte de caja se recalculara y los productos y extras cobrados se repondran al inventario.
         </div>
         <div class="context-grid">
           <span><strong>Folio</strong>${escapeHtml(orderNumber)}</span>
@@ -10249,7 +10249,12 @@ function deleteSaleFromForm(event) {
   }
   const nextFolio = nextOrderNumber();
   const orderId = sale.orderId || "";
+  const sourceOrder = state.orders.find((order) => order.id === orderId);
+  const inventoryLines = Array.isArray(sale.items) && sale.items.length ? sale.items : (sourceOrder?.items || []);
   const cashSession = state.cashSessions.find((session) => session.id === sale.cashSessionId);
+  const restoredInventoryItems = inventoryLines.length
+    ? restoreInventoryForLines(inventoryLines, sourceOrder || sale, "Borrado de cuenta duplicada")
+    : 0;
   state.sales = state.sales.filter((item) => item.id !== sale.id);
   if (orderId) {
     state.orders = state.orders.filter((order) => order.id !== orderId);
@@ -10264,7 +10269,7 @@ function deleteSaleFromForm(event) {
   if (state.activeOrderId === orderId) state.activeOrderId = null;
   state.modal = null;
   persist();
-  showToast(`Cuenta ${orderNumberLabel(sale)} borrada.`);
+  showToast(`Cuenta ${orderNumberLabel(sale)} borrada. Inventario repuesto en ${restoredInventoryItems} insumo${restoredInventoryItems === 1 ? "" : "s"}.`);
   render();
 }
 
@@ -12276,6 +12281,7 @@ function deductInventoryForLines(lines, order) {
 }
 
 function restoreInventoryForLines(lines, order, reason) {
+  let restoredItems = 0;
   aggregateInventoryUsage(lines).forEach((usageItem) => {
     const item = inventoryItemForUsage(usageItem);
     if (!item) return;
@@ -12285,7 +12291,9 @@ function restoreInventoryForLines(lines, order, reason) {
     recordInventoryMovement(item, qty, `${reason} · ${orderLabel(order)}${usageItem.estimated ? " · extra estimado" : ""}`, "cancelacion", {
       estimated: usageItem.estimated,
     });
+    restoredItems += 1;
   });
+  return restoredItems;
 }
 
 function aggregateInventoryUsage(lines) {
