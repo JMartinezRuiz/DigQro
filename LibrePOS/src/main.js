@@ -6914,6 +6914,34 @@ function buildPrepaidReceiptText(order) {
   return lines.join("\n");
 }
 
+function buildPrepaidSaleReceiptText(sale) {
+  const printedAt = new Date().toISOString();
+  const uid = paymentUidForSale(sale);
+  const tax = saleTaxBreakdown(sale);
+  const orderLabelText = sale.type === "table" ? `Mesa ${sale.tableNumber || ""}`.trim() : "Para llevar";
+  const lines = [
+    ...receiptBrandLines(),
+    ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
+    receiptPrintCenter("TICKET PREPAGO"),
+    receiptPrintRule(),
+    receiptPrintColumns("Folio", sale.orderNumber || uid || "-"),
+    formatCsvDateTime(printedAt),
+    receiptPrintColumns(orderLabelText, `Mesero ${waiterName(sale.waiterId)}`),
+    receiptPrintRule(),
+    ...(Array.isArray(sale.items) ? sale.items.flatMap((item) => saleReceiptItemLines(item, tax.ivaRate)) : []),
+    receiptPrintRule(),
+    receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(tax.netSubtotal)),
+    receiptPrintColumns(ivaLabel(tax.ivaRate), receiptPrintMoney(tax.iva)),
+    receiptPrintColumns("TOTAL", receiptPrintMoney(saleSubtotal(sale))),
+    receiptPrintCenter("Pendiente de pago"),
+    receiptPrintRule(),
+    receiptPrintCenter("Gracias por su visita"),
+    "",
+    "",
+  ].filter((line) => line !== "");
+  return lines.join("\n");
+}
+
 function buildPostpaidReceiptText(sale) {
   const closedAt = saleClosedAt(sale) || new Date().toISOString();
   const uid = paymentUidForSale(sale);
@@ -7134,6 +7162,32 @@ async function printPrepaidOrderReceipt(orderId) {
     return true;
   } catch (error) {
     markPrepaidReceiptFailed(order, error);
+    persist();
+    if (currentUser()) render();
+    showToast(`No se imprimio ticket prepago: ${printerErrorMessage(error.message)}`);
+    return false;
+  }
+}
+
+async function printPrepaidSaleReceipt(saleId) {
+  const sale = state.sales.find((item) => item.id === saleId);
+  if (!sale) {
+    showToast("No se encontro la venta cerrada.");
+    return false;
+  }
+  if (!sale.items?.length) {
+    showToast("La venta no contiene productos para imprimir.");
+    return false;
+  }
+  try {
+    const payload = await sendReceiptPrintRequest(buildPrepaidSaleReceiptText(sale));
+    markPrepaidReceiptPrinted(sale, payload);
+    persist();
+    showToast("Ticket prepago enviado.");
+    if (currentUser()) render();
+    return true;
+  } catch (error) {
+    markPrepaidReceiptFailed(sale, error);
     persist();
     if (currentUser()) render();
     showToast(`No se imprimio ticket prepago: ${printerErrorMessage(error.message)}`);
@@ -7706,16 +7760,22 @@ function orderStatusFilters() {
 
 function renderPrepaidTicketCell(record) {
   if (!record.hasItems) return "-";
+  const printButton = (label) => {
+    const title = `${label} ticket prepago`;
+    if (record.saleId) {
+      return `<button class="secondary-button compact" data-print-prepaid-sale="${escapeAttr(record.saleId)}" type="button" title="${escapeAttr(title)}">${svg("print")}${escapeHtml(label)}</button>`;
+    }
+    if (record.orderId && record.statusKey !== "cancelled") {
+      return `<button class="secondary-button compact" data-print-prepaid-order="${escapeAttr(record.orderId)}" type="button" title="${escapeAttr(title)}">${svg("print")}${escapeHtml(label)}</button>`;
+    }
+    return "";
+  };
   if (record.prepaidPrinted) {
     return `
       <div class="receipt-ticket-cell is-printed">
         <span class="shift-status is-active">Impreso</span>
         <small>${record.prepaidPrintedAt ? formatDateTime(record.prepaidPrintedAt) : ""}</small>
-        ${
-          record.statusKey === "open" && record.orderId
-            ? `<button class="secondary-button compact" data-print-prepaid-order="${escapeAttr(record.orderId)}" type="button">${svg("print")}Reimprimir</button>`
-            : ""
-        }
+        ${printButton("Reimprimir")}
       </div>
     `;
   }
@@ -7726,19 +7786,16 @@ function renderPrepaidTicketCell(record) {
           ${svg("alert")}<span>No impreso</span>
         </div>
         <small>${escapeHtml(record.prepaidError)}</small>
-        ${
-          record.statusKey === "open" && record.orderId
-            ? `<button class="secondary-button compact" data-print-prepaid-order="${escapeAttr(record.orderId)}" type="button">${svg("print")}Reintentar prepago</button>`
-            : ""
-        }
+        ${printButton("Reintentar")}
       </div>
     `;
   }
-  if (record.statusKey === "open" && record.orderId) {
+  const printAction = printButton(record.statusKey === "paid" ? "Reimprimir" : "Imprimir");
+  if (printAction) {
     return `
       <div class="receipt-ticket-cell is-pending">
-        <span class="shift-status">Pendiente</span>
-        <button class="secondary-button compact" data-print-prepaid-order="${escapeAttr(record.orderId)}" type="button">${svg("print")}Imprimir prepago</button>
+        <span class="shift-status">${record.statusKey === "paid" ? "Disponible" : "Pendiente"}</span>
+        ${printAction}
       </div>
     `;
   }
@@ -8715,6 +8772,9 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-print-prepaid-order]").forEach((button) => {
     button.addEventListener("click", () => printPrepaidOrderReceipt(button.dataset.printPrepaidOrder));
+  });
+  document.querySelectorAll("[data-print-prepaid-sale]").forEach((button) => {
+    button.addEventListener("click", () => printPrepaidSaleReceipt(button.dataset.printPrepaidSale));
   });
   document.querySelectorAll("[data-print-postpaid-sale]").forEach((button) => {
     button.addEventListener("click", () => printPostpaidSaleReceipt(button.dataset.printPostpaidSale));
