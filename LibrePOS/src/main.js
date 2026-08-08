@@ -15,6 +15,13 @@ const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
+const CHECKOUT_DISCOUNT_OPTIONS = [
+  { code: "none", type: "none", label: "Sin descuento", rate: 0 },
+  { code: "loyalty-10", type: "loyalty", label: "Fidelidad 10%", rate: 0.1 },
+  { code: "loyalty-15", type: "loyalty", label: "Fidelidad 15%", rate: 0.15 },
+  { code: "loyalty-20", type: "loyalty", label: "Fidelidad 20%", rate: 0.2 },
+  { code: "tenant-10", type: "tenant", label: "Descuento locatario 10%", rate: 0.1 },
+];
 const SHARED_STATE_KEYS = [
   "settings",
   "users",
@@ -4221,9 +4228,10 @@ function renderPriceModal(order) {
 
 function renderCheckoutModal(order) {
   const totals = calculateTotals(order);
+  const discount = calculateCheckoutDiscount(totals.subtotal, "none", totals.ivaRate);
   const cashSession = currentCashSession();
   const paymentMethod = state.paymentMethod || "Efectivo";
-  const cashDue = paymentBucket(paymentMethod) === "cash" ? totals.subtotal : 0;
+  const cashDue = paymentBucket(paymentMethod) === "cash" ? discount.subtotal : 0;
   const pendingWarning = totals.pending
     ? `<div class="checkout-warning">${svg("alert")}Hay ${totals.pending} pieza${totals.pending === 1 ? "" : "s"} sin comandar.</div>`
     : "";
@@ -4245,9 +4253,22 @@ function renderCheckoutModal(order) {
         ${cashWarning}
         <div class="checkout-total">
           <span>Total a cobrar</span>
-          <strong data-checkout-total>${money.format(totals.total)}</strong>
-          <small>Subtotal s/IVA ${money.format(totals.netSubtotal)} · ${escapeHtml(ivaLabel(totals.ivaRate))} ${money.format(totals.iva)}</small>
+          <strong data-checkout-total>${money.format(discount.subtotal)}</strong>
+          <small data-checkout-tax-summary>Subtotal s/IVA ${money.format(totals.netSubtotal)} · ${escapeHtml(ivaLabel(totals.ivaRate))} ${money.format(totals.iva)}</small>
         </div>
+        <section class="checkout-discount-box" data-checkout-discount-box>
+          <label class="field">
+            <span>Descuento</span>
+            <select name="discountCode" data-checkout-discount>
+              ${CHECKOUT_DISCOUNT_OPTIONS.map((option) => `<option value="${escapeAttr(option.code)}">${escapeHtml(option.label)}</option>`).join("")}
+            </select>
+          </label>
+          <div class="checkout-discount-summary">
+            <span>Consumo antes</span><strong data-discount-original>${money.format(discount.originalSubtotal)}</strong>
+            <span data-discount-label>Sin descuento</span><strong data-discount-amount>${money.format(0)}</strong>
+            <span class="grand">Consumo</span><strong class="grand" data-discount-subtotal>${money.format(discount.subtotal)}</strong>
+          </div>
+        </section>
         <section class="checkout-payment-box" data-checkout-payment>
           <div class="tip-box-head">
             <strong>${svg("cash")}Metodo de pago</strong>
@@ -4341,6 +4362,8 @@ function renderAdjustTipModal(sale) {
 
 function renderSaleDetailModal(sale) {
   const subtotal = saleSubtotal(sale);
+  const originalSubtotal = saleSubtotalBeforeDiscount(sale);
+  const discount = saleDiscount(sale);
   const netSubtotal = saleNetSubtotal(sale);
   const ivaAmount = saleIvaAmount(sale);
   const ivaRate = saleIvaRate(sale);
@@ -4410,6 +4433,8 @@ function renderSaleDetailModal(sale) {
           }
         </section>
         <section class="sale-detail-totals">
+          ${discount.amount > 0 ? `<div><span>Consumo antes</span><strong>${money.format(originalSubtotal)}</strong></div>` : ""}
+          ${discount.amount > 0 ? `<div class="is-discount"><span>${escapeHtml(discount.label)}</span><strong>-${money.format(discount.amount)}</strong></div>` : ""}
           <div><span>Subtotal s/IVA</span><strong>${money.format(netSubtotal)}</strong></div>
           <div><span>${escapeHtml(ivaLabel(ivaRate))}</span><strong>${money.format(ivaAmount)}</strong></div>
           <div><span>Consumo</span><strong>${money.format(subtotal)}</strong></div>
@@ -5684,6 +5709,7 @@ function renderCashRegister() {
       <section class="summary-grid">
         ${renderSummaryCard("Estado", activeSession ? `Abierta ${formatTime(activeSession.openedAt)}` : "Cerrada")}
         ${renderSummaryCard("Total hoy", money.format(todayPayments.total))}
+        ${renderSummaryCard("Descuentos hoy", money.format(todayPayments.discounts || 0))}
         ${renderSummaryCard("IVA hoy", money.format(todayPayments.iva || 0))}
         ${renderSummaryCard("Efectivo hoy", money.format(todayPayments.cash))}
         ${renderSummaryCard("Tarjeta hoy", money.format(todayPayments.card))}
@@ -5725,6 +5751,7 @@ function renderCashRegister() {
           <div class="panel-body metric-stack">
             <div class="total-line"><span>Fondo inicial</span><strong>${money.format(activeTotals.openingCash || 0)}</strong></div>
             <div class="total-line"><span>Total cobrado</span><strong>${money.format(activeTotals.total || 0)}</strong></div>
+            <div class="total-line"><span>Descuentos aplicados</span><strong>${money.format(activeTotals.discounts || 0)}</strong></div>
             <div class="total-line"><span>IVA incluido</span><strong>${money.format(activeTotals.iva || 0)}</strong></div>
             <div class="total-line"><span>Ventas efectivo</span><strong>${money.format(activeTotals.cash || 0)}</strong></div>
             <div class="total-line"><span>Ventas tarjeta</span><strong>${money.format(activeTotals.card || 0)}</strong></div>
@@ -5754,6 +5781,7 @@ function renderCashClosePanel(session, totals) {
         ${openOrders ? `<div class="checkout-warning">${svg("alert")}Hay ${openOrders} orden${openOrders === 1 ? "" : "es"} abierta${openOrders === 1 ? "" : "s"}. Cierra o cancela antes del corte.</div>` : ""}
         <div class="cash-cut-preview">
           <div><span>Total cobrado</span><strong>${money.format(totals.total)}</strong></div>
+          <div><span>Descuentos</span><strong>${money.format(totals.discounts || 0)}</strong></div>
           <div><span>IVA incluido</span><strong>${money.format(totals.iva || 0)}</strong></div>
           <div><span>Efectivo esperado</span><strong>${money.format(totals.expectedCash)}</strong></div>
           <div><span>Tarjeta cobrada</span><strong>${money.format(totals.card)}</strong></div>
@@ -5785,7 +5813,7 @@ function renderCashSessionSales(session) {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>UID</th><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>IVA</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
+          <thead><tr><th>UID</th><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Descuento</th><th>IVA</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
           <tbody>
             ${
               sales.length
@@ -5800,6 +5828,7 @@ function renderCashSessionSales(session) {
                             <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
                             <td>${escapeHtml(waiterName(sale.cashierId))}</td>
                             <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
+                            <td>${saleDiscountAmount(sale) > 0 ? `-${money.format(saleDiscountAmount(sale))}<small>${escapeHtml(saleDiscount(sale).label)}</small>` : "-"}</td>
                             <td>${money.format(saleIvaAmount(sale))}</td>
                             <td>${money.format(saleTip(sale))}<small>${escapeHtml(saleTipPaymentMethod(sale))}</small></td>
                             <td>${cashDue > 0 ? money.format(Number(sale.payment?.cashReceived) || 0) : "-"}</td>
@@ -5810,7 +5839,7 @@ function renderCashSessionSales(session) {
                       },
                     )
                     .join("")
-                : `<tr><td colspan="10">Aun no hay cobros en esta caja.</td></tr>`
+                : `<tr><td colspan="11">Aun no hay cobros en esta caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -5833,7 +5862,7 @@ function renderCashSessionHistory() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               sessions.length
@@ -5846,6 +5875,7 @@ function renderCashSessionHistory() {
                           <td>${session.closedAt ? formatDateTime(session.closedAt) : "Abierta"}</td>
                           <td><strong>${escapeHtml(waiterName(session.openedBy))}</strong><small>${session.closedBy ? `Cerro ${escapeHtml(waiterName(session.closedBy))}` : ""}</small></td>
                           <td>${money.format(Number(totals.totalSales ?? totals.total) || 0)}</td>
+                          <td>${money.format(Number(totals.discounts) || 0)}</td>
                           <td>${money.format(Number(totals.iva) || 0)}</td>
                           <td>${money.format(Number(totals.cashSales ?? totals.cash) || 0)}</td>
                           <td>${money.format(Number(totals.cardSales ?? totals.card) || 0)}</td>
@@ -5855,7 +5885,7 @@ function renderCashSessionHistory() {
                       `;
                     })
                     .join("")
-                : `<tr><td colspan="9">Aun no hay aperturas de caja.</td></tr>`
+                : `<tr><td colspan="10">Aun no hay aperturas de caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -5902,6 +5932,7 @@ function cashClosuresByDay() {
         sortKey: key,
         sessions: 0,
         total: 0,
+        discounts: 0,
         iva: 0,
         cash: 0,
         card: 0,
@@ -5910,6 +5941,7 @@ function cashClosuresByDay() {
       };
       current.sessions += 1;
       current.total += Number(totals.totalSales ?? totals.total) || 0;
+      current.discounts += Number(totals.discounts) || 0;
       current.iva += Number(totals.iva) || 0;
       current.cash += Number(totals.cashSales ?? totals.cash) || 0;
       current.card += Number(totals.cardSales ?? totals.card) || 0;
@@ -6020,7 +6052,7 @@ function renderCashClosuresData() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               rows.length
@@ -6031,6 +6063,7 @@ function renderCashClosuresData() {
                           <td><strong>${escapeHtml(row.date)}</strong></td>
                           <td>${row.sessions}</td>
                           <td>${money.format(row.total)}</td>
+                          <td>${money.format(row.discounts)}</td>
                           <td>${money.format(row.iva)}</td>
                           <td>${money.format(row.cash)}</td>
                           <td>${money.format(row.card)}</td>
@@ -6040,7 +6073,7 @@ function renderCashClosuresData() {
                       `,
                     )
                     .join("")
-                : `<tr><td colspan="8">Aun no hay cortes de caja cerrados.</td></tr>`
+                : `<tr><td colspan="9">Aun no hay cortes de caja cerrados.</td></tr>`
             }
           </tbody>
         </table>
@@ -6929,6 +6962,15 @@ function saleReceiptTipLabel(sale) {
   return "Propina";
 }
 
+function saleReceiptDiscountLines(sale) {
+  const discount = saleDiscount(sale);
+  if (discount.amount <= 0) return [];
+  return [
+    receiptPrintColumns("Consumo antes", receiptPrintMoney(discount.originalSubtotal)),
+    receiptPrintColumns(discount.label, `-${receiptPrintMoney(discount.amount)}`),
+  ];
+}
+
 function buildPrepaidReceiptText(order) {
   const printedAt = new Date().toISOString();
   const totals = calculateTotals(order);
@@ -6973,6 +7015,7 @@ function buildPrepaidSaleReceiptText(sale) {
     receiptPrintRule(),
     ...(Array.isArray(sale.items) ? sale.items.flatMap((item) => saleReceiptItemLines(item, tax.ivaRate)) : []),
     receiptPrintRule(),
+    ...saleReceiptDiscountLines(sale),
     receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(tax.netSubtotal)),
     receiptPrintColumns(ivaLabel(tax.ivaRate), receiptPrintMoney(tax.iva)),
     receiptPrintColumns("TOTAL", receiptPrintMoney(saleSubtotal(sale))),
@@ -7014,6 +7057,7 @@ function buildPostpaidReceiptText(sale) {
     receiptPrintRule(),
     ...(Array.isArray(sale.items) ? sale.items.flatMap((item) => saleReceiptItemLines(item, tax.ivaRate)) : []),
     receiptPrintRule(),
+    ...saleReceiptDiscountLines(sale),
     receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(tax.netSubtotal)),
     receiptPrintColumns(ivaLabel(tax.ivaRate), receiptPrintMoney(tax.iva)),
     receiptPrintColumns("Consumo", receiptPrintMoney(saleSubtotal(sale))),
@@ -7710,6 +7754,8 @@ function orderSearchRecords() {
       const payment = order.payment || {};
       const total = isClosed ? roundCurrency(payment.total ?? payment.subtotal ?? totals.total) : totals.total;
       const iva = isClosed ? roundCurrency(payment.iva ?? payment.taxAmount ?? totals.iva) : totals.iva;
+      const discountAmount = isClosed ? roundCurrency(payment.discountAmount ?? payment.discount?.amount) : 0;
+      const discountLabel = isClosed && discountAmount > 0 ? String(payment.discount?.label || "Descuento") : "";
       return {
         recordType: isCancelled ? "Cancelada" : isClosed ? "Cerrada" : "Abierta",
         statusKey: isCancelled ? "cancelled" : isClosed ? "closed" : "open",
@@ -7728,11 +7774,14 @@ function orderSearchRecords() {
         payment: isCancelled ? "Sin cobro" : isClosed ? (order.paymentMethod || payment.method || "Sin cobro") : "Pendiente",
         total,
         iva,
+        discountAmount,
+        discountLabel,
         products: orderItemsSummary(order.items),
       };
     });
   const paidRecords = sales.map((sale) => {
     const sourceOrder = orderById.get(sale.orderId);
+    const discount = saleDiscount(sale);
     return {
       recordType: "Cobrada",
       statusKey: "paid",
@@ -7754,6 +7803,8 @@ function orderSearchRecords() {
       payment: sale.paymentMethod || "Efectivo",
       total: saleTotal(sale),
       iva: saleIvaAmount(sale),
+      discountAmount: discount.amount,
+      discountLabel: discount.amount > 0 ? discount.label : "",
       products: orderItemsSummary(sale.items),
     };
   });
@@ -7781,7 +7832,7 @@ function filteredOrderSearchRecords({ limit = 100 } = {}) {
       if (from && dateKey < from) return false;
       if (to && dateKey > to) return false;
       if (!query) return true;
-      const haystack = normalize(`${record.id} ${record.uid} ${record.label} ${record.waiter} ${record.payment} ${record.products}`);
+      const haystack = normalize(`${record.id} ${record.uid} ${record.label} ${record.waiter} ${record.payment} ${record.discountLabel} ${record.products}`);
       return haystack.includes(query);
     });
   return limit ? records.slice(0, limit) : records;
@@ -7941,7 +7992,7 @@ function renderOrderSearchData() {
                             <td><strong>${escapeHtml(record.label)}</strong><small>${escapeHtml(record.waiter)}</small></td>
                             <td><span class="shift-status ${record.recordType === "Cobrada" ? "is-active" : ""}">${escapeHtml(record.recordType)}</span></td>
                             <td>${escapeHtml(record.payment)}</td>
-                            <td><strong>${money.format(record.total)}</strong><small>IVA ${money.format(record.iva || 0)}</small></td>
+                            <td><strong>${money.format(record.total)}</strong><small>IVA ${money.format(record.iva || 0)}</small>${record.discountAmount > 0 ? `<small>${escapeHtml(record.discountLabel)}: -${money.format(record.discountAmount)}</small>` : ""}</td>
                             <td>${renderPrepaidTicketCell(record)}</td>
                             <td>${renderPostpaidTicketCell(record)}</td>
                             <td>${escapeHtml(record.products)}</td>
@@ -7982,6 +8033,7 @@ function renderData() {
     <div class="data-layout">
       <section class="summary-grid">
         ${renderRevenueBreakdownCard(metrics)}
+        ${renderSummaryCard("Descuentos hoy", money.format(metrics.discounts))}
         ${renderSummaryCard("IVA hoy", money.format(metrics.iva))}
         ${renderSummaryCard("Propinas hoy", money.format(metrics.tips))}
         ${renderSummaryCard("Costo estimado", money.format(metrics.foodCost))}
@@ -8225,6 +8277,58 @@ function saleSubtotal(sale) {
   return Number(sale.totals?.subtotal ?? Math.max(0, saleTotal(sale) - saleTip(sale)) ?? 0);
 }
 
+function saleSubtotalBeforeDiscount(sale) {
+  const stored = Number(
+    sale?.totals?.originalSubtotal
+    ?? sale?.totals?.subtotalBeforeDiscount
+    ?? sale?.discount?.originalSubtotal
+    ?? sale?.payment?.originalSubtotal
+    ?? sale?.payment?.subtotalBeforeDiscount,
+  );
+  if (Number.isFinite(stored)) return roundCurrency(Math.max(stored, saleSubtotal(sale)));
+  return roundCurrency(saleSubtotal(sale) + saleDiscountAmount(sale));
+}
+
+function saleDiscount(sale) {
+  const raw = sale?.discount || sale?.totals?.discount || sale?.payment?.discount || {};
+  const code = String(raw.code || sale?.totals?.discountCode || "none");
+  const option = checkoutDiscountOption(code);
+  const originalSubtotal = saleSubtotalBeforeDiscount(sale);
+  const subtotal = roundCurrency(saleSubtotal(sale));
+  const storedAmount = Number(raw.amount ?? sale?.totals?.discountAmount ?? sale?.payment?.discountAmount);
+  const amount = Number.isFinite(storedAmount)
+    ? roundCurrency(Math.max(0, storedAmount))
+    : roundCurrency(Math.max(0, originalSubtotal - subtotal));
+  const storedRate = Number(raw.rate ?? sale?.totals?.discountRate);
+  const rate = Number.isFinite(storedRate)
+    ? Math.max(0, Math.min(1, storedRate > 1 ? storedRate / 100 : storedRate))
+    : originalSubtotal > 0 ? amount / originalSubtotal : option.rate;
+  const percent = roundCurrency(Number(raw.percent ?? sale?.totals?.discountPercent) || rate * 100);
+  const fallbackLabel = amount > 0 ? (option.rate > 0 ? option.label : `Descuento ${formatPlainNumber(percent)}%`) : "Sin descuento";
+  return {
+    code,
+    type: String(raw.type || sale?.totals?.discountType || option.type),
+    label: String(raw.label || sale?.totals?.discountLabel || fallbackLabel),
+    rate,
+    percent,
+    amount,
+    netAmount: roundCurrency(Number(raw.netAmount ?? sale?.totals?.discountNetAmount) || 0),
+    ivaAmount: roundCurrency(Number(raw.ivaAmount ?? sale?.totals?.discountIvaAmount) || 0),
+    originalSubtotal,
+    subtotal,
+  };
+}
+
+function saleDiscountAmount(sale) {
+  const stored = Number(sale?.discount?.amount ?? sale?.totals?.discountAmount ?? sale?.payment?.discountAmount);
+  return Number.isFinite(stored) ? roundCurrency(Math.max(0, stored)) : 0;
+}
+
+function saleDiscountFactor(sale) {
+  const originalSubtotal = saleSubtotalBeforeDiscount(sale);
+  return originalSubtotal > 0 ? Math.max(0, Math.min(1, saleSubtotal(sale) / originalSubtotal)) : 1;
+}
+
 function saleIvaRate(sale) {
   const enabled = sale?.totals?.ivaEnabled === true || sale?.totals?.taxEnabled === true || sale?.payment?.ivaEnabled === true || sale?.payment?.taxEnabled === true || sale?.ivaEnabled === true || sale?.taxEnabled === true;
   if (!enabled) return 0;
@@ -8281,6 +8385,7 @@ function paymentTotalsForSales(sales = []) {
       const subtotal = saleSubtotal(sale);
       const tip = saleTip(sale);
       const iva = saleIvaAmount(sale);
+      const discount = saleDiscountAmount(sale);
       const saleBucket = paymentBucket(sale.paymentMethod);
       const tipBucket = paymentBucket(saleTipPaymentMethod(sale));
       if (saleBucket === "card") {
@@ -8300,10 +8405,11 @@ function paymentTotalsForSales(sales = []) {
       acc.total += subtotal + tip;
       acc.tips += tip;
       acc.iva += iva;
+      acc.discounts += discount;
       acc.count += 1;
       return acc;
     },
-    { cash: 0, card: 0, total: 0, tips: 0, iva: 0, cashSales: 0, cardSales: 0, cashTips: 0, cardTips: 0, count: 0 },
+    { cash: 0, card: 0, total: 0, tips: 0, iva: 0, discounts: 0, cashSales: 0, cardSales: 0, cashTips: 0, cardTips: 0, count: 0 },
   );
 }
 
@@ -8355,6 +8461,7 @@ function cashSessionDisplayTotals(session) {
     cardSales,
     totalSales,
     iva: (session.ivaEnabled === true || session.taxEnabled === true) ? (Number(session.iva) || 0) : (calculated.iva || 0),
+    discounts: Number(session.discounts ?? calculated.discounts) || 0,
     cashExpenses: Number(session.cashExpenses ?? calculated.cashExpenses) || 0,
     cashTips: Number(session.cashTips ?? calculated.cashTips) || 0,
     cardTips: Number(session.cardTips ?? calculated.cardTips) || 0,
@@ -9361,6 +9468,36 @@ function roundCurrency(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+function checkoutDiscountOption(code) {
+  return CHECKOUT_DISCOUNT_OPTIONS.find((option) => option.code === code) || CHECKOUT_DISCOUNT_OPTIONS[0];
+}
+
+function calculateCheckoutDiscount(subtotal, code = "none", ivaRate = 0) {
+  const originalSubtotal = roundCurrency(Math.max(0, Number(subtotal) || 0));
+  const option = checkoutDiscountOption(code);
+  const amount = roundCurrency(originalSubtotal * option.rate);
+  const discountedSubtotal = roundCurrency(Math.max(0, originalSubtotal - amount));
+  const originalTax = taxBreakdownForGross(originalSubtotal, ivaRate);
+  const discountedTax = taxBreakdownForGross(discountedSubtotal, ivaRate);
+  return {
+    code: option.code,
+    type: option.type,
+    label: option.label,
+    rate: option.rate,
+    percent: roundCurrency(option.rate * 100),
+    amount,
+    netAmount: roundCurrency(Math.max(0, originalTax.netSubtotal - discountedTax.netSubtotal)),
+    ivaAmount: roundCurrency(Math.max(0, originalTax.iva - discountedTax.iva)),
+    originalSubtotal,
+    subtotal: discountedSubtotal,
+  };
+}
+
+function readCheckoutDiscount(subtotal, ivaRate, form = document.querySelector("[data-checkout-form]")) {
+  const code = form?.querySelector?.("[data-checkout-discount]")?.value || "none";
+  return calculateCheckoutDiscount(subtotal, code, ivaRate);
+}
+
 function cleanIvaRate(value) {
   const rate = Number(value);
   if (!Number.isFinite(rate)) return DEFAULT_IVA_RATE;
@@ -9812,7 +9949,9 @@ function readCheckoutTip(subtotal, form = document) {
 function readCheckoutPayment(order, form = document.querySelector("[data-checkout-form]")) {
   if (!order || !form) return null;
   const totals = calculateTotals(order);
-  const subtotal = totals.subtotal;
+  const discount = readCheckoutDiscount(totals.subtotal, totals.ivaRate, form);
+  const subtotal = discount.subtotal;
+  const tax = taxBreakdownForGross(subtotal, totals.ivaRate);
   const paymentMethod = form.querySelector('input[name="paymentMethod"]:checked')?.value || state.paymentMethod || "Efectivo";
   const tip = readCheckoutTip(subtotal, form);
   tip.paymentMethod = form.querySelector('input[name="tipPaymentMethod"]:checked')?.value || paymentMethod;
@@ -9830,11 +9969,15 @@ function readCheckoutPayment(order, form = document.querySelector("[data-checkou
   return {
     paymentMethod,
     tip,
+    discount,
+    originalSubtotal: discount.originalSubtotal,
+    subtotalBeforeDiscount: discount.originalSubtotal,
+    discountAmount: discount.amount,
     subtotal,
-    netSubtotal: totals.netSubtotal,
-    taxableSubtotal: totals.netSubtotal,
-    iva: totals.iva,
-    taxAmount: totals.iva,
+    netSubtotal: tax.netSubtotal,
+    taxableSubtotal: tax.netSubtotal,
+    iva: tax.iva,
+    taxAmount: tax.iva,
     ivaEnabled: totals.ivaEnabled,
     taxEnabled: totals.ivaEnabled,
     ivaRate: totals.ivaRate,
@@ -9888,6 +10031,16 @@ function updateCheckoutPaymentPreview(event) {
   form.querySelector("[data-checkout-total]").textContent = money.format(payment.total);
   form.querySelector("[data-tip-preview]").textContent = money.format(payment.tip.amount);
   form.querySelector("[data-payment-preview]").textContent = payment.paymentMethod;
+  const taxSummary = form.querySelector("[data-checkout-tax-summary]");
+  const discountOriginal = form.querySelector("[data-discount-original]");
+  const discountLabel = form.querySelector("[data-discount-label]");
+  const discountAmount = form.querySelector("[data-discount-amount]");
+  const discountSubtotal = form.querySelector("[data-discount-subtotal]");
+  if (taxSummary) taxSummary.textContent = `Subtotal s/IVA ${money.format(payment.netSubtotal)} · ${ivaLabel(payment.ivaRate)} ${money.format(payment.iva)}`;
+  if (discountOriginal) discountOriginal.textContent = money.format(payment.originalSubtotal);
+  if (discountLabel) discountLabel.textContent = payment.discount.rate > 0 ? payment.discount.label : "Sin descuento";
+  if (discountAmount) discountAmount.textContent = payment.discount.rate > 0 ? `-${money.format(payment.discount.amount)}` : money.format(0);
+  if (discountSubtotal) discountSubtotal.textContent = money.format(payment.subtotal);
   const cashFields = form.querySelector("[data-cash-fields]");
   cashFields?.classList.toggle("is-hidden", payment.cashDue <= 0);
   const cashDue = form.querySelector("[data-cash-due]");
@@ -9921,6 +10074,8 @@ function confirmCheckoutPayment(event) {
   const pending = order.items.some((item) => item.status === "pending");
   const details = [
     `Total: ${money.format(payment.total)}`,
+    payment.discount.rate > 0 ? `Consumo antes: ${money.format(payment.originalSubtotal)}` : "",
+    payment.discount.rate > 0 ? `${payment.discount.label}: -${money.format(payment.discount.amount)}` : "Descuento: sin descuento",
     `Subtotal s/IVA: ${money.format(payment.netSubtotal)}`,
     `${ivaLabel(payment.ivaRate)}: ${money.format(payment.iva)}`,
     `Pago principal: ${payment.paymentMethod}`,
@@ -9940,7 +10095,14 @@ function confirmCheckoutPayment(event) {
 
 function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(order)) {
   if (payment && typeof payment === "object") {
-    const tax = taxBreakdownForGross(payment.subtotal ?? baseTotals.subtotal, payment.ivaRate ?? payment.taxRate ?? baseTotals.ivaRate);
+    const ivaRate = cleanIvaRate(payment.ivaRate ?? payment.taxRate ?? baseTotals.ivaRate);
+    const discount = calculateCheckoutDiscount(
+      payment.originalSubtotal ?? payment.subtotalBeforeDiscount ?? baseTotals.subtotal,
+      payment.discount?.code ?? payment.discountCode ?? "none",
+      ivaRate,
+    );
+    const subtotal = roundCurrency(payment.subtotal ?? discount.subtotal);
+    const tax = taxBreakdownForGross(subtotal, ivaRate);
     const tip = {
       mode: payment.tip?.mode || "none",
       value: Number(payment.tip?.value) || 0,
@@ -9951,7 +10113,11 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
       ...payment,
       paymentMethod: payment.paymentMethod || "Efectivo",
       tip,
-      subtotal: roundCurrency(payment.subtotal ?? baseTotals.subtotal),
+      discount,
+      originalSubtotal: discount.originalSubtotal,
+      subtotalBeforeDiscount: discount.originalSubtotal,
+      discountAmount: discount.amount,
+      subtotal,
       netSubtotal: roundCurrency(payment.netSubtotal ?? payment.taxableSubtotal ?? tax.netSubtotal),
       taxableSubtotal: roundCurrency(payment.taxableSubtotal ?? payment.netSubtotal ?? tax.netSubtotal),
       iva: roundCurrency(payment.iva ?? payment.taxAmount ?? tax.iva),
@@ -9960,7 +10126,7 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
       taxEnabled: Boolean(payment.taxEnabled ?? payment.ivaEnabled ?? baseTotals.ivaEnabled),
       ivaRate: cleanIvaRate(payment.ivaRate ?? payment.taxRate ?? tax.ivaRate),
       taxRate: cleanIvaRate(payment.taxRate ?? payment.ivaRate ?? tax.ivaRate),
-      total: roundCurrency(payment.total ?? baseTotals.subtotal + tip.amount),
+      total: roundCurrency(payment.total ?? subtotal + tip.amount),
       cashDue: roundCurrency(payment.cashDue),
       cardDue: roundCurrency(payment.cardDue),
       cashReceived: roundCurrency(payment.cashReceived),
@@ -9968,17 +10134,22 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
     };
   }
   const paymentMethod = typeof payment === "string" ? payment : state.paymentMethod || "Efectivo";
-  const tip = readCheckoutTip(baseTotals.subtotal);
+  const discount = calculateCheckoutDiscount(baseTotals.subtotal, "none", baseTotals.ivaRate);
+  const tip = readCheckoutTip(discount.subtotal);
   tip.paymentMethod = tip.paymentMethod || paymentMethod;
   const cashDue = roundCurrency(
-    (paymentBucket(paymentMethod) === "cash" ? baseTotals.subtotal : 0)
+    (paymentBucket(paymentMethod) === "cash" ? discount.subtotal : 0)
     + (paymentBucket(tip.paymentMethod) === "cash" ? tip.amount : 0),
   );
-  const cardDue = roundCurrency(baseTotals.subtotal + tip.amount - cashDue);
+  const cardDue = roundCurrency(discount.subtotal + tip.amount - cashDue);
   return {
     paymentMethod,
     tip,
-    subtotal: baseTotals.subtotal,
+    discount,
+    originalSubtotal: discount.originalSubtotal,
+    subtotalBeforeDiscount: discount.originalSubtotal,
+    discountAmount: discount.amount,
+    subtotal: discount.subtotal,
     netSubtotal: baseTotals.netSubtotal,
     taxableSubtotal: baseTotals.netSubtotal,
     iva: baseTotals.iva,
@@ -9987,7 +10158,7 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
     taxEnabled: baseTotals.ivaEnabled,
     ivaRate: baseTotals.ivaRate,
     taxRate: baseTotals.ivaRate,
-    total: roundCurrency(baseTotals.subtotal + tip.amount),
+    total: roundCurrency(discount.subtotal + tip.amount),
     cashDue,
     cardDue,
     cashReceived: cashDue,
@@ -10019,6 +10190,11 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
       cardDue: checkout.cardDue,
       cashReceived: checkout.cashReceived,
       changeGiven: checkout.changeGiven,
+      total: checkout.total,
+      originalSubtotal: checkout.originalSubtotal,
+      subtotalBeforeDiscount: checkout.originalSubtotal,
+      discountAmount: checkout.discount.amount,
+      discount: checkout.discount,
       subtotal: checkout.subtotal,
       netSubtotal: checkout.netSubtotal,
       taxableSubtotal: checkout.netSubtotal,
@@ -10032,6 +10208,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
       confirmedBy: currentUser().id,
     };
     order.tip = checkout.tip;
+    order.discount = checkout.discount;
     if (state.activeOrderId === order.id) state.activeOrderId = null;
     state.modal = null;
     persist();
@@ -10058,6 +10235,11 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     cardDue: checkout.cardDue,
     cashReceived: checkout.cashReceived,
     changeGiven: checkout.changeGiven,
+    total: checkout.total,
+    originalSubtotal: checkout.originalSubtotal,
+    subtotalBeforeDiscount: checkout.originalSubtotal,
+    discountAmount: checkout.discount.amount,
+    discount: checkout.discount,
     subtotal: checkout.subtotal,
     netSubtotal: checkout.netSubtotal,
     taxableSubtotal: checkout.netSubtotal,
@@ -10072,6 +10254,18 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   };
   const totals = {
     ...baseTotals,
+    originalSubtotal: checkout.originalSubtotal,
+    subtotalBeforeDiscount: checkout.originalSubtotal,
+    discountAmount: checkout.discount.amount,
+    discountNetAmount: checkout.discount.netAmount,
+    discountIvaAmount: checkout.discount.ivaAmount,
+    discountCode: checkout.discount.code,
+    discountType: checkout.discount.type,
+    discountLabel: checkout.discount.label,
+    discountRate: checkout.discount.rate,
+    discountPercent: checkout.discount.percent,
+    discount: checkout.discount,
+    subtotal: checkout.subtotal,
     tip: checkout.tip.amount,
     tipMode: checkout.tip.mode,
     tipValue: checkout.tip.value,
@@ -10107,6 +10301,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     commandBatches: structuredClone(order.commandBatches),
     totals,
     tip: checkout.tip,
+    discount: checkout.discount,
     openedAt: order.openedAt,
     closedAt,
     chargedAt: closedAt,
@@ -10130,6 +10325,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   order.paymentUid = paymentUid;
   order.payment = paymentRecord;
   order.tip = checkout.tip;
+  order.discount = checkout.discount;
   state.paymentMethod = paymentMethod;
   if (state.activeOrderId === order.id) state.activeOrderId = null;
   state.productConfig = null;
@@ -10213,6 +10409,7 @@ function recalculateCashSessionAfterSaleDeletion(session, sale) {
     cardSales: totals.card,
     totalSales: totals.total,
     iva: totals.iva,
+    discounts: totals.discounts,
     ivaEnabled: totals.iva > 0,
     taxEnabled: totals.iva > 0,
     cashExpenses: totals.cashExpenses || 0,
@@ -11250,6 +11447,7 @@ function closeCashSession(event) {
     cardSales: totals.card,
     totalSales: totals.total,
     iva: totals.iva,
+    discounts: totals.discounts,
     ivaEnabled: totals.iva > 0,
     taxEnabled: totals.iva > 0,
     cashExpenses: totals.cashExpenses || 0,
@@ -12820,6 +13018,7 @@ function buildBusinessMetrics(day = null) {
   let revenue = 0;
   let salesGross = 0;
   let iva = 0;
+  let discounts = 0;
   let foodCost = 0;
   let tips = 0;
   const sales = day ? state.sales.filter((sale) => isSameLocalDay(saleClosedAt(sale), day)) : state.sales;
@@ -12828,10 +13027,12 @@ function buildBusinessMetrics(day = null) {
     const tax = saleTaxBreakdown(sale);
     salesGross += saleGross;
     iva += tax.iva;
+    discounts += saleDiscountAmount(sale);
     revenue += tax.netSubtotal;
     tips += saleTip(sale);
+    const discountFactor = saleDiscountFactor(sale);
     sale.items?.forEach((line) => {
-      const lineGross = roundCurrency(line.unitPrice * line.qty);
+      const lineGross = roundCurrency(line.unitPrice * line.qty * discountFactor);
       const lineRevenue = taxBreakdownForGross(lineGross, tax.ivaRate).netSubtotal;
       const lineCost = lineUnitCost(line) * line.qty;
       foodCost += lineCost;
@@ -12854,6 +13055,7 @@ function buildBusinessMetrics(day = null) {
     revenue,
     salesGross,
     iva,
+    discounts,
     collected: paymentTotals.total,
     cashRevenue: paymentTotals.cash,
     cardRevenue: paymentTotals.card,
@@ -12887,6 +13089,12 @@ function exportData(kind) {
           "cajero",
           "metodo_pago",
           "metodo_propina",
+          "consumo_antes_descuento",
+          "descuento_codigo",
+          "descuento_tipo",
+          "descuento_nombre",
+          "descuento_porcentaje",
+          "descuento_importe",
           "subtotal_sin_iva",
           "iva",
           "consumo_con_iva",
@@ -12906,6 +13114,12 @@ function exportData(kind) {
           waiterName(sale.cashierId),
           sale.paymentMethod || "Efectivo",
           saleTipPaymentMethod(sale),
+          saleSubtotalBeforeDiscount(sale),
+          saleDiscount(sale).code,
+          saleDiscount(sale).type,
+          saleDiscount(sale).label,
+          saleDiscount(sale).percent,
+          saleDiscountAmount(sale),
           saleNetSubtotal(sale),
           saleIvaAmount(sale),
           saleSubtotal(sale),
@@ -12921,7 +13135,7 @@ function exportData(kind) {
     caja: () => ({
       filename: `librepos-caja-${stamp}.csv`,
       rows: [
-        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "iva", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
+        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "descuentos", "iva", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
         ...normalizeCashSessions(state.cashSessions).map((session) => {
           const totals = cashSessionDisplayTotals(session);
           return [
@@ -12933,6 +13147,7 @@ function exportData(kind) {
             Number(totals.cashSales ?? totals.cash) || 0,
             Number(totals.cardSales ?? totals.card) || 0,
             Number(totals.totalSales ?? totals.total) || 0,
+            Number(totals.discounts) || 0,
             Number(totals.iva) || 0,
             Number(totals.cashExpenses) || 0,
             Number(totals.expectedCash) || 0,

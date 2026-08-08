@@ -4079,6 +4079,7 @@ button:disabled {
 }
 
 .checkout-payment-box,
+.checkout-discount-box,
 .tip-box {
   display: grid;
   gap: 12px;
@@ -4091,6 +4092,42 @@ button:disabled {
 .checkout-payment-box {
   border-color: var(--line);
   background: var(--surface-warm);
+}
+
+.checkout-discount-box {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr);
+  align-items: stretch;
+  border-color: var(--brand-soft);
+  background: var(--brand-tint);
+}
+
+.checkout-discount-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 16px;
+  align-content: center;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.checkout-discount-summary span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.checkout-discount-summary strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkout-discount-summary .grand {
+  padding-top: 7px;
+  border-top: 1px dashed var(--line);
+  color: var(--brand-strong);
 }
 
 .tip-box-head {
@@ -4380,6 +4417,15 @@ button:disabled {
 .sale-detail-totals .grand {
   border-color: var(--teal-soft);
   background: var(--teal-tint);
+}
+
+.sale-detail-totals .is-discount {
+  border-color: var(--brand-soft);
+  background: var(--brand-tint);
+}
+
+.sale-detail-totals .is-discount strong {
+  color: var(--brand-strong);
 }
 
 .sale-detail-totals .grand strong {
@@ -5425,6 +5471,7 @@ button:disabled {
   .ticket-actions,
   .order-focus-metrics,
   .checkout-actions,
+  .checkout-discount-box,
   .cash-fields,
   .cash-cut-preview,
   .extras-add-row,

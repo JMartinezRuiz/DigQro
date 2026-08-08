@@ -962,10 +962,19 @@ function fakeReceiptText(type = "prepaid") {
       lines.push(receiptColumns(`  + ${extra.name}`, receiptMoney(taxBreakdownForGross(extra.price, ivaRate).netSubtotal)));
     }
   });
-  const tax = taxBreakdownForGross(subtotal, ivaRate);
+  const discountOptions = [
+    { label: "Fidelidad 10%", rate: 0.1 },
+    { label: "Fidelidad 15%", rate: 0.15 },
+    { label: "Fidelidad 20%", rate: 0.2 },
+    { label: "Desc. locatario 10%", rate: 0.1 },
+  ];
+  const discount = receiptType === "postpaid" ? discountOptions[randomInt(0, discountOptions.length - 1)] : null;
+  const discountAmount = discount ? roundCurrency(subtotal * discount.rate) : 0;
+  const discountedSubtotal = roundCurrency(subtotal - discountAmount);
+  const tax = taxBreakdownForGross(discountedSubtotal, ivaRate);
   const tipRate = [10, 12, 15][randomInt(0, 2)];
-  const tip = receiptType === "postpaid" ? Math.round(subtotal * tipRate / 100) : 0;
-  const total = subtotal + tip;
+  const tip = receiptType === "postpaid" ? roundCurrency(discountedSubtotal * tipRate / 100) : 0;
+  const total = roundCurrency(discountedSubtotal + tip);
   const card = Math.random() > 0.5;
   const paid = card ? total : Math.ceil(total / 50) * 50;
   const change = Math.max(0, paid - total);
@@ -981,9 +990,11 @@ function fakeReceiptText(type = "prepaid") {
     receiptRule(),
     ...lines,
     receiptRule(),
+    discount ? receiptColumns("Consumo antes", receiptMoney(subtotal)) : null,
+    discount ? receiptColumns(discount.label, `-${receiptMoney(discountAmount)}`) : null,
     receiptColumns("Subtotal s/IVA", receiptMoney(tax.netSubtotal)),
     receiptColumns(ivaLabel(tax.ivaRate), receiptMoney(tax.iva)),
-    receiptType === "postpaid" ? receiptColumns("Consumo", receiptMoney(subtotal)) : null,
+    receiptType === "postpaid" ? receiptColumns("Consumo", receiptMoney(discountedSubtotal)) : null,
     receiptType === "postpaid" ? receiptColumns(`Propina ${tipRate}%`, receiptMoney(tip)) : null,
     receiptColumns("TOTAL", receiptMoney(total)),
     receiptType === "prepaid" ? receiptCenter("Pendiente de pago") : null,
