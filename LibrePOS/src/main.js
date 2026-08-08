@@ -11996,12 +11996,13 @@ function saveMenuProduct(event) {
   }
   state.menuProducts = normalizeMenuProducts(state.menuProducts);
   const productId = event.currentTarget.dataset.productId;
-  const existing = productId ? state.menuProducts.find((product) => product.id === productId) : null;
   const currentProduct = productId ? getProduct(productId) : null;
+  const existingIndex = productId ? state.menuProducts.findIndex((product) => product.id === productId) : -1;
+  const existing = existingIndex >= 0 ? state.menuProducts[existingIndex] : null;
   const product = readMenuProductForm(event.currentTarget, currentProduct || existing);
   if (!product) return;
-  if (existing) {
-    Object.assign(existing, product);
+  if (existingIndex >= 0) {
+    state.menuProducts[existingIndex] = product;
     showToast("Platillo actualizado.");
   } else {
     state.menuProducts.unshift(product);
