@@ -4824,6 +4824,42 @@ button:disabled {
   height: 18px;
 }
 
+.ticket-price-mode-field {
+  align-content: start;
+}
+
+.ticket-price-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ticket-price-mode label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.ticket-price-mode label:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+  color: var(--brand-strong);
+}
+
+.ticket-price-mode input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
 .expense-layout {
   display: grid;
   gap: 18px;

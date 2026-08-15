@@ -32,6 +32,7 @@ const BRAND_IMAGE_FILE = path.join(ROOT_DIR, "assets", "brand.jpg");
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
+const DEFAULT_TICKET_ITEM_PRICE_MODE = "gross";
 const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
@@ -743,15 +744,31 @@ const FAKE_RECEIPT_PRODUCTS = [
   { name: "Hojuelas", price: 65, extras: [{ name: "Miel extra", price: 15 }] },
 ];
 
-function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+function seededRandom(seed) {
+  const text = String(seed || "");
+  let state = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    state ^= text.charCodeAt(index);
+    state = Math.imul(state, 16777619);
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function sampleItems(items, count) {
+function randomInt(min, max, random = Math.random) {
+  return Math.floor(random() * (max - min + 1)) + min;
+}
+
+function sampleItems(items, count, random = Math.random) {
   const pool = [...items];
   const selected = [];
   while (selected.length < count && pool.length) {
-    selected.push(pool.splice(randomInt(0, pool.length - 1), 1)[0]);
+    selected.push(pool.splice(randomInt(0, pool.length - 1, random), 1)[0]);
   }
   return selected;
 }
@@ -781,6 +798,14 @@ function sharedIvaEnabled() {
 
 function sharedIvaRate() {
   return cleanIvaRate(sharedState?.settings?.ivaRate);
+}
+
+function normalizeTicketItemPriceMode(value) {
+  return value === "net" ? "net" : DEFAULT_TICKET_ITEM_PRICE_MODE;
+}
+
+function sharedTicketItemPriceMode() {
+  return normalizeTicketItemPriceMode(sharedState?.settings?.ticketItemPriceMode);
 }
 
 function taxBreakdownForGross(value, rate = sharedIvaEnabled() ? sharedIvaRate() : 0) {
@@ -942,24 +967,28 @@ function normalizeFakeReceiptType(value) {
   return value === "postpaid" ? "postpaid" : "prepaid";
 }
 
-function fakeReceiptText(type = "prepaid") {
+function fakeReceiptText(type = "prepaid", priceMode = sharedTicketItemPriceMode(), seed = "") {
   const receiptType = normalizeFakeReceiptType(type);
+  const itemPriceMode = normalizeTicketItemPriceMode(priceMode);
+  const random = seed ? seededRandom(seed) : Math.random;
   const now = new Date();
-  const table = randomInt(1, 13);
-  const folio = randomInt(1, 999);
-  const selected = sampleItems(FAKE_RECEIPT_PRODUCTS, randomInt(3, 5));
+  const table = randomInt(1, 13, random);
+  const folio = randomInt(1, 999, random);
+  const selected = sampleItems(FAKE_RECEIPT_PRODUCTS, randomInt(3, 5, random), random);
   const lines = [];
   let subtotal = 0;
   const ivaRate = sharedIvaEnabled() ? sharedIvaRate() : 0;
   selected.forEach((product) => {
-    const qty = randomInt(1, product.price > 100 ? 2 : 3);
+    const qty = randomInt(1, product.price > 100 ? 2 : 3, random);
     const lineTotal = qty * product.price;
     subtotal += lineTotal;
-    lines.push(receiptColumns(`${qty} ${product.name}`, receiptMoney(taxBreakdownForGross(lineTotal, ivaRate).netSubtotal)));
-    if (product.extras.length && Math.random() > 0.45) {
-      const extra = product.extras[randomInt(0, product.extras.length - 1)];
+    const lineDisplayTotal = itemPriceMode === "gross" ? lineTotal : taxBreakdownForGross(lineTotal, ivaRate).netSubtotal;
+    lines.push(receiptColumns(`${qty} ${product.name}`, receiptMoney(lineDisplayTotal)));
+    if (product.extras.length && random() > 0.45) {
+      const extra = product.extras[randomInt(0, product.extras.length - 1, random)];
       subtotal += extra.price;
-      lines.push(receiptColumns(`  + ${extra.name}`, receiptMoney(taxBreakdownForGross(extra.price, ivaRate).netSubtotal)));
+      const extraDisplayPrice = itemPriceMode === "gross" ? extra.price : taxBreakdownForGross(extra.price, ivaRate).netSubtotal;
+      lines.push(receiptColumns(`  + ${extra.name}`, receiptMoney(extraDisplayPrice)));
     }
   });
   const discountOptions = [
@@ -968,14 +997,14 @@ function fakeReceiptText(type = "prepaid") {
     { label: "Fidelidad 20%", rate: 0.2 },
     { label: "Desc. locatario 10%", rate: 0.1 },
   ];
-  const discount = receiptType === "postpaid" ? discountOptions[randomInt(0, discountOptions.length - 1)] : null;
+  const discount = receiptType === "postpaid" ? discountOptions[randomInt(0, discountOptions.length - 1, random)] : null;
   const discountAmount = discount ? roundCurrency(subtotal * discount.rate) : 0;
   const discountedSubtotal = roundCurrency(subtotal - discountAmount);
   const tax = taxBreakdownForGross(discountedSubtotal, ivaRate);
-  const tipRate = [10, 12, 15][randomInt(0, 2)];
+  const tipRate = [10, 12, 15][randomInt(0, 2, random)];
   const tip = receiptType === "postpaid" ? roundCurrency(discountedSubtotal * tipRate / 100) : 0;
   const total = roundCurrency(discountedSubtotal + tip);
-  const card = Math.random() > 0.5;
+  const card = random() > 0.5;
   const paid = card ? total : Math.ceil(total / 50) * 50;
   const change = Math.max(0, paid - total);
   return [
@@ -1569,9 +1598,11 @@ function cleanReceiptPayload(value) {
   return text.slice(0, 6000);
 }
 
-export function previewFakeReceiptTicket(type = "prepaid") {
+export function previewFakeReceiptTicket(type = "prepaid", priceMode = sharedTicketItemPriceMode(), seed = "") {
   const receiptType = normalizeFakeReceiptType(type);
-  return { ticketText: fakeReceiptText(receiptType), type: receiptType, width: RECEIPT_WIDTH, createdAt: new Date().toISOString() };
+  const itemPriceMode = normalizeTicketItemPriceMode(priceMode);
+  const sampleSeed = String(seed || Date.now());
+  return { ticketText: fakeReceiptText(receiptType, itemPriceMode, sampleSeed), type: receiptType, priceMode: itemPriceMode, seed: sampleSeed, width: RECEIPT_WIDTH, createdAt: new Date().toISOString() };
 }
 
 export async function printFakeReceiptTicket(printerName, ticketText = "", options = {}) {
@@ -1581,7 +1612,7 @@ export async function printFakeReceiptTicket(printerName, ticketText = "", optio
   const logoWidthMm = typeof options === "object" && options !== null ? options.logoWidthMm : DEFAULT_TICKET_LOGO_WIDTH_MM;
   const cleanName = String(printerName || "").trim();
   if (!cleanName) throw new Error("printer-required");
-  const text = cleanReceiptPayload(ticketText) || fakeReceiptText(options.type);
+  const text = cleanReceiptPayload(ticketText) || fakeReceiptText(options.type, options.priceMode, options.seed);
   const printOptions = { marginMm, marginLeftMm: margins.leftMm, marginRightMm: margins.rightMm, logoDataUrl, logoWidthMm };
   let result = null;
   if (process.platform === "win32") {
@@ -1954,7 +1985,7 @@ export function createSyncMiddleware() {
 
       if (url.pathname === "/api/printers/fake-receipt" && req.method === "GET") {
         if (!(await requireAdminUser(res, url.searchParams.get("userId")))) return;
-        sendJson(res, 200, previewFakeReceiptTicket(url.searchParams.get("type")));
+        sendJson(res, 200, previewFakeReceiptTicket(url.searchParams.get("type"), url.searchParams.get("priceMode"), url.searchParams.get("seed")));
         return;
       }
 
@@ -1970,6 +2001,8 @@ export function createSyncMiddleware() {
             logoDataUrl: payload.logoDataUrl,
             logoWidthMm: payload.logoWidthMm,
             type: payload.type,
+            priceMode: payload.priceMode,
+            seed: payload.seed,
           }));
         } catch (error) {
           sendJson(res, 500, { error: "printer-fake-receipt-failed", detail: compactError(error) });

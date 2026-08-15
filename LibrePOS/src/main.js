@@ -11,6 +11,7 @@ const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
+const DEFAULT_TICKET_ITEM_PRICE_MODE = "gross";
 const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
@@ -668,6 +669,7 @@ const defaultState = {
     ticketLogoWidthMm: DEFAULT_TICKET_LOGO_WIDTH_MM,
     ticketLogoEnabled: false,
     ticketLogoPosition: DEFAULT_TICKET_LOGO_POSITION,
+    ticketItemPriceMode: DEFAULT_TICKET_ITEM_PRICE_MODE,
     ivaEnabled: false,
     ivaRate: DEFAULT_IVA_RATE,
     ivaBasePriceConversionAppliedAt: "",
@@ -725,6 +727,7 @@ let printerRuntime = {
   commandPreviewText: "",
   fakeReceiptText: "",
   fakeReceiptType: "prepaid",
+  fakeReceiptSeed: `${Date.now()}-${Math.random()}`,
 };
 let postpaidTicketPrinting = false;
 
@@ -1010,6 +1013,24 @@ function ticketMarginPayload() {
     marginLeftMm: ticketMarginLeftMm(),
     marginRightMm: ticketMarginRightMm(),
   };
+}
+
+function ticketItemPriceMode() {
+  return state.settings?.ticketItemPriceMode === "net" ? "net" : DEFAULT_TICKET_ITEM_PRICE_MODE;
+}
+
+function ticketItemPriceModeLabel() {
+  return ticketItemPriceMode() === "net" ? "Sin IVA" : "IVA incluido";
+}
+
+function setTicketItemPriceMode(value) {
+  state.settings = {
+    ...state.settings,
+    ticketItemPriceMode: value === "net" ? "net" : DEFAULT_TICKET_ITEM_PRICE_MODE,
+  };
+  printerRuntime.fakeReceiptText = "";
+  persist();
+  render();
 }
 
 function saveTicketMarginMm(side, value) {
@@ -6535,6 +6556,7 @@ function renderPrinterTest() {
   const selectedLabel = selectedTicketName || "Pendiente";
   const marginLeftMm = ticketMarginLeftMm();
   const marginRightMm = ticketMarginRightMm();
+  const itemPriceMode = ticketItemPriceMode();
   const logoWidthMm = ticketLogoWidthMm();
   const logoLoadedLabel = ticketLogoDataUrl() ? "Personalizado" : "Logo base";
   const fakeReceiptType = printerRuntime.fakeReceiptType === "postpaid" ? "postpaid" : "prepaid";
@@ -6553,6 +6575,7 @@ function renderPrinterTest() {
       <section class="summary-grid">
         ${renderSummaryCard("Impresoras", String(printersCount))}
         ${renderSummaryCard("Ticket", escapeHtml(selectedLabel))}
+        ${renderSummaryCard("Precios", ticketItemPriceModeLabel())}
         ${renderSummaryCard("Margen", `Izq ${marginLeftMm} · Der ${marginRightMm} mm`)}
         ${renderSummaryCard("Logo", ticketLogoEnabled() ? `${logoWidthMm} mm ${ticketLogoPositionLabel()}` : "No incluido")}
         ${renderSummaryCard("Ultima prueba", printerRuntime.lastPrintedAt ? formatDateTime(printerRuntime.lastPrintedAt) : "Sin prueba")}
@@ -6585,6 +6608,19 @@ function renderPrinterTest() {
             <input data-ticket-margin-mm data-ticket-margin-side="right" type="number" min="0" max="20" step="1" value="${marginRightMm}" />
             <small>${marginRightMm} mm desde el borde derecho. Sube este valor si se cortan los precios.</small>
           </label>
+          <div class="field ticket-price-mode-field">
+            <span>Precio por producto</span>
+            <div class="ticket-price-mode" role="radiogroup" aria-label="Precio por producto en el ticket">
+              <label>
+                <input data-ticket-item-price-mode name="ticket-item-price-mode" type="radio" value="gross" ${itemPriceMode === "gross" ? "checked" : ""} />
+                <span>IVA incluido</span>
+              </label>
+              <label>
+                <input data-ticket-item-price-mode name="ticket-item-price-mode" type="radio" value="net" ${itemPriceMode === "net" ? "checked" : ""} />
+                <span>Sin IVA</span>
+              </label>
+            </div>
+          </div>
           <label class="field">
             <span>Logo de ticket</span>
             <input data-ticket-logo-file type="file" accept="image/png,image/jpeg" />
@@ -6866,6 +6902,10 @@ function saleReceiptLineNetTotal(item, ivaRate = 0) {
   return taxBreakdownForGross(saleLineTotal(item), ivaRate).netSubtotal;
 }
 
+function saleReceiptLineDisplayTotal(item, ivaRate = 0) {
+  return ticketItemPriceMode() === "gross" ? saleLineTotal(item) : saleReceiptLineNetTotal(item, ivaRate);
+}
+
 function receiptPrintOptionsText(value) {
   return String(value || "").replace(/\s*\(\+\$[0-9.,]+\)/g, "");
 }
@@ -6873,7 +6913,7 @@ function receiptPrintOptionsText(value) {
 function saleReceiptItemLines(item, ivaRate = 0) {
   const qty = formatPlainNumber(item.qty);
   const name = item.name || "Producto";
-  const lines = [receiptPrintColumns(`${qty} ${name}`, receiptPrintMoney(saleReceiptLineNetTotal(item, ivaRate)))];
+  const lines = [receiptPrintColumns(`${qty} ${name}`, receiptPrintMoney(saleReceiptLineDisplayTotal(item, ivaRate)))];
   if (item.optionsText) lines.push(...receiptPrintWrap(receiptPrintOptionsText(item.optionsText)));
   if (item.note) lines.push(...receiptPrintWrap(`Nota: ${item.note}`));
   return lines;
@@ -7520,21 +7560,25 @@ function normalizeFakeReceiptType(value) {
   return value === "postpaid" ? "postpaid" : "prepaid";
 }
 
-async function loadFakeReceiptPreview(force = false, type = printerRuntime.fakeReceiptType) {
+async function loadFakeReceiptPreview(force = false, type = printerRuntime.fakeReceiptType, { newSample = false } = {}) {
   if (!isAdminUser()) return;
   const receiptType = normalizeFakeReceiptType(type);
   if (printerRuntime.fakeReceiptLoading || (printerRuntime.fakeReceiptText && printerRuntime.fakeReceiptType === receiptType && !force)) return;
+  if (newSample || !printerRuntime.fakeReceiptSeed) printerRuntime.fakeReceiptSeed = `${Date.now()}-${Math.random()}`;
   printerRuntime.fakeReceiptLoading = true;
   printerRuntime.fakeReceiptType = receiptType;
   printerRuntime.error = "";
   render();
   try {
     const userId = encodeURIComponent(currentUser()?.id || "");
-    const response = await fetch(`/api/printers/fake-receipt?userId=${userId}&type=${receiptType}`, { cache: "no-store" });
+    const priceMode = encodeURIComponent(ticketItemPriceMode());
+    const seed = encodeURIComponent(printerRuntime.fakeReceiptSeed);
+    const response = await fetch(`/api/printers/fake-receipt?userId=${userId}&type=${receiptType}&priceMode=${priceMode}&seed=${seed}`, { cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || payload.error || "printer-fake-receipt-preview-error");
     printerRuntime.fakeReceiptText = String(payload.ticketText || "");
     printerRuntime.fakeReceiptType = normalizeFakeReceiptType(payload.type || receiptType);
+    printerRuntime.fakeReceiptSeed = String(payload.seed || printerRuntime.fakeReceiptSeed);
   } catch (error) {
     printerRuntime.error = printerErrorMessage(error.message);
     showToast(printerRuntime.error);
@@ -7570,6 +7614,8 @@ async function printFakeReceiptPreview(type = printerRuntime.fakeReceiptType) {
       ...ticketMarginPayload(),
       ...ticketLogoPayload(),
       type: receiptType,
+      priceMode: ticketItemPriceMode(),
+      seed: printerRuntime.fakeReceiptSeed,
       ticketText: receiptTextWithLogoMarker(printerRuntime.fakeReceiptText),
     }, "printer-fake-receipt-error");
     printerRuntime.lastPrintedAt = payload.printedAt || new Date().toISOString();
@@ -9263,6 +9309,11 @@ function bindEvents() {
         updateTicketMarginMm(event.target.dataset.ticketMarginSide, event.target.value);
       });
     });
+    document.querySelectorAll("[data-ticket-item-price-mode]").forEach((input) => {
+      input.addEventListener("change", (event) => {
+        if (event.target.checked) setTicketItemPriceMode(event.target.value);
+      });
+    });
     document.querySelector("[data-ticket-logo-file]")?.addEventListener("change", changeTicketLogo);
     document.querySelector("[data-ticket-logo-width-mm]")?.addEventListener("change", (event) => {
       saveTicketLogoWidthMm(event.target.value);
@@ -9287,7 +9338,7 @@ function bindEvents() {
     document.querySelector("[data-print-test]")?.addEventListener("click", sendPrinterTest);
     document.querySelector("[data-print-legacy]")?.addEventListener("click", sendPrinterLegacyTest);
     document.querySelectorAll("[data-generate-fake-receipt]").forEach((button) => {
-      button.addEventListener("click", () => loadFakeReceiptPreview(true, button.dataset.generateFakeReceipt));
+      button.addEventListener("click", () => loadFakeReceiptPreview(true, button.dataset.generateFakeReceipt, { newSample: true }));
     });
     document.querySelectorAll("[data-print-fake-receipt]").forEach((button) => {
       button.addEventListener("click", () => printFakeReceiptPreview(button.dataset.printFakeReceipt));
