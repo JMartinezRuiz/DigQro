@@ -1,12 +1,13 @@
 {
   "name": "librepos",
-  "version": "0.4.46",
+  "version": "0.4.47",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "start": "vite --host 0.0.0.0",
     "update": "node scripts/update.js",
+    "test": "node --test test/*.test.js",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0"
   },

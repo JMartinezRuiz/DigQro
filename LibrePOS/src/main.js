@@ -1,6 +1,7 @@
 import "./styles.css";
 import packageData from "../package.json";
 import qrcode from "./vendor/qrcode-generator.js";
+import { receiptItemPriceBreakdown, receiptOptionsWithoutPricedExtras } from "./receipt-item-pricing.js";
 
 const STORAGE_KEY = "librepos:v2";
 const CLIENT_ID_KEY = "librepos:client-id";
@@ -6898,23 +6899,40 @@ function receiptPrintCenteredWrap(value) {
   return receiptPrintWrap(value, "").map((line) => receiptPrintCenter(line));
 }
 
-function saleReceiptLineNetTotal(item, ivaRate = 0) {
-  return taxBreakdownForGross(saleLineTotal(item), ivaRate).netSubtotal;
-}
-
-function saleReceiptLineDisplayTotal(item, ivaRate = 0) {
-  return ticketItemPriceMode() === "gross" ? saleLineTotal(item) : saleReceiptLineNetTotal(item, ivaRate);
+function saleReceiptItemPriceBreakdown(item, ivaRate = 0) {
+  return receiptItemPriceBreakdown({
+    grossTotal: saleLineTotal(item),
+    qty: item?.qty,
+    extras: normalizeExtras(item?.extras),
+    ivaRate,
+    priceMode: ticketItemPriceMode(),
+  });
 }
 
 function receiptPrintOptionsText(value) {
   return String(value || "").replace(/\s*\(\+\$[0-9.,]+\)/g, "");
 }
 
+function saleReceiptOptionsText(item, priceBreakdown) {
+  const text = receiptPrintOptionsText(item?.optionsText);
+  return receiptOptionsWithoutPricedExtras(text, priceBreakdown.extraRows.length > 0);
+}
+
+function saleReceiptExtraLines(priceBreakdown) {
+  return priceBreakdown.extraRows.map((extra) => {
+    const countText = extra.count > 1 ? ` x${formatPlainNumber(extra.count)}` : "";
+    return receiptPrintColumns(`+ ${extra.name}${countText}`, receiptPrintMoney(extra.displayTotal));
+  });
+}
+
 function saleReceiptItemLines(item, ivaRate = 0) {
   const qty = formatPlainNumber(item.qty);
   const name = item.name || "Producto";
-  const lines = [receiptPrintColumns(`${qty} ${name}`, receiptPrintMoney(saleReceiptLineDisplayTotal(item, ivaRate)))];
-  if (item.optionsText) lines.push(...receiptPrintWrap(receiptPrintOptionsText(item.optionsText)));
+  const priceBreakdown = saleReceiptItemPriceBreakdown(item, ivaRate);
+  const lines = [receiptPrintColumns(`${qty} ${name}`, receiptPrintMoney(priceBreakdown.productDisplayTotal))];
+  const optionsText = saleReceiptOptionsText(item, priceBreakdown);
+  if (optionsText) lines.push(...receiptPrintWrap(optionsText));
+  lines.push(...saleReceiptExtraLines(priceBreakdown));
   if (item.note) lines.push(...receiptPrintWrap(`Nota: ${item.note}`));
   return lines;
 }
