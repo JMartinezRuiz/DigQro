@@ -112,7 +112,7 @@ La app consulta GitHub:
 https://github.com/JMartinezRuiz/DigQro
 ```
 
-El actualizador toma archivos dentro de `LibrePOS/` en la rama `main`, conserva carpetas locales protegidas y ejecuta `npm install`.
+El actualizador compara la version publica de `package.json` sin consumir la cuota de la API de GitHub. Cuando hay una version nueva descarga el ZIP de su etiqueta (`vX.Y.Z`), toma solo los archivos dentro de `LibrePOS/`, conserva carpetas locales protegidas y ejecuta `npm install`. La API queda disponible como respaldo si no se puede obtener el ZIP.
 
 Se conservan:
 

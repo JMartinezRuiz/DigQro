@@ -76,11 +76,11 @@ La carpeta `.librepos/` esta ignorada por Git para no publicar ventas, usuarios,
 
 ## Actualizaciones
 
-LibrePOS consulta `https://github.com/JMartinezRuiz/DigQro` y muestra el boton `Actualizar` solo a usuarios admin cuando hay cambios nuevos dentro de la carpeta `LibrePOS/`.
+LibrePOS consulta `https://github.com/JMartinezRuiz/DigQro` y muestra el boton `Actualizar` solo a usuarios admin cuando `package.json` publica una version posterior. La comprobacion no consume la cuota de la API de GitHub.
 
 Al actualizar se descargan los archivos del proyecto, se ejecuta `npm install` y se conserva completa la carpeta `.librepos/`, por lo que ventas, mesas, usuarios, inventario, fichajes y datos locales no se borran. Tras actualizar, cierra y vuelve a abrir LibrePOS para cargar tambien los cambios del servidor local.
 
-La version visible en la pantalla sale de `package.json` y se muestra como `vX.Y.Z`. Cada update publicado debe aumentar el campo `version` en `package.json` y `package-lock.json` antes de subirlo a GitHub.
+La version visible en la pantalla sale de `package.json` y se muestra como `vX.Y.Z`. Cada update publicado debe aumentar el campo `version` en `package.json` y `package-lock.json`, crear la etiqueta coincidente `vX.Y.Z` y subir ambos a GitHub.
 
 ## Seguridad local
 

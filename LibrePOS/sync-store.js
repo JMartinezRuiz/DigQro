@@ -1,7 +1,7 @@
 import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import https from "node:https";
-import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -289,6 +289,12 @@ function githubRawUrl(githubPath, ref = UPDATE_BRANCH) {
   return `https://raw.githubusercontent.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/${encodedRef}/${encodedPath}`;
 }
 
+function githubArchiveUrl(ref, type = "tags") {
+  const encodedRef = String(ref || UPDATE_BRANCH).split("/").map(encodeURIComponent).join("/");
+  const refPath = type === "commit" ? encodedRef : `refs/${type}/${encodedRef}`;
+  return `https://codeload.github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/zip/${refPath}`;
+}
+
 function requestUrl(url, { json = true, headers = {}, timeout = 25000 } = {}, redirects = 0) {
   return new Promise((resolve, reject) => {
     const target = url instanceof URL ? url : new URL(url);
@@ -381,7 +387,9 @@ async function readLocalPackageVersion() {
 
 async function fetchRemotePackageVersion(ref = UPDATE_BRANCH) {
   try {
-    const buffer = await requestGithub(githubRawUrl(`${UPDATE_PROJECT_PREFIX}package.json`, ref), {
+    const url = new URL(githubRawUrl(`${UPDATE_PROJECT_PREFIX}package.json`, ref));
+    url.searchParams.set("librepos-check", String(Math.floor(Date.now() / 60000)));
+    const buffer = await requestGithub(url, {
       json: false,
       headers: { Accept: "application/octet-stream" },
     });
@@ -390,6 +398,35 @@ async function fetchRemotePackageVersion(ref = UPDATE_BRANCH) {
   } catch {
     return "";
   }
+}
+
+export function compareAppVersions(left, right) {
+  const normalize = (value) => String(value || "").trim().replace(/^v/i, "");
+  const parse = (value) => {
+    const match = normalize(value).match(/^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?$/);
+    if (!match) return null;
+    return {
+      numbers: match[1].split(".").map((part) => Number(part)),
+      prerelease: match[2] || "",
+    };
+  };
+  const a = parse(left);
+  const b = parse(right);
+  if (!a || !b) return normalize(left).localeCompare(normalize(right), "en", { numeric: true });
+  const length = Math.max(a.numbers.length, b.numbers.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (a.numbers[index] || 0) - (b.numbers[index] || 0);
+    if (difference) return difference < 0 ? -1 : 1;
+  }
+  if (a.prerelease === b.prerelease) return 0;
+  if (!a.prerelease) return 1;
+  if (!b.prerelease) return -1;
+  return a.prerelease.localeCompare(b.prerelease, "en", { numeric: true });
+}
+
+function releaseTagFromVersion(version) {
+  const cleanVersion = String(version || "").trim().replace(/^v/i, "");
+  return /^[0-9]+(?:\.[0-9]+)*(?:-[0-9A-Za-z.-]+)?$/.test(cleanVersion) ? `v${cleanVersion}` : "";
 }
 
 async function writeLocalAppVersion(commitSha) {
@@ -411,6 +448,19 @@ async function writeLocalAppVersion(commitSha) {
 }
 
 async function fetchLatestRemoteVersion() {
+  const packageVersion = await fetchRemotePackageVersion();
+  const releaseTag = releaseTagFromVersion(packageVersion);
+  if (packageVersion && releaseTag) {
+    return {
+      commitSha: releaseTag,
+      ref: releaseTag,
+      packageVersion,
+      source: "package-version",
+      htmlUrl: `${UPDATE_REPO_URL}/tree/${encodeURIComponent(releaseTag)}`,
+      date: "",
+    };
+  }
+
   const commitsUrl = new URL(githubApiUrl("/commits"));
   commitsUrl.searchParams.set("sha", UPDATE_BRANCH);
   commitsUrl.searchParams.set("path", UPDATE_PROJECT_PREFIX.replace(/\/$/, ""));
@@ -426,10 +476,34 @@ async function fetchLatestRemoteVersion() {
 }
 
 export async function getUpdateStatus() {
-  const [storedLocal, remote] = await Promise.all([readLocalAppVersion(), fetchLatestRemoteVersion()]);
+  const [storedLocal, localPackageVersion, remote] = await Promise.all([
+    readLocalAppVersion(),
+    readLocalPackageVersion(),
+    fetchLatestRemoteVersion(),
+  ]);
+  if (remote?.packageVersion) {
+    const available = !localPackageVersion || compareAppVersions(localPackageVersion, remote.packageVersion) < 0;
+    return {
+      available,
+      repoUrl: UPDATE_REPO_URL,
+      branch: UPDATE_BRANCH,
+      projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
+      localCommit: storedLocal.commitSha,
+      localSource: localPackageVersion ? "package-version" : storedLocal.source,
+      localIncludesRemote: false,
+      localUpdatedAt: storedLocal.updatedAt,
+      localPackageVersion,
+      remotePackageVersion: remote.packageVersion,
+      remoteCommit: remote.commitSha,
+      remoteUrl: remote.htmlUrl || UPDATE_REPO_URL,
+      remoteDate: remote.date || "",
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   let local = storedLocal;
   let localIncludesRemote = false;
-  let localPackageVersion = "";
+  let fallbackLocalPackageVersion = localPackageVersion;
   let remotePackageVersion = "";
   if (remote?.commitSha && storedLocal.source === "git" && !sameCommit(storedLocal.commitSha, remote.commitSha)) {
     localIncludesRemote = await gitCommitIncludes(remote.commitSha, storedLocal.commitSha);
@@ -442,9 +516,9 @@ export async function getUpdateStatus() {
       local = storedLocal;
     }
     if (!sameCommit(local.commitSha, remote.commitSha)) {
-      [localPackageVersion, remotePackageVersion] = await Promise.all([readLocalPackageVersion(), fetchRemotePackageVersion(remote.commitSha)]);
-      if (localPackageVersion && remotePackageVersion && localPackageVersion === remotePackageVersion) {
-        local = { commitSha: remote.commitSha, source: "package-version", updatedAt: "", packageVersion: localPackageVersion };
+      [fallbackLocalPackageVersion, remotePackageVersion] = await Promise.all([readLocalPackageVersion(), fetchRemotePackageVersion(remote.commitSha)]);
+      if (fallbackLocalPackageVersion && remotePackageVersion && fallbackLocalPackageVersion === remotePackageVersion) {
+        local = { commitSha: remote.commitSha, source: "package-version", updatedAt: "", packageVersion: fallbackLocalPackageVersion };
       }
     }
     if (sameCommit(local.commitSha, remote.commitSha) && local.source !== "version-file") {
@@ -465,7 +539,7 @@ export async function getUpdateStatus() {
     localSource: local.source,
     localIncludesRemote,
     localUpdatedAt: local.updatedAt,
-    localPackageVersion: localPackageVersion || local.packageVersion || "",
+    localPackageVersion: fallbackLocalPackageVersion || local.packageVersion || "",
     remotePackageVersion,
     remoteCommit: remote?.commitSha || null,
     remoteUrl: remote?.htmlUrl || UPDATE_REPO_URL,
@@ -1807,6 +1881,119 @@ async function downloadRemoteProjectFiles(files, ref = UPDATE_BRANCH) {
   return downloaded;
 }
 
+async function extractRepositoryArchive(archivePath, destinationPath) {
+  if (process.platform === "win32") {
+    await runPowerShell(
+      "$ErrorActionPreference = 'Stop'\nExpand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
+      [archivePath, destinationPath],
+      { timeout: 120000, maxBuffer: 1024 * 1024 },
+    );
+    return;
+  }
+
+  try {
+    await execFile("unzip", ["-q", archivePath, "-d", destinationPath], {
+      timeout: 120000,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (unzipError) {
+    try {
+      await execFile("tar", ["-xf", archivePath, "-C", destinationPath], {
+        timeout: 120000,
+        maxBuffer: 1024 * 1024,
+      });
+    } catch (tarError) {
+      throw new Error(`archive-extract-failed unzip=${compactError(unzipError)} tar=${compactError(tarError)}`);
+    }
+  }
+}
+
+async function readArchiveProjectFiles(baseDir, prefix = "") {
+  const entries = await readdir(baseDir, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const rootName = relativePath.split("/")[0];
+    if (PRESERVED_UPDATE_DIRS.has(rootName) || PRESERVED_UPDATE_FILES.has(relativePath)) continue;
+    if (shouldIgnoreLocalProjectPath(relativePath)) continue;
+    const absolutePath = path.join(baseDir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await readArchiveProjectFiles(absolutePath, relativePath));
+      continue;
+    }
+    if (entry.isFile()) {
+      files.push({
+        githubPath: `${UPDATE_PROJECT_PREFIX}${relativePath}`,
+        relativePath,
+        buffer: await readFile(absolutePath),
+      });
+    }
+  }
+  return files;
+}
+
+async function downloadRemoteProjectArchive(ref, type, expectedVersion = "") {
+  const tempDir = await mkdtemp(path.join(tmpdir(), "librepos-update-"));
+  const archivePath = path.join(tempDir, "repository.zip");
+  const extractPath = path.join(tempDir, "extract");
+  try {
+    const archive = await requestUrl(githubArchiveUrl(ref, type), {
+      json: false,
+      headers: GITHUB_API_HEADERS,
+      timeout: 120000,
+    });
+    await writeFile(archivePath, archive);
+    await mkdir(extractPath, { recursive: true });
+    await extractRepositoryArchive(archivePath, extractPath);
+
+    const roots = (await readdir(extractPath, { withFileTypes: true })).filter((entry) => entry.isDirectory());
+    for (const root of roots) {
+      const projectRoot = path.join(extractPath, root.name, UPDATE_PROJECT_PREFIX.replace(/\/$/, ""));
+      try {
+        await access(projectRoot);
+      } catch {
+        continue;
+      }
+      const files = (await readArchiveProjectFiles(projectRoot)).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+      const packageFile = files.find((file) => file.relativePath === "package.json");
+      const archiveVersion = packageFile ? JSON.parse(packageFile.buffer.toString("utf8")).version : "";
+      if (expectedVersion && archiveVersion !== expectedVersion) {
+        throw new Error(`archive-version-mismatch expected=${expectedVersion} received=${archiveVersion || "missing"}`);
+      }
+      if (!files.length) throw new Error("github-project-empty");
+      return files;
+    }
+    throw new Error("archive-project-not-found");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function downloadRemoteProjectRelease(status) {
+  const remoteRef = String(status.remoteCommit || "").trim();
+  const candidates = [];
+  if (/^v\d/i.test(remoteRef)) candidates.push({ ref: remoteRef, type: "tags" });
+  else if (/^[0-9a-f]{7,40}$/i.test(remoteRef)) candidates.push({ ref: remoteRef, type: "commit" });
+  candidates.push({ ref: UPDATE_BRANCH, type: "heads" });
+
+  const archiveErrors = [];
+  for (const candidate of candidates.filter((item, index, list) => list.findIndex((other) => other.ref === item.ref && other.type === item.type) === index)) {
+    try {
+      updateLog("Descargando paquete de actualizacion", candidate);
+      return await downloadRemoteProjectArchive(candidate.ref, candidate.type, status.remotePackageVersion || "");
+    } catch (error) {
+      archiveErrors.push(`${candidate.type}/${candidate.ref}: ${compactError(error)}`);
+    }
+  }
+
+  try {
+    const remoteFiles = await fetchRemoteProjectFiles(remoteRef || UPDATE_BRANCH);
+    return await downloadRemoteProjectFiles(remoteFiles, remoteRef || UPDATE_BRANCH);
+  } catch (apiError) {
+    throw new Error(`update-download-failed archive=${archiveErrors.join(" | ")} api=${compactError(apiError)}`);
+  }
+}
+
 async function listLocalProjectFiles(baseDir = ROOT_DIR, prefix = "") {
   const entries = await readdir(baseDir, { withFileTypes: true });
   const files = [];
@@ -1891,10 +2078,8 @@ async function applyGithubRepositoryUpdate(status) {
     remoteCommit: status.remoteCommit,
     remoteUrl: status.remoteUrl,
   });
-  const remoteFiles = await fetchRemoteProjectFiles(status.remoteCommit);
-  updateLog("Lista de archivos recibida desde GitHub", { files: remoteFiles.length });
-  const downloadedFiles = await downloadRemoteProjectFiles(remoteFiles, status.remoteCommit);
-  updateLog("Archivos descargados desde GitHub", { files: downloadedFiles.length });
+  const downloadedFiles = await downloadRemoteProjectRelease(status);
+  updateLog("Paquete de archivos recibido desde GitHub", { files: downloadedFiles.length });
   const remoteFileSet = new Set(downloadedFiles.map((file) => file.relativePath));
   await removeStaleProjectFiles(remoteFileSet);
   updateLog("Archivos obsoletos removidos");

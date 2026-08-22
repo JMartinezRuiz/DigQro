@@ -237,7 +237,7 @@ Respuesta cuando actualiza:
 
 Si los archivos ya se escribieron pero `npm install` falla, la respuesta sigue marcando `updated: true`, incluye `installError` y pide reiniciar. Esto evita que una actualizacion aplicada quede mostrando el boton por no haber escrito el marcador local de version.
 
-Las descargas se hacen contra el SHA exacto del commit remoto y cada archivo se valida contra el hash reportado por GitHub para evitar contenido cacheado de una version anterior.
+La comprobacion ordinaria lee la version publica de `package.json` sin usar la API de GitHub. La descarga usa el ZIP de la etiqueta inmutable `vX.Y.Z`, valida que el paquete tenga la version esperada y deja la API como respaldo. Esto evita que varios clientes conectados agoten la cuota anonima de GitHub.
 
 Respuesta cuando ya esta actualizado:
 
@@ -256,6 +256,8 @@ Errores relevantes:
 - `500 remote-version-not-found`
 - `500 github-tree-not-found`
 - `500 github-tree-truncated`
+- `500 archive-version-mismatch`
+- `500 update-download-failed`
 - `500 download-timeout`
 - `500 unsafe-update-path`
 
