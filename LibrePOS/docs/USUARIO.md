@@ -105,11 +105,15 @@ La vista `Datos` concentra ventas, cortes, gastos e inventario. Los administrado
 
 Los CSV sirven para revision en Excel. El respaldo JSON contiene el estado compartido de operacion y se debe guardar fuera del equipo servidor.
 
-## Impresora
+## Impresion
 
-La vista `Impresora` aparece solo para administradores. Permite seleccionar una impresora instalada en el equipo servidor y enviar un ticket de prueba con el texto `test`.
+Solo los administradores pueden abrir `Config` -> `Impresion`. La subpestana `Tickets` permite seleccionar una impresora instalada en el equipo servidor, configurar margenes y logotipo, previsualizar una cuenta y ejecutar pruebas cortas o completas.
 
-Si la impresora no aparece en la lista, captura su nombre exacto en `Nombre manual` y pulsa `Seleccionar impresora`. Las impresoras Bluetooth deben estar vinculadas e instaladas en el sistema operativo del laptop para aparecer automaticamente.
+Si la impresora no aparece en la lista, captura su nombre exacto en `Nombre manual` y pulsa `Seleccionar para tickets`. Las impresoras Bluetooth deben estar vinculadas e instaladas en Windows o macOS para aparecer automaticamente.
+
+En `Precio por producto`, `IVA incluido` es el modo predeterminado. Cada producto y extra muestra en el ticket su precio final, sin agregar una leyenda de IVA a la linea. Al final del ticket se conservan separados `Subtotal s/IVA`, `IVA` y `TOTAL`. Esta opcion solo cambia la presentacion impresa: no modifica precios de catalogo, ventas, inventario ni calculos fiscales guardados.
+
+La subpestana `Comandas` tiene su propia impresora y el interruptor de impresion automatica. Valida primero `Imprimir prueba comanda` antes de activar la automatizacion.
 
 ## Usuarios
 
@@ -132,6 +136,14 @@ Cuando hay una version nueva, los administradores ven el boton `Actualizar`. Des
 4. Verifica que la version visible haya cambiado.
 
 Las actualizaciones conservan `.librepos/`, donde viven ventas, usuarios, inventario y configuracion local.
+
+## Soporte y ayuda
+
+La seccion `Soporte` esta disponible para todos los usuarios y funciona sin Internet. Incluye buscador, categorias y guias paso a paso con GIFs creados a partir de capturas reales de LibrePOS, requisitos, impactos, advertencias y resultados esperados.
+
+Las guias administrativas estan identificadas por rol. Consultarlas no modifica ventas, caja, inventario ni configuracion.
+
+La opcion `Abrir ticket` aparece como proxima funcion, pero permanece deshabilitada. El formulario de vista previa no guarda ni envia informacion fuera del equipo.
 
 ## Buenas practicas
 

@@ -7,6 +7,7 @@ LibrePOS es un punto de venta local para restaurante. Incluye venta por mesas y 
 - [Guia de usuario](docs/USUARIO.md): flujo diario para meseros, cocina, caja y administradores.
 - [Administracion y mantenimiento](docs/ADMINISTRACION.md): instalacion, datos locales, respaldos, restauracion, actualizaciones y seguridad.
 - [Desarrollo](docs/DESARROLLO.md): estructura del proyecto, comandos, arquitectura y checklist de release.
+- [Mantenimiento de la ayuda](docs/AYUDA.md): regla obligatoria, criterios editoriales y regeneracion de GIFs.
 - [API local](docs/API_LOCAL.md): endpoints internos usados por la app para sincronizacion, login y actualizaciones.
 
 ## Inicio rapido

@@ -1,7 +1,25 @@
 import "./styles.css";
 import packageData from "../package.json";
 import qrcode from "./vendor/qrcode-generator.js";
+import helpContent from "./help-content.json";
+import {
+  catalogBasePriceFromGross,
+  catalogGrossPriceForEdit,
+  catalogPriceBreakdownFromBase,
+} from "./catalog-pricing.js";
 import { receiptItemPriceBreakdown, receiptOptionsWithoutPricedExtras } from "./receipt-item-pricing.js";
+import {
+  DEFAULT_TICKET_ITEM_PRICE_MODE,
+  TICKET_ITEM_PRICE_MODE_MIGRATION,
+  migrateTicketItemPriceModeSettings,
+  normalizeTicketItemPriceMode,
+} from "./ticket-settings.js";
+
+const HELP_MEDIA_URLS = import.meta.glob("../assets/help/*.{gif,png}", {
+  eager: true,
+  import: "default",
+  query: "?url",
+});
 
 const STORAGE_KEY = "librepos:v2";
 const CLIENT_ID_KEY = "librepos:client-id";
@@ -12,7 +30,6 @@ const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
-const DEFAULT_TICKET_ITEM_PRICE_MODE = "gross";
 const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
@@ -625,6 +642,11 @@ const icons = {
   plate: `<circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="3" />`,
   dessert: `<path d="M6 10h12l-2 9H8Z" /><path d="M8 10c0-3 8-3 8 0" /><path d="M12 3v4" />`,
   cup: `<path d="M7 4h10l-1 16H8Z" /><path d="M8 8h8" />`,
+  help: `<circle cx="12" cy="12" r="9" /><path d="M9.7 9a2.4 2.4 0 1 1 3.8 1.95c-.92.62-1.5 1.04-1.5 2.05" /><path d="M12 17h.01" />`,
+  book: `<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5Z" /><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5Z" />`,
+  lock: `<rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" />`,
+  play: `<path d="m9 7 8 5-8 5Z" />`,
+  pause: `<path d="M9 7v10M15 7v10" />`,
 };
 
 const defaultState = {
@@ -647,6 +669,9 @@ const defaultState = {
   ingredientsCategorySearch: "",
   ingredientsSearch: "",
   extrasSearch: "",
+  supportSearch: "",
+  supportCategory: "all",
+  supportArticleId: "create-product",
   dataOrderSearch: "",
   dataOrderFrom: "",
   dataOrderTo: "",
@@ -671,6 +696,7 @@ const defaultState = {
     ticketLogoEnabled: false,
     ticketLogoPosition: DEFAULT_TICKET_LOGO_POSITION,
     ticketItemPriceMode: DEFAULT_TICKET_ITEM_PRICE_MODE,
+    ticketItemPriceModeMigration: TICKET_ITEM_PRICE_MODE_MIGRATION,
     ivaEnabled: false,
     ivaRate: DEFAULT_IVA_RATE,
     ivaBasePriceConversionAppliedAt: "",
@@ -797,10 +823,11 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!saved) return structuredClone(defaultState);
     const inventory = normalizeInventory(saved.inventory);
-    return {
+    const migratedTicketSettings = migrateTicketItemPriceModeSettings(saved.settings);
+    const loaded = {
       ...structuredClone(defaultState),
       ...saved,
-      settings: { ...defaultState.settings, ...saved.settings },
+      settings: { ...defaultState.settings, ...migratedTicketSettings.settings },
       users: normalizeUsers(saved.users),
       orders: Array.isArray(saved.orders) ? saved.orders : [],
       sales: Array.isArray(saved.sales) ? saved.sales : [],
@@ -815,6 +842,14 @@ function loadState() {
       attendance: Array.isArray(saved.attendance) ? saved.attendance : [],
       cashSessions: normalizeCashSessions(saved.cashSessions),
     };
+    if (migratedTicketSettings.changed) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
+      } catch {
+        // The normalized state remains active even when browser storage is unavailable.
+      }
+    }
+    return loaded;
   } catch {
     return structuredClone(defaultState);
   }
@@ -1017,7 +1052,7 @@ function ticketMarginPayload() {
 }
 
 function ticketItemPriceMode() {
-  return state.settings?.ticketItemPriceMode === "net" ? "net" : DEFAULT_TICKET_ITEM_PRICE_MODE;
+  return normalizeTicketItemPriceMode(state.settings?.ticketItemPriceMode);
 }
 
 function ticketItemPriceModeLabel() {
@@ -1563,8 +1598,9 @@ function sharedStateFromCurrent() {
 
 function normalizeSharedState(shared = {}) {
   const inventory = normalizeInventory(shared.inventory);
+  const migratedTicketSettings = migrateTicketItemPriceModeSettings(shared.settings);
   return {
-    settings: { ...defaultState.settings, ...(shared.settings || {}) },
+    settings: { ...defaultState.settings, ...migratedTicketSettings.settings },
     users: normalizeUsers(shared.users),
     orders: Array.isArray(shared.orders) ? shared.orders : [],
     sales: Array.isArray(shared.sales) ? shared.sales : [],
@@ -1599,6 +1635,9 @@ function applySharedState(shared) {
     ingredientsCategorySearch: state.ingredientsCategorySearch,
     ingredientsSearch: state.ingredientsSearch,
     extrasSearch: state.extrasSearch,
+    supportSearch: state.supportSearch,
+    supportCategory: state.supportCategory,
+    supportArticleId: state.supportArticleId,
     dataOrderSearch: state.dataOrderSearch,
     dataOrderFrom: state.dataOrderFrom,
     dataOrderTo: state.dataOrderTo,
@@ -2572,6 +2611,7 @@ function render() {
         ${state.view === "config" ? renderConfig() : ""}
         ${state.view === "data" ? renderData() : ""}
         ${state.view === "users" ? renderUsers() : ""}
+        ${state.view === "support" ? renderSupport() : ""}
       </section>
       ${renderModal()}
     </main>
@@ -2615,6 +2655,7 @@ function availableNavItems() {
       ["config", "Config", "settings"],
     );
   }
+  items.push(["support", "Soporte", "help"]);
   return items;
 }
 
@@ -4058,11 +4099,13 @@ function renderModal() {
     "adjust-tip": saleTarget ? renderAdjustTipModal(saleTarget) : "",
     "sale-detail": saleTarget ? renderSaleDetailModal(saleTarget) : "",
     "delete-sale": isAdminUser() && saleTarget ? renderDeleteSaleModal(saleTarget) : "",
+    "support-ticket-preview": renderSupportTicketPreviewModal(),
   }[state.modal.type] || "";
   if (!modalContent) return "";
+  const wideModal = ["sale-detail", "new-product", "edit-product", "new-ingredient", "edit-ingredient", "new-extra", "edit-extra"].includes(state.modal.type);
   return `
     <div class="modal-backdrop" data-close-modal>
-      <div class="modal-card ${state.modal.type === "sale-detail" ? "wide-modal-card" : ""}" data-modal-card>
+      <div class="modal-card ${wideModal ? "wide-modal-card" : ""}" data-modal-card>
         ${modalContent}
       </div>
     </div>
@@ -5013,33 +5056,86 @@ function productFinancialMetrics(product) {
   };
 }
 
+function catalogModeInfo(mode) {
+  const modes = {
+    products: {
+      icon: "sale",
+      title: "Platillos y bebidas",
+      description: "Se venden directamente. Su receta descuenta insumos al comandar.",
+      result: "Aparecen en Venta",
+    },
+    extras: {
+      icon: "plus",
+      title: "Extras",
+      description: "Se agregan a un platillo y descuentan su propio insumo.",
+      result: "Complementan un producto",
+    },
+    ingredients: {
+      icon: "inventory",
+      title: "Insumos",
+      description: "No se venden por si solos. Alimentan recetas, costos e inventario.",
+      result: "Uso interno",
+    },
+  };
+  return modes[mode] || modes.products;
+}
+
 function renderRecipes() {
   if (!isAdminUser()) return "";
   const products = menuProducts({ includeInactive: true });
   const inventory = currentInventory();
   const extras = extraCatalog({ includeInactive: true });
   const categories = [...new Set(products.map((product) => product.section))];
-  const customCount = products.filter((product) => product.custom).length;
-  const editedCount = products.filter((product) => product.edited && !product.custom).length;
   const mode = ["products", "ingredients", "extras"].includes(state.recipesMode) ? state.recipesMode : "products";
-  const newModal = mode === "ingredients" ? "new-ingredient" : mode === "extras" ? "new-extra" : "new-product";
-  const newLabel = mode === "ingredients" ? "Nuevo insumo" : mode === "extras" ? "Nuevo extra" : "Nuevo platillo";
+  const modeInfo = catalogModeInfo(mode);
+  const ingredientCategoryAttr = state.ingredientsCategory !== "Todos"
+    ? `data-ingredient-category="${escapeAttr(state.ingredientsCategory)}"`
+    : "";
   return `
     <div class="recipes-layout">
-      <section class="board-header">
+      <section class="board-header catalog-board-header">
         <div>
           <h2>Catalogo</h2>
-          <p>Catalogo de articulos, extras, recetas y costos de insumos</p>
+          <p>Define lo que vendes y como descuenta inventario.</p>
         </div>
-        <div class="header-actions">
-          <button class="secondary-button ${mode === "products" ? "is-active" : ""}" data-recipes-mode="products">${svg("sale")}Articulos</button>
-          <button class="secondary-button ${mode === "ingredients" ? "is-active" : ""}" data-recipes-mode="ingredients">${svg("inventory")}Insumos</button>
-          <button class="secondary-button ${mode === "extras" ? "is-active" : ""}" data-recipes-mode="extras">${svg("plus")}Extras</button>
-          <button class="primary-button" data-open-modal="${newModal}">${svg("plus")}${newLabel}</button>
+        <div class="catalog-header-controls">
+          <div class="catalog-kind-tabs" role="tablist" aria-label="Tipo de catalogo">
+            <button class="catalog-kind-tab ${mode === "products" ? "is-active" : ""}" type="button" role="tab" aria-selected="${mode === "products"}" data-recipes-mode="products">${svg("sale")}Platillos y bebidas</button>
+            <button class="catalog-kind-tab ${mode === "extras" ? "is-active" : ""}" type="button" role="tab" aria-selected="${mode === "extras"}" data-recipes-mode="extras">${svg("plus")}Extras</button>
+            <button class="catalog-kind-tab ${mode === "ingredients" ? "is-active" : ""}" type="button" role="tab" aria-selected="${mode === "ingredients"}" data-recipes-mode="ingredients">${svg("inventory")}Insumos</button>
+          </div>
+          <details class="catalog-create-menu">
+            <summary class="primary-button">${svg("plus")}Crear</summary>
+            <div class="catalog-create-popover">
+              <button type="button" data-open-modal="new-product">
+                <span class="catalog-create-icon is-product">${svg("sale")}</span>
+                <span><strong>Platillo o bebida</strong><small>Se vende de forma independiente</small></span>
+                ${svg("chevronRight")}
+              </button>
+              <button type="button" data-open-modal="new-extra">
+                <span class="catalog-create-icon is-extra">${svg("plus")}</span>
+                <span><strong>Extra</strong><small>Se anade a un producto</small></span>
+                ${svg("chevronRight")}
+              </button>
+              <button type="button" data-open-modal="new-ingredient" ${ingredientCategoryAttr}>
+                <span class="catalog-create-icon is-ingredient">${svg("inventory")}</span>
+                <span><strong>Insumo</strong><small>Solo recetas e inventario</small></span>
+                ${svg("chevronRight")}
+              </button>
+            </div>
+          </details>
+        </div>
+        <div class="catalog-mode-guide">
+          <span class="catalog-mode-icon is-${mode}">${svg(modeInfo.icon)}</span>
+          <span>
+            <strong>${escapeHtml(modeInfo.title)}</strong>
+            <small>${escapeHtml(modeInfo.description)}</small>
+          </span>
+          <b>${escapeHtml(modeInfo.result)}</b>
         </div>
       </section>
       <section class="summary-grid">
-        ${renderSummaryCard("Articulos", String(products.length))}
+        ${renderSummaryCard("Platillos y bebidas", String(products.length))}
         ${renderSummaryCard("En menu", String(products.filter((product) => product.active !== false).length))}
         ${renderSummaryCard("Insumos", String(inventory.length))}
         ${renderSummaryCard("Extras", String(extras.filter((extra) => extra.active !== false).length))}
@@ -5065,8 +5161,8 @@ function renderRecipeProductCatalog(products, categories) {
     <section class="panel recipe-catalog-panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">Articulos en venta</h2>
-          <p class="panel-kicker">Navegacion por categorias igual que Venta</p>
+          <h2 class="panel-title">Platillos y bebidas en venta</h2>
+          <p class="panel-kicker">Cada elemento tiene precio propio y una receta obligatoria.</p>
         </div>
         <div class="search-wrap compact-search">
           ${svg("search")}
@@ -5164,16 +5260,13 @@ function renderIngredientsCatalog(inventory) {
       <div class="panel-header">
         <div>
           <h2 class="panel-title">Catalogo de insumos</h2>
-          <p class="panel-kicker">Edita categoria directo en la tabla. Escribir una categoria nueva la crea.</p>
+          <p class="panel-kicker">Materias primas y articulos internos; no aparecen como productos en Venta.</p>
         </div>
         <div class="ingredient-catalog-actions">
           <div class="search-wrap compact-search">
             ${svg("search")}
             <input class="search-input" data-ingredients-search value="${escapeAttr(state.ingredientsSearch)}" placeholder="Buscar insumo" />
           </div>
-          <button class="primary-button compact" data-open-modal="new-ingredient" ${state.ingredientsCategory !== "Todos" ? `data-ingredient-category="${escapeAttr(state.ingredientsCategory)}"` : ""}>
-            ${svg("plus")}${state.ingredientsCategory === "Todos" ? "Nuevo insumo" : "Nuevo en categoria"}
-          </button>
           <button class="secondary-button compact" data-open-modal="new-ingredient-category">${svg("plus")}Nueva categoria</button>
         </div>
       </div>
@@ -5273,14 +5366,13 @@ function renderExtrasCatalog(extras) {
       <div class="panel-header">
         <div>
           <h2 class="panel-title">Catalogo de extras</h2>
-          <p class="panel-kicker">Precio de venta y gramaje/cantidad que descuenta del inventario.</p>
+          <p class="panel-kicker">Complementos globales que se agregan a cualquier platillo.</p>
         </div>
         <div class="ingredient-catalog-actions">
           <div class="search-wrap compact-search">
             ${svg("search")}
             <input class="search-input" data-extras-search value="${escapeAttr(state.extrasSearch)}" placeholder="Buscar extra" />
           </div>
-          <button class="primary-button compact" data-open-modal="new-extra">${svg("plus")}Nuevo extra</button>
         </div>
       </div>
       <div class="panel-body">
@@ -5289,7 +5381,7 @@ function renderExtrasCatalog(extras) {
             <thead>
               <tr>
                 <th>Extra</th>
-                <th>Precio</th>
+                <th>Precio final</th>
                 <th>Descuento inventario</th>
                 <th>Aviso</th>
                 <th>Estado</th>
@@ -5308,6 +5400,7 @@ function renderExtrasCatalog(extras) {
 
 function renderExtraCatalogRow(extra) {
   const item = extraInventoryItem(extra);
+  const priceBreakdown = taxBreakdownForGross(extra.price, menuProductCatalogIvaRate());
   const warning = !item
     ? "Insumo no encontrado"
     : Number(item.qty) <= 0
@@ -5317,7 +5410,10 @@ function renderExtraCatalogRow(extra) {
   return `
     <tr class="${extra.active === false ? "is-cancelled" : ""}">
       <td><strong>${escapeHtml(extra.name)}</strong></td>
-      <td><strong>${money.format(extra.price)}</strong></td>
+      <td class="catalog-price-cell">
+        <strong>${money.format(extra.price)}</strong>
+        <small>Base ${money.format(priceBreakdown.netSubtotal)} + IVA ${money.format(priceBreakdown.iva)}</small>
+      </td>
       <td>
         <strong>${escapeHtml(item?.name || extra.inventoryItemName || "Sin insumo")}</strong>
         <small>${formatNumber(extra.qty)} ${escapeHtml(item?.unit || extra.unit)}</small>
@@ -5344,10 +5440,11 @@ function renderRecipeRows(product = null, recipeOverride = null) {
   return renderRecipeRowsFromRecipe(recipeOverride || recipeForProduct(product || { options: [], recipe: [] }), {
     itemAttr: "data-recipe-item",
     qtyAttr: "data-recipe-qty",
+    minRows: 1,
   });
 }
 
-function renderRecipeRowsFromRecipe(recipeSource = [], { itemAttr = "data-recipe-item", qtyAttr = "data-recipe-qty", minRows = 6 } = {}) {
+function renderRecipeRowsFromRecipe(recipeSource = [], { itemAttr = "data-recipe-item", qtyAttr = "data-recipe-qty", minRows = 1 } = {}) {
   const inventory = [...recipeInventoryItems()].sort((a, b) => a.name.localeCompare(b.name, "es"));
   const recipe = normalizeRecipe(recipeSource);
   const rows = Array.from({ length: Math.max(minRows, recipe.length || 0) }, (_, index) => recipe[index] || null);
@@ -5406,11 +5503,7 @@ function renderVariantRecipeEditor(product) {
   const primaryOption = primaryVariantOptionForProduct(product);
   const variants = normalizeVariantRecipes(product.variantRecipes);
   return `
-    <section class="recipe-editor variant-recipe-editor">
-      <div class="recipe-editor-head">
-        <strong>${svg("plus")}Variantes de receta</strong>
-        <span>Se usan al vender cada variante</span>
-      </div>
+    <div class="variant-recipe-editor">
       <div class="variant-add-box" data-primary-variant-option-id="${escapeAttr(primaryOption.id)}" data-primary-variant-option-label="${escapeAttr(primaryOption.label)}">
         <div class="field-row">
           <label class="field">
@@ -5461,7 +5554,7 @@ function renderVariantRecipeEditor(product) {
         )
         .join("")}
       </div>
-    </section>
+    </div>
   `;
 }
 
@@ -5469,75 +5562,121 @@ function renderMenuProductModal(product = null) {
   const isEdit = Boolean(product);
   const sectionOptions = [...new Set(activeMenuProducts().map((item) => item.section))];
   const subsectionOptions = [...new Set(activeMenuProducts().map((item) => item.subsection))];
-  const iconOptions = ["plate", "bowl", "empanada", "steam", "fry", "dessert", "cup"];
+  const iconOptions = [
+    { id: "plate", label: "Plato" },
+    { id: "bowl", label: "Tazon" },
+    { id: "empanada", label: "Empanada" },
+    { id: "steam", label: "Caliente" },
+    { id: "fry", label: "Frito" },
+    { id: "dessert", label: "Postre" },
+    { id: "cup", label: "Bebida" },
+  ];
   const basePrice = product ? menuProductBasePriceFromGross(product.price) : 0;
+  const hasVariants = variantOptionsForProduct(product || { options: [] }).length > 0;
   return `
     <section class="panel modal-panel menu-product-modal">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">${isEdit ? "Editar platillo" : "Nuevo platillo"}</h2>
-          <p class="panel-kicker">${isEdit ? escapeHtml(product.name) : "Catalogo, precio y receta de inventario"}</p>
+          <span class="catalog-entity-eyebrow is-product">${svg("sale")}Producto de venta</span>
+          <h2 class="panel-title">${isEdit ? "Editar platillo o bebida" : "Nuevo platillo o bebida"}</h2>
+          <p class="panel-kicker">Se vende de forma independiente y requiere una receta de inventario.</p>
         </div>
         <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
       </div>
-      <form class="panel-body field-grid" data-menu-product-form data-product-id="${product?.id || ""}">
-        <label class="field">
-          <span>Nombre</span>
-          <input name="name" required value="${escapeAttr(product?.name || "")}" placeholder="Nombre del platillo" />
-        </label>
-        <div class="field-row">
-          <label class="field">
-            <span>Categoria</span>
-            <input name="section" list="menu-section-options" required value="${escapeAttr(product?.section || state.activeSection || "Especiales")}" />
-            <datalist id="menu-section-options">
-              ${sectionOptions.map((section) => `<option value="${escapeAttr(section)}"></option>`).join("")}
-            </datalist>
-          </label>
-          <label class="field">
-            <span>Subcategoria</span>
-            <input name="subsection" list="menu-subsection-options" required value="${escapeAttr(product?.subsection || "Temporada")}" />
-            <datalist id="menu-subsection-options">
-              ${subsectionOptions.map((subsection) => `<option value="${escapeAttr(subsection)}"></option>`).join("")}
-            </datalist>
-          </label>
-        </div>
-        <div class="field-row">
-          <label class="field">
-            <span>Precio base sin IVA</span>
-            <input name="price" data-menu-product-base-price type="number" min="0" step="0.01" required value="${product ? formatPlainNumber(basePrice) : ""}" />
-            <small>LibrePOS suma el IVA al guardar si esta activo.</small>
-          </label>
-          <label class="field">
-            <span>Icono</span>
-            <select name="icon">
-              ${iconOptions.map((icon) => `<option value="${icon}" ${(product?.icon || "plate") === icon ? "selected" : ""}>${icon}</option>`).join("")}
-            </select>
-          </label>
-        </div>
-        ${renderMenuProductPricePreview(basePrice)}
-        <label class="field">
-          <span>Descripcion</span>
-          <input name="description" value="${escapeAttr(product?.description || "")}" placeholder="Detalle corto para el menu" />
-        </label>
-        <label class="check-toggle">
-          <input name="active" type="checkbox" ${product?.active === false ? "" : "checked"} />
-          <span>Disponible en venta</span>
-        </label>
-        <section class="recipe-editor">
-          <div class="recipe-editor-head">
-            <strong>${svg("inventory")}Receta por unidad</strong>
-            <span>${product ? money.format(productRecipeCost(product)) : "Costo al guardar"}</span>
+      <form class="panel-body catalog-form" data-menu-product-form data-product-id="${product?.id || ""}">
+        <div class="catalog-form-scroll">
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">1</span>
+            <span><strong>Datos de venta</strong><small>Lo que vera el personal al tomar la orden.</small></span>
           </div>
-          <div class="recipe-row-list" data-recipe-row-list>
-            ${renderRecipeRows(product)}
+          <div class="field-grid">
+            <label class="field">
+              <span>Nombre del platillo o bebida</span>
+              <input name="name" required value="${escapeAttr(product?.name || "")}" placeholder="Ej. Bocoles mixtos" />
+            </label>
+            <label class="field">
+              <span>Descripcion breve</span>
+              <input name="description" value="${escapeAttr(product?.description || "")}" placeholder="Detalle corto para el menu" />
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span>Categoria</span>
+                <input name="section" list="menu-section-options" required value="${escapeAttr(product?.section || state.activeSection || "Especiales")}" />
+                <datalist id="menu-section-options">
+                  ${sectionOptions.map((section) => `<option value="${escapeAttr(section)}"></option>`).join("")}
+                </datalist>
+              </label>
+              <label class="field">
+                <span>Subcategoria</span>
+                <input name="subsection" list="menu-subsection-options" required value="${escapeAttr(product?.subsection || "Temporada")}" />
+                <datalist id="menu-subsection-options">
+                  ${subsectionOptions.map((subsection) => `<option value="${escapeAttr(subsection)}"></option>`).join("")}
+                </datalist>
+              </label>
+            </div>
+            <div class="field-row catalog-status-row">
+              <label class="field">
+                <span>Tipo visual</span>
+                <select name="icon">
+                  ${iconOptions.map((icon) => `<option value="${icon.id}" ${(product?.icon || "plate") === icon.id ? "selected" : ""}>${icon.label}</option>`).join("")}
+                </select>
+              </label>
+              <label class="check-toggle catalog-availability-toggle">
+                <input name="active" type="checkbox" ${product?.active === false ? "" : "checked"} />
+                <span>Disponible en Venta</span>
+              </label>
+            </div>
           </div>
-          <button class="secondary-button compact" type="button" data-add-recipe-row>${svg("plus")}Anadir insumo</button>
         </section>
-        ${renderVariantRecipeEditor(product || { options: [], recipe: [] })}
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">2</span>
+            <span><strong>Precio al cliente</strong><small>Captura la base; LibrePOS calcula IVA y total.</small></span>
+          </div>
+          <div class="field-grid">
+            <label class="field catalog-price-input">
+              <span>Precio base sin IVA</span>
+              <input name="price" data-catalog-base-price type="number" min="0" step="0.01" required value="${product ? formatPlainNumber(basePrice) : ""}" placeholder="0.00" />
+            </label>
+            ${renderMenuProductPricePreview(basePrice)}
+          </div>
+        </section>
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">3</span>
+            <span><strong>Receta por unidad</strong><small>Obligatoria: define lo que se descuenta al comandar.</small></span>
+            <b class="catalog-required-label">Obligatoria</b>
+          </div>
+          <div class="recipe-editor">
+            <div class="recipe-editor-head">
+              <strong>${svg("inventory")}Insumos del producto</strong>
+              <span>${product ? money.format(productRecipeCost(product)) : "Costo al guardar"}</span>
+            </div>
+            <div class="recipe-row-list" data-recipe-row-list>
+              ${renderRecipeRows(product)}
+            </div>
+            <button class="secondary-button compact" type="button" data-add-recipe-row>${svg("plus")}Anadir otro insumo</button>
+          </div>
+        </section>
+        <details class="catalog-optional-section" ${hasVariants ? "open" : ""}>
+          <summary>
+            <span class="catalog-form-step">4</span>
+            <span><strong>Variantes de receta</strong><small>Usalas solo si cambia la receta segun la opcion elegida.</small></span>
+            <b>Opcional</b>
+          </summary>
+          <div class="catalog-optional-body">
+            ${renderVariantRecipeEditor(product || { options: [], recipe: [] })}
+          </div>
+        </details>
         <template data-recipe-row-template>
           ${renderRecipeRowsFromRecipe([], { minRows: 1 })}
         </template>
-        <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar cambios" : "Crear platillo"}</button>
+        </div>
+        <div class="catalog-form-actions">
+          <span>${isEdit ? "Los cambios se aplicaran a las siguientes ordenes." : "Se agregara como producto independiente en Venta."}</span>
+          <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar cambios" : "Crear platillo o bebida"}</button>
+        </div>
       </form>
     </section>
   `;
@@ -5555,52 +5694,70 @@ function renderIngredientModal(item = null, presetCategory = "") {
     <section class="panel modal-panel menu-product-modal">
       <div class="panel-header">
         <div>
+          <span class="catalog-entity-eyebrow is-ingredient">${svg("inventory")}Uso interno</span>
           <h2 class="panel-title">${isEdit ? "Editar insumo" : "Nuevo insumo"}</h2>
-          <p class="panel-kicker">${isEdit ? escapeHtml(item.name) : "Catalogo de insumos, no inventario fisico"}</p>
+          <p class="panel-kicker">No se vende directamente; sirve para inventario, costos y recetas.</p>
         </div>
         <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
       </div>
-      <form class="panel-body field-grid" data-ingredient-form data-ingredient-id="${item?.id || ""}">
-        <div class="field-row">
-          <label class="field">
-            <span>Categoria</span>
-            <input name="category" list="ingredient-category-options" required value="${escapeAttr(category)}" />
-            <datalist id="ingredient-category-options">
-              ${categories.map((category) => `<option value="${escapeAttr(category)}"></option>`).join("")}
-            </datalist>
-          </label>
-          <label class="field">
-            <span>Insumo</span>
-            <input name="name" required value="${escapeAttr(item?.name || "")}" placeholder="POLLO" />
-          </label>
-        </div>
-        <div class="field-row">
-          <label class="field">
-            <span>Proveedor</span>
-            <input name="supplier" required value="${escapeAttr(item?.supplier || "Sin proveedor")}" placeholder="MERCADO" />
-          </label>
-          <label class="field">
-            <span>Unidad</span>
-            <input name="unit" list="ingredient-unit-options" required value="${escapeAttr(item?.unit || "PZ")}" />
-            <datalist id="ingredient-unit-options">
-              ${units.map((unit) => `<option value="${escapeAttr(unit)}"></option>`).join("")}
-            </datalist>
-          </label>
-        </div>
-        <div class="field-row">
-          <label class="field">
-            <span>Costo vigente</span>
-            <input name="unitCost" type="number" min="0" step="0.01" required value="${formatPlainNumber(item?.unitCost || 0)}" />
-          </label>
-          <label class="field">
-            <span>Motivo del cambio</span>
-            <input name="reason" placeholder="Compra, cambio proveedor, correccion" />
-          </label>
-        </div>
-        <label class="check-toggle">
-          <input name="recipeEligible" type="checkbox" ${recipeEligible ? "checked" : ""} />
-          <span>Disponible para recetas</span>
-        </label>
+      <form class="panel-body catalog-form" data-ingredient-form data-ingredient-id="${item?.id || ""}">
+        <div class="catalog-form-scroll">
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">1</span>
+            <span><strong>Identificacion</strong><small>Nombre, categoria y uso dentro del catalogo.</small></span>
+          </div>
+          <div class="field-grid">
+            <div class="field-row">
+              <label class="field">
+                <span>Nombre del insumo</span>
+                <input name="name" required value="${escapeAttr(item?.name || "")}" placeholder="Ej. CECINA" />
+              </label>
+              <label class="field">
+                <span>Categoria</span>
+                <input name="category" list="ingredient-category-options" required value="${escapeAttr(category)}" />
+                <datalist id="ingredient-category-options">
+                  ${categories.map((category) => `<option value="${escapeAttr(category)}"></option>`).join("")}
+                </datalist>
+              </label>
+            </div>
+            <label class="check-toggle">
+              <input name="recipeEligible" type="checkbox" ${recipeEligible ? "checked" : ""} />
+              <span>Se puede seleccionar en recetas y extras</span>
+            </label>
+          </div>
+        </section>
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">2</span>
+            <span><strong>Compra y costo</strong><small>Unidad usada para existencias y descuento de recetas.</small></span>
+          </div>
+          <div class="field-grid">
+            <div class="field-row">
+              <label class="field">
+                <span>Proveedor</span>
+                <input name="supplier" required value="${escapeAttr(item?.supplier || "Sin proveedor")}" placeholder="MERCADO" />
+              </label>
+              <label class="field">
+                <span>Unidad de inventario</span>
+                <input name="unit" list="ingredient-unit-options" required value="${escapeAttr(item?.unit || "PZ")}" />
+                <datalist id="ingredient-unit-options">
+                  ${units.map((unit) => `<option value="${escapeAttr(unit)}"></option>`).join("")}
+                </datalist>
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Costo vigente por unidad</span>
+                <input name="unitCost" type="number" min="0" step="0.01" required value="${formatPlainNumber(item?.unitCost || 0)}" />
+              </label>
+              <label class="field">
+                <span>Motivo del cambio</span>
+                <input name="reason" placeholder="Compra, cambio proveedor, correccion" />
+              </label>
+            </div>
+          </div>
+        </section>
         ${
           history.length
             ? `
@@ -5623,7 +5780,11 @@ function renderIngredientModal(item = null, presetCategory = "") {
             `
             : ""
         }
-        <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar insumo" : "Crear insumo"}</button>
+        </div>
+        <div class="catalog-form-actions">
+          <span>${isEdit ? "Actualizara costos y recetas futuras; no crea un producto de venta." : "Quedara disponible para inventario y, si se activa, para recetas."}</span>
+          <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar insumo" : "Crear insumo"}</button>
+        </div>
       </form>
     </section>
   `;
@@ -5631,54 +5792,99 @@ function renderIngredientModal(item = null, presetCategory = "") {
 
 function renderExtraModal(extra = null) {
   const isEdit = Boolean(extra);
-  const inventory = [...currentInventory()].sort((a, b) => a.name.localeCompare(b.name, "es"));
-  const selectedItem = extra ? extraInventoryItem(extra) : inventory[0];
+  const selectedItem = extra ? extraInventoryItem(extra) : null;
+  const inventory = [...recipeInventoryItems()];
+  if (selectedItem && !inventory.some((item) => item.id === selectedItem.id)) inventory.push(selectedItem);
+  inventory.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  const basePrice = extra ? menuProductBasePriceFromGross(extra.price) : 0;
+  const priceBreakdown = menuProductPriceBreakdownFromBase(basePrice);
   return `
     <section class="panel modal-panel menu-product-modal">
       <div class="panel-header">
         <div>
+          <span class="catalog-entity-eyebrow is-extra">${svg("plus")}Complemento de venta</span>
           <h2 class="panel-title">${isEdit ? "Editar extra" : "Nuevo extra"}</h2>
-          <p class="panel-kicker">${isEdit ? escapeHtml(extra.name) : "Precio de venta y descuento de inventario"}</p>
+          <p class="panel-kicker">Se agrega a un platillo; no aparece como producto independiente.</p>
         </div>
         <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
       </div>
-      <form class="panel-body field-grid" data-extra-form data-extra-id="${extra?.id || ""}">
-        <label class="field">
-          <span>Extra</span>
-          <input name="name" required value="${escapeAttr(extra?.name || "")}" placeholder="Queso extra, salsa, crema" />
-        </label>
-        <div class="field-row">
-          <label class="field">
-            <span>Precio venta</span>
-            <input name="price" type="number" min="0" step="0.01" required value="${extra ? formatPlainNumber(extra.price) : ""}" />
-          </label>
-          <label class="field">
-            <span>Gramaje/cantidad</span>
-            <input name="qty" type="number" min="0.001" step="0.001" required value="${extra ? formatPlainNumber(extra.qty) : ""}" placeholder="0.050" />
-          </label>
+      <form class="panel-body catalog-form" data-extra-form data-extra-id="${extra?.id || ""}">
+        <div class="catalog-form-scroll">
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">1</span>
+            <span><strong>Extra que se ofrece</strong><small>Nombre visible al agregarlo a una orden.</small></span>
+          </div>
+          <div class="field-grid">
+            <label class="field">
+              <span>Nombre del extra</span>
+              <input name="name" required value="${escapeAttr(extra?.name || "")}" placeholder="Ej. Extra cecina" />
+            </label>
+            <div class="catalog-scope-note">
+              ${svg("plus")}
+              <span><strong>Disponible para todos los platillos</strong><small>El personal podra seleccionarlo desde el apartado Extras.</small></span>
+            </div>
+            <label class="check-toggle">
+              <input name="active" type="checkbox" ${extra?.active === false ? "" : "checked"} />
+              <span>Disponible como extra</span>
+            </label>
+          </div>
+        </section>
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">2</span>
+            <span><strong>Descuento de inventario</strong><small>Elige primero el insumo y despues su cantidad.</small></span>
+            <b class="catalog-required-label">Obligatorio</b>
+          </div>
+          <div class="field-grid">
+            <label class="field">
+              <span>Insumo que consume</span>
+              <select name="inventoryItemId" required ${inventory.length ? "" : "disabled"}>
+                <option value="">Selecciona un insumo</option>
+                ${inventory
+                  .map(
+                    (item) => `
+                      <option value="${item.id}" data-extra-item-name="${escapeAttr(item.name)}" data-extra-item-unit="${escapeAttr(item.unit)}" ${item.id === selectedItem?.id ? "selected" : ""}>
+                        ${escapeHtml(item.name)} · disponible ${formatNumber(item.qty)} ${escapeHtml(item.unit)} · ${money.format(item.unitCost)}/${escapeHtml(item.unit)}
+                      </option>
+                    `,
+                  )
+                  .join("")}
+              </select>
+              <small>Solo aparecen insumos habilitados para recetas.</small>
+            </label>
+            <label class="field catalog-price-input">
+              <span data-extra-qty-label>${selectedItem ? `Cantidad a descontar (${escapeHtml(selectedItem.unit)})` : "Cantidad a descontar"}</span>
+              <input name="qty" type="number" min="0.001" step="0.001" required value="${extra ? formatPlainNumber(extra.qty) : ""}" placeholder="0.050" />
+            </label>
+            <div class="catalog-impact-note" data-extra-inventory-impact>
+              ${svg("inventory")}
+              <span>${selectedItem ? `Cada venta descontara ${formatNumber(extra?.qty || 0)} ${escapeHtml(selectedItem.unit)} de ${escapeHtml(selectedItem.name)}.` : "Selecciona un insumo para definir el descuento de inventario."}</span>
+            </div>
+          </div>
+        </section>
+        <section class="catalog-form-section">
+          <div class="catalog-form-section-head">
+            <span class="catalog-form-step">3</span>
+            <span><strong>Precio al cliente</strong><small>El precio base sigue separado del IVA.</small></span>
+          </div>
+          <div class="field-grid">
+            <label class="field catalog-price-input">
+              <span>Precio base sin IVA</span>
+              <input name="price" data-catalog-base-price type="number" min="0" step="0.01" required value="${extra ? formatPlainNumber(basePrice) : ""}" placeholder="0.00" />
+            </label>
+            ${renderMenuProductPricePreview(basePrice)}
+            <div class="extra-sale-preview">
+              <small>Vista en la cuenta</small>
+              <strong><span data-extra-preview-name>+ ${escapeHtml(extra?.name || "Nombre del extra")}</span><span data-extra-preview-price>${money.format(priceBreakdown.total)}</span></strong>
+            </div>
+          </div>
+        </section>
         </div>
-        <label class="field">
-          <span>Insumo que descuenta</span>
-          <select name="inventoryItemId" required ${inventory.length ? "" : "disabled"}>
-            ${inventory
-              .map(
-                (item) => `
-                  <option value="${item.id}" ${item.id === selectedItem?.id ? "selected" : ""}>
-                    ${escapeHtml(item.name)} · ${formatNumber(item.qty)} ${escapeHtml(item.unit)} · ${money.format(item.unitCost)}/${escapeHtml(item.unit)}
-                  </option>
-                `,
-              )
-              .join("")}
-          </select>
-        </label>
-        <div class="checkout-warning">
-          ${svg("alert")}Aviso: cada vez que se venda este extra, LibrePOS descontara la cantidad indicada del insumo seleccionado.
+        <div class="catalog-form-actions">
+          <span>${isEdit ? "Conserva el precio total actual mientras no cambies su base." : "Se agregara como complemento, no como platillo."}</span>
+          <button class="primary-button" type="submit" ${inventory.length ? "" : "disabled"}>${svg("check")}${isEdit ? "Guardar extra" : "Crear extra"}</button>
         </div>
-        <label class="check-toggle">
-          <input name="active" type="checkbox" ${extra?.active === false ? "" : "checked"} />
-          <span>Disponible para venta</span>
-        </label>
-        <button class="primary-button" type="submit" ${inventory.length ? "" : "disabled"}>${svg("check")}${isEdit ? "Guardar extra" : "Crear extra"}</button>
       </form>
     </section>
   `;
@@ -5711,6 +5917,285 @@ function renderIngredientCategoryModal() {
       </form>
     </section>
   `;
+}
+
+function helpCategory(categoryId) {
+  return helpContent.categories.find((category) => category.id === categoryId) || helpContent.categories[0];
+}
+
+function helpArticle(articleId) {
+  return helpContent.articles.find((article) => article.id === articleId) || null;
+}
+
+function helpArticleMatchesCurrentUser(article) {
+  if (isAdminUser()) return true;
+  const audiences = new Set(article.audience || []);
+  const user = currentUser();
+  return (hasUserFunction(user, "mesero") && audiences.has("Mesero"))
+    || (hasUserFunction(user, "cocina") && audiences.has("Cocina"))
+    || (hasCashAccess(user) && audiences.has("Caja"))
+    || audiences.has("Todos");
+}
+
+function helpArticleSearchText(article) {
+  return normalize([
+    article.title,
+    article.summary,
+    ...(article.tags || []),
+    ...(article.prerequisites || []),
+    ...(article.steps || []).flatMap((step) => [step.title, step.detail, step.impact]),
+    ...(article.impacts || []),
+    article.caution,
+    article.expected,
+  ].filter(Boolean).join(" "));
+}
+
+function filteredHelpArticles() {
+  const category = helpContent.categories.some((entry) => entry.id === state.supportCategory) ? state.supportCategory : "all";
+  const query = normalize(state.supportSearch);
+  return [...helpContent.articles]
+    .filter((article) => category === "all" || article.category === category)
+    .filter((article) => !query || helpArticleSearchText(article).includes(query))
+    .sort((left, right) => Number(helpArticleMatchesCurrentUser(right)) - Number(helpArticleMatchesCurrentUser(left)));
+}
+
+function renderHelpArticleListItem(article, selectedId) {
+  const category = helpCategory(article.category);
+  const relevant = helpArticleMatchesCurrentUser(article);
+  return `
+    <button class="support-article-link ${selectedId === article.id ? "is-active" : ""}" type="button" data-support-article="${escapeAttr(article.id)}" aria-current="${selectedId === article.id ? "page" : "false"}">
+      <span class="support-article-link-icon is-${escapeAttr(article.category)}">${svg(category.icon)}</span>
+      <span class="support-article-link-copy">
+        <strong>${escapeHtml(article.title)}</strong>
+        <small>${escapeHtml(category.label)} · ${escapeHtml(article.duration)}</small>
+      </span>
+      <span class="support-role-marker ${relevant ? "is-relevant" : ""}">${relevant ? "Para tu rol" : escapeHtml((article.audience || ["Ayuda"])[0])}</span>
+    </button>
+  `;
+}
+
+function helpMediaPaths(article) {
+  const base = `../assets/help/${article.id}`;
+  return {
+    gif: HELP_MEDIA_URLS[`${base}.gif`],
+    poster: HELP_MEDIA_URLS[`${base}-poster.png`],
+  };
+}
+
+function renderHelpArticle(article) {
+  const category = helpCategory(article.category);
+  const media = helpMediaPaths(article);
+  const animationsEnabled = !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const related = (article.related || []).map(helpArticle).filter(Boolean).slice(0, 4);
+  return `
+    <article class="panel support-article" data-support-article-view="${escapeAttr(article.id)}">
+      <header class="support-article-header">
+        <div class="support-article-heading">
+          <span class="support-category-label">${svg(category.icon)}${escapeHtml(category.label)}</span>
+          <h2>${escapeHtml(article.title)}</h2>
+          <p>${escapeHtml(article.summary)}</p>
+        </div>
+        <div class="support-article-meta">
+          <span>${svg("users")}${escapeHtml((article.audience || []).join(" · "))}</span>
+          <span>${svg("clock")}${escapeHtml(article.duration)}</span>
+          <span>${svg("check")}Ayuda ${escapeHtml(helpContent.contentVersion)}</span>
+        </div>
+      </header>
+      <div class="support-article-body">
+        <figure class="support-media">
+          <img
+            src="${escapeAttr(animationsEnabled ? media.gif : media.poster)}"
+            data-help-media
+            data-gif-src="${escapeAttr(media.gif)}"
+            data-poster-src="${escapeAttr(media.poster)}"
+            alt="Recorrido con capturas reales: ${escapeAttr(article.title)}"
+          />
+          <div class="support-media-footer">
+            <figcaption>Capturas reales de LibrePOS v${escapeHtml(helpContent.interfaceVersion)}. Los pasos completos aparecen debajo.</figcaption>
+            <button class="secondary-button compact" type="button" data-help-animation-toggle data-playing="${animationsEnabled}">
+              ${svg(animationsEnabled ? "pause" : "play")}${animationsEnabled ? "Pausar animación" : "Reproducir animación"}
+            </button>
+          </div>
+        </figure>
+        <section class="support-prerequisites">
+          <div class="support-section-title">
+            <span>${svg("check")}</span>
+            <span><strong>Antes de empezar</strong><small>Comprueba estas condiciones.</small></span>
+          </div>
+          <ul>${(article.prerequisites || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </section>
+        <section class="support-steps">
+          <div class="support-section-title">
+            <span>${svg("book")}</span>
+            <span><strong>Paso a paso</strong><small>${article.steps.length} pasos para completar el flujo.</small></span>
+          </div>
+          <ol>
+            ${article.steps.map((step, index) => `
+              <li>
+                <span class="support-step-number">${index + 1}</span>
+                <div>
+                  <h3>${escapeHtml(step.title)}</h3>
+                  <p>${escapeHtml(step.detail)}</p>
+                  <small><strong>Impacto:</strong> ${escapeHtml(step.impact)}</small>
+                </div>
+              </li>
+            `).join("")}
+          </ol>
+        </section>
+        <section class="support-impact-section">
+          <div class="support-section-title">
+            <span>${svg("data")}</span>
+            <span><strong>Qué cambia al terminar</strong><small>Efectos que debes comprobar.</small></span>
+          </div>
+          <div class="support-impact-grid">
+            ${(article.impacts || []).map((impact) => `<span>${svg("check")}<strong>${escapeHtml(impact)}</strong></span>`).join("")}
+          </div>
+        </section>
+        ${article.caution ? `
+          <aside class="support-caution">
+            ${svg("alert")}
+            <span><strong>Atención</strong><p>${escapeHtml(article.caution)}</p></span>
+          </aside>
+        ` : ""}
+        <section class="support-expected">
+          <span>${svg("check")}</span>
+          <span><strong>Resultado esperado</strong><p>${escapeHtml(article.expected)}</p></span>
+        </section>
+        ${related.length ? `
+          <nav class="support-related" aria-label="Guías relacionadas">
+            <strong>Continúa con</strong>
+            <div>${related.map((item) => `<button class="secondary-button compact" type="button" data-support-article="${escapeAttr(item.id)}">${svg("chevronRight")}${escapeHtml(item.title)}</button>`).join("")}</div>
+          </nav>
+        ` : ""}
+      </div>
+    </article>
+  `;
+}
+
+function renderSupportTicketPanel() {
+  return `
+    <section class="panel support-ticket-panel">
+      <div class="support-ticket-status">
+        <span class="support-ticket-icon">${svg("lock")}</span>
+        <span>
+          <span class="support-ticket-eyebrow">Tickets de soporte · Próximamente</span>
+          <strong>Envío a soporte deshabilitado</strong>
+          <small>Esta función se activará con la nueva arquitectura. Ahora no guarda ni transmite información.</small>
+        </span>
+      </div>
+      <div class="support-ticket-actions">
+        <button class="secondary-button" type="button" data-open-modal="support-ticket-preview">${svg("note")}Ver formulario futuro</button>
+        <button class="primary-button" type="button" disabled title="Disponible con la futura conexión al servidor">${svg("lock")}Abrir ticket</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderSupport() {
+  const articles = filteredHelpArticles();
+  const selected = articles.find((article) => article.id === state.supportArticleId) || articles[0] || null;
+  const relevantCount = helpContent.articles.filter(helpArticleMatchesCurrentUser).length;
+  return `
+    <div class="support-layout">
+      <section class="board-header support-board-header">
+        <div>
+          <h2>Soporte</h2>
+          <p>Guías operativas de LibrePOS disponibles sin conexión.</p>
+        </div>
+        <div class="support-header-metrics">
+          <span>${svg("book")}<strong>${helpContent.articles.length}</strong> guías</span>
+          <span>${svg("users")}<strong>${relevantCount}</strong> para tu rol</span>
+        </div>
+      </section>
+      ${renderSupportTicketPanel()}
+      <div class="support-workspace">
+        <aside class="panel support-library">
+          <div class="support-library-head">
+            <div>
+              <h2 class="panel-title">Centro de ayuda</h2>
+              <p class="panel-kicker">Busca una tarea o explora por área.</p>
+            </div>
+            <div class="search-wrap support-search-wrap">
+              ${svg("search")}
+              <input class="search-input" data-support-search value="${escapeAttr(state.supportSearch)}" placeholder="Buscar: cancelar cuenta, IVA, impresora..." aria-label="Buscar en la ayuda" />
+            </div>
+          </div>
+          <div class="support-category-tabs" role="tablist" aria-label="Categorías de ayuda">
+            ${helpContent.categories.map((category) => `
+              <button type="button" role="tab" aria-selected="${state.supportCategory === category.id}" class="support-category-tab ${state.supportCategory === category.id ? "is-active" : ""}" data-support-category="${escapeAttr(category.id)}">
+                ${svg(category.icon)}<span>${escapeHtml(category.label)}</span>
+              </button>
+            `).join("")}
+          </div>
+          <div class="support-results-count" aria-live="polite">
+            <strong>${articles.length}</strong> resultado${articles.length === 1 ? "" : "s"}${state.supportSearch ? ` para “${escapeHtml(state.supportSearch)}”` : ""}
+          </div>
+          <div class="support-article-list">
+            ${articles.length ? articles.map((article) => renderHelpArticleListItem(article, selected?.id)).join("") : `
+              <div class="empty-state support-empty-state">
+                ${svg("search", "big-icon")}
+                <strong>No encontramos esa tarea.</strong>
+                <p>Prueba con palabras como ticket, mesa, inventario, precio o IVA.</p>
+                <button class="secondary-button compact" type="button" data-support-clear-search>${svg("cancel")}Limpiar búsqueda</button>
+              </div>
+            `}
+          </div>
+        </aside>
+        ${selected ? renderHelpArticle(selected) : `
+          <section class="panel support-no-article">
+            ${svg("book", "big-icon")}
+            <h2>Selecciona una guía</h2>
+            <p>El contenido incluye pasos, impacto, advertencias y una animación visual.</p>
+          </section>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function renderSupportTicketPreviewModal() {
+  return `
+    <section class="panel modal-panel support-ticket-modal">
+      <div class="panel-header">
+        <div>
+          <span class="catalog-entity-eyebrow is-ingredient">${svg("lock")}Vista previa</span>
+          <h2 class="panel-title">Futuro ticket de soporte</h2>
+          <p class="panel-kicker">El formulario está deshabilitado y no envía datos.</p>
+        </div>
+        <button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button>
+      </div>
+      <div class="panel-body field-grid">
+        <div class="support-ticket-disabled-notice">${svg("alert")}Disponible cuando LibrePOS pueda conectarse de forma segura al servidor de soporte.</div>
+        <fieldset class="support-ticket-fieldset" disabled>
+          <div class="field-row">
+            <label class="field"><span>Área afectada</span><select><option>Seleccionar área</option><option>Venta</option><option>Impresión</option><option>Inventario</option></select></label>
+            <label class="field"><span>Urgencia</span><select><option>Operación bloqueada</option><option>Impacto parcial</option><option>Consulta</option></select></label>
+          </div>
+          <label class="field"><span>Título</span><input placeholder="Resumen breve del problema" /></label>
+          <label class="field"><span>Descripción</span><textarea rows="5" placeholder="Qué ocurrió, qué esperabas y qué intentaste"></textarea></label>
+          <label class="field"><span>Capturas o archivos</span><input type="file" multiple /></label>
+          <label class="field"><span>Contacto</span><input placeholder="Nombre y medio de contacto" /></label>
+          <button class="primary-button" type="button" disabled>${svg("lock")}Enviar ticket</button>
+        </fieldset>
+        <button class="secondary-button" type="button" data-close-modal-button>${svg("check")}Entendido</button>
+      </div>
+    </section>
+  `;
+}
+
+function toggleHelpAnimation(button) {
+  const media = button.closest(".support-media")?.querySelector("[data-help-media]");
+  if (!media) return;
+  const playing = button.dataset.playing === "true";
+  if (playing) {
+    media.src = media.dataset.posterSrc;
+    button.dataset.playing = "false";
+    button.innerHTML = `${svg("play")}Reproducir animación`;
+    return;
+  }
+  media.src = `${media.dataset.gifSrc}?replay=${Date.now()}`;
+  button.dataset.playing = "true";
+  button.innerHTML = `${svg("pause")}Pausar animación`;
 }
 
 function renderCashRegister() {
@@ -6614,13 +7099,14 @@ function renderPrinterTest() {
             <div class="ticket-price-mode" role="radiogroup" aria-label="Precio por producto en el ticket">
               <label>
                 <input data-ticket-item-price-mode name="ticket-item-price-mode" type="radio" value="gross" ${itemPriceMode === "gross" ? "checked" : ""} />
-                <span>IVA incluido</span>
+                <span>IVA incluido · Predeterminado</span>
               </label>
               <label>
                 <input data-ticket-item-price-mode name="ticket-item-price-mode" type="radio" value="net" ${itemPriceMode === "net" ? "checked" : ""} />
                 <span>Sin IVA</span>
               </label>
             </div>
+            <small>Con IVA incluido, cada producto y extra muestra su precio final sin añadir una leyenda al ticket. El subtotal y el IVA siguen desglosados al final.</small>
           </div>
           <label class="field">
             <span>Logo de ticket</span>
@@ -8944,6 +9430,48 @@ function bindEvents() {
       render();
     });
   });
+  const supportSearch = document.querySelector("[data-support-search]");
+  supportSearch?.addEventListener("input", (event) => {
+    const caret = event.target.selectionStart || event.target.value.length;
+    state.supportSearch = event.target.value;
+    persist();
+    render();
+    const restored = document.querySelector("[data-support-search]");
+    restored?.focus();
+    restored?.setSelectionRange(caret, caret);
+  });
+  document.querySelectorAll("[data-support-category]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.supportCategory = button.dataset.supportCategory;
+      state.supportArticleId = "";
+      persist();
+      render();
+    });
+  });
+  document.querySelectorAll("[data-support-article]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const article = helpArticle(button.dataset.supportArticle);
+      if (!article) return;
+      state.supportArticleId = article.id;
+      if (button.closest(".support-related")) {
+        state.supportCategory = article.category;
+        state.supportSearch = "";
+      }
+      persist();
+      render();
+      if (window.innerWidth <= 980) document.querySelector("[data-support-article-view]")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+  document.querySelector("[data-support-clear-search]")?.addEventListener("click", () => {
+    state.supportSearch = "";
+    state.supportCategory = "all";
+    state.supportArticleId = "";
+    persist();
+    render();
+  });
+  document.querySelector("[data-help-animation-toggle]")?.addEventListener("click", (event) => {
+    toggleHelpAnimation(event.currentTarget);
+  });
   document.querySelectorAll("[data-open-modal]").forEach((button) => {
     button.addEventListener("click", () => {
       const modal = { type: button.dataset.openModal };
@@ -9144,7 +9672,11 @@ function bindEvents() {
   });
   document.querySelector("[data-ingredient-form]")?.addEventListener("submit", saveIngredient);
   document.querySelector("[data-ingredient-category-form]")?.addEventListener("submit", createIngredientCategory);
-  document.querySelector("[data-extra-form]")?.addEventListener("submit", saveExtraDefinition);
+  const extraForm = document.querySelector("[data-extra-form]");
+  extraForm?.addEventListener("submit", saveExtraDefinition);
+  extraForm?.addEventListener("input", () => updateExtraFormPreview(extraForm));
+  extraForm?.addEventListener("change", () => updateExtraFormPreview(extraForm));
+  if (extraForm) updateExtraFormPreview(extraForm);
   document.querySelectorAll("[data-ingredient-category-field]").forEach((input) => {
     input.addEventListener("change", () => updateIngredientCategory(input.dataset.ingredientCategoryField, input.value));
   });
@@ -9953,31 +10485,21 @@ function menuProductCatalogIvaRate() {
 }
 
 function menuProductBasePriceFromGross(price) {
-  return taxBreakdownForGross(price, menuProductCatalogIvaRate()).netSubtotal;
+  return catalogBasePriceFromGross(price, menuProductCatalogIvaRate());
 }
 
 function menuProductGrossPriceFromBase(price) {
-  const base = roundCurrency(Math.max(0, Number(price) || 0));
-  const rate = menuProductCatalogIvaRate();
-  return roundCurrency(base * (1 + rate));
+  return catalogPriceBreakdownFromBase(price, menuProductCatalogIvaRate()).total;
 }
 
 function menuProductPriceBreakdownFromBase(price) {
-  const base = roundCurrency(Math.max(0, Number(price) || 0));
-  const total = menuProductGrossPriceFromBase(base);
-  const rate = menuProductCatalogIvaRate();
-  return {
-    base,
-    iva: roundCurrency(total - base),
-    total,
-    rate,
-  };
+  return catalogPriceBreakdownFromBase(price, menuProductCatalogIvaRate());
 }
 
 function renderMenuProductPricePreview(price = 0) {
   const breakdown = menuProductPriceBreakdownFromBase(price);
   return `
-    <div class="price-tax-preview" data-menu-product-price-preview>
+    <div class="price-tax-preview" data-catalog-price-preview>
       <span><small>Base sin IVA</small><strong data-price-preview-base>${money.format(breakdown.base)}</strong></span>
       <span><small>${escapeHtml(ivaLabel(breakdown.rate))}</small><strong data-price-preview-iva>${money.format(breakdown.iva)}</strong></span>
       <span><small>Precio final</small><strong data-price-preview-total>${money.format(breakdown.total)}</strong></span>
@@ -9988,13 +10510,36 @@ function renderMenuProductPricePreview(price = 0) {
 function updateMenuProductPricePreview(formElement) {
   const form = formElement instanceof HTMLFormElement ? formElement : document.querySelector("[data-menu-product-form]");
   if (!form) return;
-  const input = form.querySelector("[data-menu-product-base-price]");
-  const preview = form.querySelector("[data-menu-product-price-preview]");
+  const input = form.querySelector("[data-catalog-base-price]");
+  const preview = form.querySelector("[data-catalog-price-preview]");
   if (!input || !preview) return;
   const breakdown = menuProductPriceBreakdownFromBase(input.value);
   preview.querySelector("[data-price-preview-base]").textContent = money.format(breakdown.base);
   preview.querySelector("[data-price-preview-iva]").textContent = money.format(breakdown.iva);
   preview.querySelector("[data-price-preview-total]").textContent = money.format(breakdown.total);
+}
+
+function updateExtraFormPreview(formElement) {
+  if (!(formElement instanceof HTMLFormElement)) return;
+  updateMenuProductPricePreview(formElement);
+  const name = String(formElement.elements.name?.value || "").trim() || "Nombre del extra";
+  const basePrice = formElement.querySelector("[data-catalog-base-price]")?.value || 0;
+  const qty = Math.max(0, Number(formElement.elements.qty?.value) || 0);
+  const selectedOption = formElement.elements.inventoryItemId?.selectedOptions?.[0];
+  const itemName = selectedOption?.dataset.extraItemName || "";
+  const unit = selectedOption?.dataset.extraItemUnit || "";
+  const namePreview = formElement.querySelector("[data-extra-preview-name]");
+  const pricePreview = formElement.querySelector("[data-extra-preview-price]");
+  const qtyLabel = formElement.querySelector("[data-extra-qty-label]");
+  const inventoryImpact = formElement.querySelector("[data-extra-inventory-impact] span");
+  if (namePreview) namePreview.textContent = `+ ${name}`;
+  if (pricePreview) pricePreview.textContent = money.format(menuProductPriceBreakdownFromBase(basePrice).total);
+  if (qtyLabel) qtyLabel.textContent = unit ? `Cantidad a descontar (${unit})` : "Cantidad a descontar";
+  if (inventoryImpact) {
+    inventoryImpact.textContent = itemName
+      ? `Cada venta descontara ${formatNumber(qty)} ${unit} de ${itemName}.`
+      : "Selecciona un insumo para definir el descuento de inventario.";
+  }
 }
 
 function readCheckoutTip(subtotal, form = document) {
@@ -11821,10 +12366,12 @@ function saveExtraDefinition(event) {
   const extraId = event.currentTarget.dataset.extraId;
   const existing = extraId ? extras.find((extra) => extra.id === extraId) : null;
   const name = cleanUserText(form.get("name"));
-  const price = Math.max(0, Number(form.get("price")) || 0);
+  const basePrice = roundCurrency(Math.max(0, Number(form.get("price")) || 0));
+  const price = catalogGrossPriceForEdit(basePrice, existing?.price, menuProductCatalogIvaRate());
   const qty = Math.max(0, Number(form.get("qty")) || 0);
   const inventoryItem = currentInventory().find((item) => item.id === String(form.get("inventoryItemId") || ""));
-  if (!name || price <= 0 || qty <= 0 || !inventoryItem) {
+  const keepsExistingLinkedItem = existing && inventoryItem?.id === existing.inventoryItemId;
+  if (!name || basePrice <= 0 || qty <= 0 || !inventoryItem || (!isRecipeIngredient(inventoryItem) && !keepsExistingLinkedItem)) {
     showToast("Captura extra, precio, gramaje e insumo.");
     return;
   }
@@ -11834,11 +12381,23 @@ function saveExtraDefinition(event) {
     return;
   }
   const now = new Date().toISOString();
+  const priceHistory = normalizeProductHistory(existing?.priceHistory);
+  if (existing && roundCurrency(existing.price) !== roundCurrency(price)) {
+    priceHistory.unshift({
+      id: safeId("price-history"),
+      changedAt: now,
+      changedBy: currentUser()?.id,
+      reason: "Cambio de precio de venta",
+      previous: { basePrice: menuProductBasePriceFromGross(existing.price), price: roundCurrency(existing.price) },
+      next: { basePrice, price: roundCurrency(price) },
+    });
+  }
   const payload = {
     ...(existing || {}),
     id: existing?.id || uniqueExtraId(name),
     name,
     price: roundCurrency(price),
+    priceHistory,
     inventoryItemId: inventoryItem.id,
     inventoryItemName: inventoryItem.name,
     unit: inventoryItem.unit,

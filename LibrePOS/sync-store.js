@@ -6,6 +6,10 @@ import { networkInterfaces, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import {
+  migrateTicketItemPriceModeSettings,
+  normalizeTicketItemPriceMode,
+} from "./src/ticket-settings.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(ROOT_DIR, ".librepos");
@@ -32,7 +36,6 @@ const BRAND_IMAGE_FILE = path.join(ROOT_DIR, "assets", "brand.jpg");
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
 const DEFAULT_TICKET_LOGO_POSITION = "below-title";
-const DEFAULT_TICKET_ITEM_PRICE_MODE = "gross";
 const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
@@ -158,6 +161,9 @@ function normalizeStateForStorage(state, existingState = null) {
   if (!state || typeof state !== "object") return { state: null, changed: false };
   let changed = false;
   const next = structuredClone(state);
+  const migratedTicketSettings = migrateTicketItemPriceModeSettings(next.settings);
+  next.settings = migratedTicketSettings.settings;
+  if (migratedTicketSettings.changed) changed = true;
   const rawUsers = Array.isArray(next.users) ? next.users : [];
   const users = rawUsers.filter((user) => user.active !== false);
   if (users.length !== rawUsers.length) changed = true;
@@ -798,10 +804,6 @@ function sharedIvaEnabled() {
 
 function sharedIvaRate() {
   return cleanIvaRate(sharedState?.settings?.ivaRate);
-}
-
-function normalizeTicketItemPriceMode(value) {
-  return value === "net" ? "net" : DEFAULT_TICKET_ITEM_PRICE_MODE;
 }
 
 function sharedTicketItemPriceMode() {

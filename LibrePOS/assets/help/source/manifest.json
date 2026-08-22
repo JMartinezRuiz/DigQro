@@ -1,0 +1,158 @@
+{
+  "captureVersion": "0.5.0",
+  "capturedAt": "2026-08-22",
+  "viewport": { "width": 1280, "height": 720 },
+  "articles": {
+    "create-product": [
+      { "image": "catalog-products.jpg", "caption": "Abre Catálogo y selecciona Platillos y bebidas" },
+      { "image": "catalog-create-menu.jpg", "caption": "Abre Crear y elige Platillo o bebida" },
+      { "image": "catalog-product-form.jpg", "caption": "Captura datos y precio base; revisa IVA y precio final" },
+      { "image": "catalog-product-recipe.jpg", "caption": "Añade los insumos y cantidades de la receta" },
+      { "image": "catalog-product-variants.jpg", "caption": "Usa Variantes de receta solo cuando cambie el consumo" }
+    ],
+    "create-extra": [
+      { "image": "catalog-extras.jpg", "caption": "En Catálogo, revisa la pestaña Extras" },
+      { "image": "catalog-create-menu.jpg", "caption": "Abre Crear y elige Extra" },
+      { "image": "catalog-extra-form.jpg", "caption": "Define el nombre y el insumo que consume" },
+      { "image": "catalog-extra-price.jpg", "caption": "Captura cantidad y precio base; revisa IVA y final" },
+      { "image": "catalog-extras.jpg", "caption": "Comprueba el extra en el Catálogo de extras" }
+    ],
+    "create-ingredient": [
+      { "image": "catalog-ingredients.jpg", "caption": "En Catálogo, abre la pestaña Insumos" },
+      { "image": "catalog-create-menu.jpg", "caption": "Abre Crear y elige Insumo" },
+      { "image": "catalog-ingredient-form.jpg", "caption": "Captura identificación y decide si puede usarse en recetas" },
+      { "image": "catalog-ingredient-form.jpg", "caption": "Define proveedor, unidad y costo vigente" },
+      { "image": "catalog-ingredients.jpg", "caption": "Verifica el insumo en su categoría" }
+    ],
+    "edit-product-price": [
+      { "image": "catalog-products.jpg", "caption": "Busca el platillo correcto en Catálogo" },
+      { "image": "catalog-edit-product.jpg", "caption": "Pulsa Editar y confirma el nombre" },
+      { "image": "catalog-edit-product.jpg", "caption": "Modifica Precio base sin IVA" },
+      { "image": "catalog-edit-product.jpg", "caption": "Revisa Base, IVA y Precio final" },
+      { "image": "sale-home.jpg", "caption": "Comprueba el nuevo precio en una orden posterior" }
+    ],
+    "open-order": [
+      { "image": "sale-home.jpg", "caption": "En Venta, elige Abrir nueva mesa o Para llevar" },
+      { "image": "sale-open-table.jpg", "caption": "Para mesa, captura número, comensales, mesero y comentarios" },
+      { "image": "sale-open-takeout.jpg", "caption": "Para llevar, captura cliente opcional y responsable" },
+      { "image": "sale-order.jpg", "caption": "Agrega productos y revisa el ticket antes de comandar" }
+    ],
+    "configure-product": [
+      { "image": "sale-order.jpg", "caption": "Pulsa un producto del menú" },
+      { "image": "sale-product-config.jpg", "caption": "Completa las opciones obligatorias" },
+      { "image": "sale-product-mixed.jpg", "caption": "Activa Mixto y configura cada parte cuando aplique" },
+      { "image": "sale-product-extras-note.jpg", "caption": "Selecciona extras y escribe la Nota para cocina" },
+      { "image": "sale-product-extras-note.jpg", "caption": "Revisa cantidad, precio y pulsa Agregar al ticket" }
+    ],
+    "command-order": [
+      { "image": "sale-order.jpg", "caption": "Revisa las líneas Por comandar" },
+      { "image": "sale-command.jpg", "caption": "Pulsa Comandar y confirma las piezas pendientes" },
+      { "image": "sale-command.jpg", "caption": "Elige Digital + impresa o Digital" },
+      { "image": "kitchen-board.jpg", "caption": "Comprueba la comanda en Cocina" },
+      { "image": "inventory-overview.jpg", "caption": "El inventario se descuenta al comandar" }
+    ],
+    "cancel-item-order": [
+      { "image": "sale-order.jpg", "caption": "Distingue una línea pendiente de una ya comandada" },
+      { "image": "sale-order.jpg", "caption": "Usa Quitar solo mientras la línea está pendiente" },
+      { "image": "sale-cancel-line.jpg", "caption": "Para una línea comandada, usa Cancelar y confirma cantidad" },
+      { "image": "sale-cancel-order.jpg", "caption": "Para toda la cuenta, pulsa Finalizar y Cancelar mesa u orden" },
+      { "image": "data-overview.jpg", "caption": "La cancelación queda registrada en Datos" }
+    ],
+    "checkout-discounts-tips": [
+      { "image": "sale-order.jpg", "caption": "Desde el ticket, pulsa Finalizar" },
+      { "image": "sale-price.jpg", "caption": "Usa Precio si necesitas revisar subtotal, IVA y total antes de cobrar" },
+      { "image": "sale-checkout.jpg", "caption": "Revisa consumo, IVA y advertencias antes del cobro" },
+      { "image": "sale-checkout.jpg", "caption": "Selecciona descuento y método de pago" },
+      { "image": "sale-checkout-discount-tip.jpg", "caption": "Configura la propina y su método por separado" },
+      { "image": "sale-checkout-discount-tip.jpg", "caption": "Comprueba el total y pulsa Confirmar y cerrar" }
+    ],
+    "prepaid-postpaid": [
+      { "image": "tables-overview.jpg", "caption": "Antes del cobro, usa Imprimir ticket en la mesa" },
+      { "image": "config-ticket-preview-summary.jpg", "caption": "Las líneas muestran precios con IVA y el resumen separa subtotal e IVA" },
+      { "image": "sale-checkout.jpg", "caption": "Finaliza el cobro para cerrar la cuenta" },
+      { "image": "data-postpaid-pending.jpg", "caption": "Después del cobro, filtra Postpago pendiente" },
+      { "image": "data-overview.jpg", "caption": "Usa Reimprimir para el prepago o Imprimir postpago" },
+      { "image": "data-postpaid-pending.jpg", "caption": "Imprime pendientes u omite los avisos que no necesites" }
+    ],
+    "cash-daily": [
+      { "image": "cash-closed.jpg", "caption": "Con Caja cerrada, captura Fondo inicial y pulsa Abrir caja" },
+      { "image": "cash-open.jpg", "caption": "Caja resume cobros, descuentos, IVA y métodos de pago" },
+      { "image": "cash-open.jpg", "caption": "Revisa el efectivo esperado y los tickets de insumos" },
+      { "image": "cash-open.jpg", "caption": "Captura Efectivo contado y una nota si hay diferencia" },
+      { "image": "cash-open.jpg", "caption": "Cierra primero todas las órdenes y después finaliza el turno" }
+    ],
+    "inventory-purchase": [
+      { "image": "inventory-overview.jpg", "caption": "Abre Inventario y localiza Movimiento de inventario" },
+      { "image": "inventory-purchase.jpg", "caption": "Selecciona el insumo y captura Cantidad comprada" },
+      { "image": "inventory-purchase.jpg", "caption": "Captura Coste del ticket" },
+      { "image": "inventory-purchase.jpg", "caption": "Añade proveedor y Ticket / nota" },
+      { "image": "inventory-overview.jpg", "caption": "Pulsa Subir ticket y verifica cantidad, costo y caja" }
+    ],
+    "inventory-waste": [
+      { "image": "inventory-overview.jpg", "caption": "En Inventario, localiza el panel Merma" },
+      { "image": "inventory-waste.jpg", "caption": "Selecciona el insumo y revisa su unidad" },
+      { "image": "inventory-waste.jpg", "caption": "Captura la Cantidad perdida" },
+      { "image": "inventory-waste.jpg", "caption": "Escribe el Motivo y pulsa Registrar merma" },
+      { "image": "inventory-overview.jpg", "caption": "Comprueba la existencia y el movimiento generado" }
+    ],
+    "full-inventory-count": [
+      { "image": "inventory-overview.jpg", "caption": "Detén compras, mermas y comandas durante el conteo" },
+      { "image": "inventory-full-count.jpg", "caption": "En Inventario completo, captura Conteo físico" },
+      { "image": "inventory-full-count.jpg", "caption": "Revisa Diferencia, Valor y Aviso" },
+      { "image": "inventory-full-count.jpg", "caption": "Pulsa Aplicar conteo completo y confirma APLICAR" },
+      { "image": "inventory-overview.jpg", "caption": "Revisa las nuevas existencias y movimientos" }
+    ],
+    "printer-setup": [
+      { "image": "config-printing-tickets-overview.jpg", "caption": "Abre Config, Impresión y después Tickets" },
+      { "image": "config-printing-tickets-overview.jpg", "caption": "Selecciona la impresora detectada o captura Nombre manual" },
+      { "image": "config-ticket-preview.jpg", "caption": "Guarda la impresora y genera una prueba prepago" },
+      { "image": "config-printing-tickets.jpg", "caption": "Confirma IVA incluido como modo predeterminado por producto" },
+      { "image": "config-ticket-preview-summary.jpg", "caption": "Verifica precios finales por línea y el desglose fiscal inferior" },
+      { "image": "config-printing-commands.jpg", "caption": "En Comandas elige impresora y activa la impresión automática" }
+    ],
+    "iva-settings": [
+      { "image": "config-general.jpg", "caption": "Abre Config, General y revisa el estado del IVA" },
+      { "image": "config-iva-enabled.jpg", "caption": "Activa IVA y confirma el Porcentaje IVA" },
+      { "image": "config-iva-advanced.jpg", "caption": "Abre Conversión de precios por IVA en Opciones avanzadas" },
+      { "image": "config-iva-conversion.jpg", "caption": "En Opciones avanzadas revisa ejemplos antes de convertir precios" },
+      { "image": "config-iva-examples.jpg", "caption": "Pulsa Ver más ejemplos antes de escribir IVA" },
+      { "image": "config-folio-reset.jpg", "caption": "Resetear folios renombra históricos y reinicia el consecutivo" },
+      { "image": "catalog-product-form.jpg", "caption": "Valida base, IVA y precio final en una orden nueva" }
+    ],
+    "data-reprint-delete": [
+      { "image": "data-overview.jpg", "caption": "En Datos, busca por ID, UID, mesa, producto o fechas" },
+      { "image": "data-sale-detail.jpg", "caption": "Abre Ver cuenta y confirma productos, pago e importes" },
+      { "image": "data-overview.jpg", "caption": "Usa Reimprimir o Imprimir postpago en la fila correcta" },
+      { "image": "data-postpaid-pending.jpg", "caption": "Filtra, imprime u omite postpagos pendientes" },
+      { "image": "data-delete-sale.jpg", "caption": "Borra solo un duplicado confirmado y escribe el folio" }
+    ],
+    "users-permissions": [
+      { "image": "users-overview.jpg", "caption": "Abre Usuarios y comprueba que la persona no exista" },
+      { "image": "users-create.jpg", "caption": "Pulsa Nuevo usuario y captura nombre, usuario y contraseña" },
+      { "image": "users-create.jpg", "caption": "Marca únicamente Mesero, Cocina, Caja o Admin necesarios" },
+      { "image": "login.jpg", "caption": "Cierra sesión y prueba la nueva cuenta" },
+      { "image": "users-overview.jpg", "caption": "Usa Editar, Resetear clave o Más acciones para mantenerla" }
+    ],
+    "kitchen-flow": [
+      { "image": "kitchen-board.jpg", "caption": "En Cocina revisa mesa, hora, piezas, opciones y notas" },
+      { "image": "kitchen-board.jpg", "caption": "En Nuevas pulsa Preparar" },
+      { "image": "kitchen-board.jpg", "caption": "En En preparación pulsa Lista" },
+      { "image": "tables-overview.jpg", "caption": "La entrega se confirma desde Mesas, no desde Cocina" },
+      { "image": "sale-cancel-line.jpg", "caption": "Para una incidencia usa Cancelar producto" }
+    ],
+    "attendance-profile": [
+      { "image": "profile.jpg", "caption": "Abre Mi perfil y confirma nombre y usuario" },
+      { "image": "profile.jpg", "caption": "Pulsa Entrada al comenzar la jornada" },
+      { "image": "profile-clocked-in.jpg", "caption": "Opera siempre con la misma sesión personal" },
+      { "image": "profile-clocked-in.jpg", "caption": "Pulsa Salida al terminar; esto no cierra Caja" },
+      { "image": "users-overview.jpg", "caption": "El administrador puede revisar fichajes incompletos" }
+    ],
+    "backup-update": [
+      { "image": "sale-home.jpg", "caption": "Evita cambios mientras preparas respaldo y actualización" },
+      { "image": "data-export-backup.jpg", "caption": "En Datos pulsa Respaldo JSON" },
+      { "image": "config-general.jpg", "caption": "Actualizar aparece en la cabecera solo si hay una versión nueva" },
+      { "image": "login.jpg", "caption": "Al terminar, cierra y vuelve a abrir LibrePOS" },
+      { "image": "data-overview.jpg", "caption": "Verifica versión, ventas, inventario e impresión" }
+    ]
+  }
+}

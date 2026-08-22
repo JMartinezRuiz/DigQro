@@ -9,6 +9,18 @@ const bocolesWithCecina = {
   ivaRate: 0.16,
 };
 
+test("muestra $76.00 en la linea cuando la base es $65.52 y el IVA es $10.48", () => {
+  const result = receiptItemPriceBreakdown({
+    grossTotal: 76,
+    qty: 1,
+    ivaRate: 0.16,
+    priceMode: "gross",
+  });
+
+  assert.equal(result.productDisplayTotal, 76);
+  assert.equal(result.productGrossTotal, 76);
+});
+
 test("separa Bocoles mixtos y extra con IVA incluido", () => {
   const result = receiptItemPriceBreakdown({ ...bocolesWithCecina, priceMode: "gross" });
   assert.equal(result.productDisplayTotal, 165);

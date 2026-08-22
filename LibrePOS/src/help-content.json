@@ -1,0 +1,633 @@
+{
+  "contentVersion": "2026.08.2",
+  "interfaceVersion": "0.5.0",
+  "categories": [
+    { "id": "all", "label": "Todas", "icon": "book" },
+    { "id": "sale", "label": "Venta y mesas", "icon": "sale" },
+    { "id": "checkout", "label": "Cobro y tickets", "icon": "cash" },
+    { "id": "catalog", "label": "Catálogo", "icon": "note" },
+    { "id": "inventory", "label": "Inventario", "icon": "inventory" },
+    { "id": "printing", "label": "Impresión", "icon": "print" },
+    { "id": "control", "label": "Datos y control", "icon": "data" }
+  ],
+  "articles": [
+    {
+      "id": "create-product",
+      "category": "catalog",
+      "title": "Cómo crear un platillo o bebida",
+      "summary": "Da de alta un producto vendible con precio base, IVA y receta obligatoria.",
+      "audience": ["Administrador"],
+      "duration": "4 min",
+      "prerequisites": [
+        "Tener función de administrador.",
+        "Haber creado previamente los insumos que forman la receta.",
+        "Confirmar si el IVA está activo y cuál es su porcentaje."
+      ],
+      "steps": [
+        { "title": "Entra a Catálogo", "detail": "Abre Catálogo y deja seleccionada la pestaña Platillos y bebidas.", "impact": "Esta pestaña contiene productos que sí aparecen en Venta." },
+        { "title": "Elige Crear", "detail": "Pulsa Crear y selecciona Platillo o bebida. No elijas Extra ni Insumo: tienen efectos distintos.", "impact": "Se abrirá el formulario de producto independiente." },
+        { "title": "Completa los datos de venta", "detail": "Captura nombre, descripción, categoría, subcategoría y tipo visual. Mantén Disponible en Venta activado si debe venderse inmediatamente.", "impact": "Categoría y subcategoría determinan dónde lo encontrará el personal." },
+        { "title": "Captura el precio base", "detail": "Escribe el precio antes de IVA. Revisa los tres valores: base, IVA y precio final al cliente.", "impact": "El precio final será base más IVA cuando el impuesto esté activo." },
+        { "title": "Define la receta", "detail": "Selecciona al menos un insumo e indica la cantidad consumida por cada unidad vendida.", "impact": "La receta descuenta inventario cuando el producto se comanda, no cuando solo se agrega al ticket." },
+        { "title": "Añade variantes solo si aplican", "detail": "Usa Variantes de receta cuando una elección cambia los insumos, por ejemplo carne, pollo o queso.", "impact": "Cada variante puede tener consumo y margen diferentes." },
+        { "title": "Guarda y verifica", "detail": "Pulsa Crear platillo o bebida y comprueba que aparezca en la categoría esperada de Venta.", "impact": "Las líneas ya agregadas no cambian; el nuevo producto queda disponible para añadirlo desde Venta." }
+      ],
+      "impacts": [
+        "Aparece como producto independiente en Venta.",
+        "Su receta afecta inventario al comandar.",
+        "El IVA se calcula aparte a partir del precio base.",
+        "El costo y margen dependen del costo vigente de sus insumos."
+      ],
+      "caution": "No uses un Extra como sustituto de un platillo. Un extra es un complemento global y no se vende como producto principal.",
+      "expected": "El producto aparece en Venta, muestra su precio final y descuenta la receta correcta al comandarlo.",
+      "related": ["create-ingredient", "create-extra", "edit-product-price", "configure-product"],
+      "tags": ["nuevo platillo", "bebida", "receta", "precio", "IVA", "catálogo", "producto"],
+      "visualSteps": [
+        { "label": "Abre Catálogo", "focus": "Catálogo · Platillos y bebidas", "action": "Ubica los productos que se venden directamente." },
+        { "label": "Pulsa Crear", "focus": "Crear → Platillo o bebida", "action": "Elige el tipo correcto de alta." },
+        { "label": "Datos y precio", "focus": "Nombre · Categoría · Base + IVA", "action": "Revisa el precio final antes de continuar." },
+        { "label": "Receta obligatoria", "focus": "Insumo + cantidad por unidad", "action": "Define el consumo real del producto." },
+        { "label": "Guardar", "focus": "Crear platillo o bebida", "action": "Comprueba después su ubicación en Venta." }
+      ]
+    },
+    {
+      "id": "create-extra",
+      "category": "catalog",
+      "title": "Cómo crear un extra",
+      "summary": "Crea un complemento global con precio propio y descuento estimado de inventario.",
+      "audience": ["Administrador"],
+      "duration": "3 min",
+      "prerequisites": [
+        "Tener función de administrador.",
+        "El insumo relacionado debe existir y estar habilitado para recetas.",
+        "Conocer la cantidad real que se entrega por cada extra."
+      ],
+      "steps": [
+        { "title": "Abre el alta correcta", "detail": "En Catálogo pulsa Crear y selecciona Extra.", "impact": "El extra será un complemento disponible para todos los platillos." },
+        { "title": "Nombra el extra", "detail": "Usa un nombre reconocible para venta y ticket, por ejemplo Extra cecina.", "impact": "El personal verá este texto en el selector de Extras y en la cuenta." },
+        { "title": "Selecciona el insumo", "detail": "Elige el insumo consumido. La unidad mostrada procede del inventario y no debe cambiarse desde el extra.", "impact": "Vincula el complemento con el inventario correcto." },
+        { "title": "Indica la cantidad", "detail": "Captura gramaje o cantidad consumida por una venta del extra, respetando la unidad mostrada.", "impact": "Cada comanda descontará esta cantidad como consumo estimado." },
+        { "title": "Captura precio base", "detail": "Escribe el precio antes de IVA y revisa la vista previa base, IVA y final.", "impact": "El IVA del extra se incorpora al total de la orden, pero no a la propina." },
+        { "title": "Guarda y prueba", "detail": "Crea el extra, abre un producto en Venta y confirma que aparezca en el apartado Extras.", "impact": "No se crea un botón de producto independiente." }
+      ],
+      "impacts": [
+        "Queda disponible globalmente para los platillos.",
+        "Aumenta el precio de la línea y el IVA correspondiente.",
+        "Descuenta inventario de forma estimada al comandar.",
+        "Se desglosa como extra en el ticket."
+      ],
+      "caution": "Una cantidad mal capturada provoca diferencias de inventario. Comprueba si la unidad es KG, KILO, GR, LITRO, ML o PZ antes de guardar.",
+      "expected": "El extra aparece al configurar un platillo, muestra el precio correcto y consume el insumo vinculado.",
+      "related": ["create-ingredient", "configure-product", "full-inventory-count", "edit-product-price"],
+      "tags": ["extra", "complemento", "gramaje", "inventario", "precio", "IVA"],
+      "visualSteps": [
+        { "label": "Elige Extra", "focus": "Catálogo → Crear → Extra", "action": "No lo confundas con un platillo." },
+        { "label": "Nombre visible", "focus": "Nombre del extra", "action": "Usa el texto que deberá aparecer en la cuenta." },
+        { "label": "Vincula inventario", "focus": "Insumo que consume", "action": "Comprueba la unidad antes de capturar cantidad." },
+        { "label": "Cantidad y precio", "focus": "Consumo · Base · IVA · Final", "action": "Revisa el impacto completo de una venta." },
+        { "label": "Verifica en Venta", "focus": "Configurar producto → Extras", "action": "Confirma que sea seleccionable y esté bien desglosado." }
+      ]
+    },
+    {
+      "id": "create-ingredient",
+      "category": "catalog",
+      "title": "Cómo crear un insumo",
+      "summary": "Registra una materia prima o artículo interno para inventario, recetas y costos.",
+      "audience": ["Administrador"],
+      "duration": "3 min",
+      "prerequisites": ["Tener función de administrador.", "Conocer la unidad de control y el costo por esa unidad."],
+      "steps": [
+        { "title": "Abre Crear insumo", "detail": "En Catálogo pulsa Crear y selecciona Insumo.", "impact": "El insumo no aparecerá como producto en Venta." },
+        { "title": "Identifica el insumo", "detail": "Captura un nombre único y una categoría coherente.", "impact": "La categoría ayuda a encontrarlo y puede determinar si es apto para recetas." },
+        { "title": "Decide su uso", "detail": "Activa Se puede seleccionar en recetas y extras solo cuando sea una materia consumible.", "impact": "Equipo, limpieza o papelería normalmente deben quedar fuera de recetas." },
+        { "title": "Define unidad y proveedor", "detail": "Usa la misma unidad con la que contarás y comprarás: KG, LITRO, PZ u otra.", "impact": "Las recetas y movimientos utilizarán esta unidad." },
+        { "title": "Captura costo vigente", "detail": "Introduce el costo por unidad y documenta el motivo si estás editando un costo anterior.", "impact": "Actualiza el costo estimado y margen de los platillos relacionados." },
+        { "title": "Guarda", "detail": "Pulsa Crear insumo y localízalo en su categoría.", "impact": "La cantidad inicial se controla posteriormente desde Inventario." }
+      ],
+      "impacts": ["No se vende directamente.", "Puede formar parte de recetas y extras.", "Su costo afecta márgenes.", "Su unidad gobierna compras, mermas y conteos."],
+      "caution": "No cambies la unidad de un insumo que ya tiene movimientos sin revisar recetas, existencias y cantidades históricas.",
+      "expected": "El insumo queda disponible en Inventario y, si se habilitó, en los selectores de recetas y extras.",
+      "related": ["create-product", "create-extra", "inventory-purchase", "inventory-waste"],
+      "tags": ["insumo", "ingrediente", "unidad", "proveedor", "costo", "receta"],
+      "visualSteps": [
+        { "label": "Elige Insumo", "focus": "Catálogo → Crear → Insumo", "action": "Recuerda: es de uso interno." },
+        { "label": "Identificación", "focus": "Nombre · Categoría", "action": "Evita nombres duplicados o ambiguos." },
+        { "label": "Uso en recetas", "focus": "Se puede seleccionar en recetas y extras", "action": "Actívalo solo para consumibles." },
+        { "label": "Unidad y costo", "focus": "Proveedor · Unidad · Costo vigente", "action": "Usa la unidad con la que contarás físicamente." },
+        { "label": "Guardar", "focus": "Crear insumo", "action": "Después registra sus existencias en Inventario." }
+      ]
+    },
+    {
+      "id": "edit-product-price",
+      "category": "catalog",
+      "title": "Cómo modificar precios y entender el IVA",
+      "summary": "Actualiza el precio base de un platillo o extra sin alterar ventas ya cerradas.",
+      "audience": ["Administrador"],
+      "duration": "3 min",
+      "prerequisites": ["Tener función de administrador.", "Confirmar el porcentaje de IVA activo."],
+      "steps": [
+        { "title": "Busca el elemento", "detail": "En Catálogo entra a Platillos y bebidas o Extras y usa el buscador.", "impact": "Editarás el registro seleccionado, no crearás uno nuevo." },
+        { "title": "Abre Editar", "detail": "Comprueba nombre y tipo antes de cambiar el precio.", "impact": "Evita modificar un extra cuando querías modificar el platillo." },
+        { "title": "Cambia la base", "detail": "Captura el importe antes de IVA en Precio base sin IVA.", "impact": "LibrePOS recalcula IVA y precio final de inmediato." },
+        { "title": "Revisa el total", "detail": "Valida Base sin IVA, IVA y Precio final antes de guardar.", "impact": "Ese precio final será el visible para nuevas líneas de venta." },
+        { "title": "Guarda", "detail": "Pulsa Guardar cambios y agrega una línea nueva de prueba en Venta.", "impact": "Las líneas ya agregadas y las ventas cerradas conservan su importe; las líneas nuevas usan el nuevo precio." }
+      ],
+      "impacts": ["Afecta nuevas ventas, no ventas históricas.", "Mantiene base e IVA separados para análisis.", "Registra historial de precio cuando corresponde.", "Puede cambiar margen sin cambiar la receta."],
+      "caution": "No captures como base el precio final que deseas cobrar si el IVA está activo; el impuesto se sumará nuevamente.",
+      "expected": "Una línea nueva muestra el precio final calculado y Datos conserva intactos los importes antiguos.",
+      "related": ["create-product", "create-extra", "iva-settings", "checkout-discounts-tips"],
+      "tags": ["editar precio", "precio base", "precio final", "IVA", "historial"],
+      "visualSteps": [
+        { "label": "Busca", "focus": "Catálogo · Buscar", "action": "Selecciona primero el tipo correcto." },
+        { "label": "Edita", "focus": "Editar platillo o extra", "action": "Verifica el nombre antes de cambiar importes." },
+        { "label": "Captura base", "focus": "Precio base sin IVA", "action": "No introduzcas el total final." },
+        { "label": "Revisa desglose", "focus": "Base + IVA = Precio final", "action": "Confirma el total que pagará el cliente." },
+        { "label": "Prueba", "focus": "Guardar → orden nueva", "action": "Los históricos permanecen sin cambios." }
+      ]
+    },
+    {
+      "id": "open-order",
+      "category": "sale",
+      "title": "Cómo abrir una mesa o pedido para llevar",
+      "summary": "Inicia correctamente una orden, asigna responsable y agrega los primeros productos.",
+      "audience": ["Mesero", "Caja", "Administrador"],
+      "duration": "3 min",
+      "prerequisites": ["La caja debe estar abierta.", "El usuario debe tener acceso a Venta.", "La mesa no debe estar ocupada por otra orden."],
+      "steps": [
+        { "title": "Abre Venta o Mesas", "detail": "Usa Nueva mesa para servicio en salón o Para llevar para un pedido sin mesa.", "impact": "El tipo elegido se conserva en Datos y en el ticket." },
+        { "title": "Captura los datos", "detail": "En mesa indica Número de mesa, Comensales, Mesero y comentarios opcionales. En Para llevar captura Cliente si aplica y elige Responsable.", "impact": "Facilita identificar la orden durante cocina y cobro; si Cliente queda vacío se mostrará Mostrador." },
+        { "title": "Confirma la apertura", "detail": "Revisa que no exista otra mesa con el mismo número antes de continuar.", "impact": "Se crea un folio consecutivo para la orden." },
+        { "title": "Agrega productos", "detail": "Busca por categoría o nombre y configura las opciones necesarias.", "impact": "Los productos quedan pendientes; todavía no descuentan inventario." },
+        { "title": "Revisa el ticket", "detail": "Comprueba cantidades, notas, extras y precio antes de comandar.", "impact": "Mientras estén pendientes puedes corregir cantidad o quitar líneas sin registrar cancelación." }
+      ],
+      "impacts": ["Crea una orden con folio.", "No descuenta inventario hasta comandar.", "Asigna responsabilidad al mesero seleccionado.", "La caja cerrada bloquea nuevas órdenes."],
+      "caution": "No abras una segunda orden para corregir una mesa existente; entra a la mesa abierta y edita sus productos pendientes.",
+      "expected": "La mesa o pedido aparece abierto, identificado y listo para recibir productos.",
+      "related": ["configure-product", "command-order", "cancel-item-order", "checkout-discounts-tips"],
+      "tags": ["abrir mesa", "para llevar", "nueva orden", "folio", "mesero", "comensales"],
+      "visualSteps": [
+        { "label": "Elige servicio", "focus": "Nueva mesa · Para llevar", "action": "La caja debe estar abierta." },
+        { "label": "Identifica", "focus": "Mesa y comensales · Cliente y responsable", "action": "Usa los campos que corresponden al tipo de servicio." },
+        { "label": "Agrega productos", "focus": "Menú · Categorías · Buscar", "action": "Configura cada producto antes de añadirlo." },
+        { "label": "Revisa", "focus": "Ticket · Cantidad · Notas", "action": "Corrige líneas pendientes antes de comandar." }
+      ]
+    },
+    {
+      "id": "configure-product",
+      "category": "sale",
+      "title": "Cómo configurar mixtos, variantes, extras y notas",
+      "summary": "Personaliza una línea de venta sin perder el desglose de precio ni consumo.",
+      "audience": ["Mesero", "Caja", "Administrador"],
+      "duration": "4 min",
+      "prerequisites": ["Tener una orden abierta.", "El producto debe tener opciones o permitir extras."],
+      "steps": [
+        { "title": "Selecciona el producto", "detail": "Pulsa el producto en Venta. Si requiere configuración, LibrePOS abre sus opciones antes de añadirlo.", "impact": "Todavía no se crea la línea hasta confirmar." },
+        { "title": "Elige variante", "detail": "Selecciona tamaño, relleno, preparación u otras opciones obligatorias.", "impact": "La variante puede cambiar precio, receta y margen." },
+        { "title": "Configura mixto", "detail": "Cuando esté permitido, reparte las partes y elige la opción de cada una.", "impact": "El ticket y la comanda conservan el desglose de cada parte." },
+        { "title": "Añade extras", "detail": "Marca los extras solicitados y revisa el incremento de precio.", "impact": "Cada extra añade precio, IVA y consumo estimado de su insumo." },
+        { "title": "Escribe una nota", "detail": "Usa la nota para instrucciones que no cambian precio, como sin cebolla.", "impact": "La nota llega a la comanda; no modifica automáticamente receta ni inventario." },
+        { "title": "Confirma y revisa", "detail": "Añade la línea y comprueba opciones, extras, cantidad y total en el ticket.", "impact": "Puedes corregirla mientras esté pendiente." }
+      ],
+      "impacts": ["Variantes y mixtos pueden cambiar receta.", "Extras aumentan precio y consumo.", "Notas informan a cocina pero no cambian inventario.", "El desglose se conserva en tickets y Datos."],
+      "caution": "No uses una nota para sustituir un extra con precio o una variante que cambia receta; se perdería el impacto económico y de inventario.",
+      "expected": "La línea muestra claramente mixto, opciones, extras y nota antes de enviarse a cocina.",
+      "related": ["open-order", "create-extra", "command-order", "cancel-item-order"],
+      "tags": ["mixto", "variante", "extra", "nota", "configurar producto", "opciones"],
+      "visualSteps": [
+        { "label": "Abre producto", "focus": "Producto con opciones", "action": "La configuración aparece antes de añadir." },
+        { "label": "Variante o mixto", "focus": "Opciones obligatorias · Partes", "action": "Revisa cada selección." },
+        { "label": "Extras", "focus": "Extras + precio", "action": "Comprueba el incremento y el insumo asociado." },
+        { "label": "Nota", "focus": "Nota para cocina", "action": "Úsala solo para instrucciones sin precio." },
+        { "label": "Confirma", "focus": "Añadir al ticket", "action": "Valida el desglose antes de comandar." }
+      ]
+    },
+    {
+      "id": "command-order",
+      "category": "sale",
+      "title": "Cómo comandar: digital o digital + impresa",
+      "summary": "Envía productos pendientes a cocina y entiende cuándo se descuenta inventario.",
+      "audience": ["Mesero", "Caja", "Administrador"],
+      "duration": "3 min",
+      "prerequisites": ["La caja debe estar abierta.", "La orden debe tener al menos una línea pendiente."],
+      "steps": [
+        { "title": "Revisa pendientes", "detail": "Confirma cantidades, variantes, extras y notas antes de pulsar Comandar.", "impact": "Después de comandar, la línea deja de ser una edición libre." },
+        { "title": "Pulsa Comandar", "detail": "El modal muestra cuántas líneas se enviarán.", "impact": "Solo se envían productos pendientes; no se duplican los ya comandados." },
+        { "title": "Elige el modo", "detail": "Digital actualiza Cocina. Digital + impresa hace lo mismo y además solicita una comanda a la impresora configurada.", "impact": "Ambos modos registran la misma comanda digital." },
+        { "title": "Comprueba Cocina", "detail": "Verifica que aparezcan la mesa o pedido, hora, piezas, opciones y notas correctas.", "impact": "En Cocina avanza de Nuevas a En preparación y después a Listas para entregar; la entrega se confirma desde Mesas." },
+        { "title": "Confirma inventario", "detail": "El consumo de receta y extras se descuenta al comandar.", "impact": "Una cancelación posterior debe reponer el consumo correspondiente." }
+      ],
+      "impacts": ["Crea un lote de comanda con fecha y usuario.", "Descuenta receta y extras del inventario.", "Digital + impresa depende de la impresora de comandas.", "Una falla de impresión no debe borrar la comanda digital."],
+      "caution": "No pulses nuevamente para compensar una impresión fallida: podrías enviar productos nuevos pendientes. Revisa Cocina y la configuración de impresión.",
+      "expected": "La comanda aparece en Cocina una sola vez y, si se eligió, también sale impresa.",
+      "related": ["configure-product", "printer-setup", "cancel-item-order", "inventory-waste"],
+      "tags": ["comandar", "comanda", "digital", "impresa", "cocina", "inventario"],
+      "visualSteps": [
+        { "label": "Revisa ticket", "focus": "Por comandar", "action": "Corrige todo antes del envío." },
+        { "label": "Abre Comandar", "focus": "Comandar · líneas pendientes", "action": "Solo se enviará lo pendiente." },
+        { "label": "Elige modo", "focus": "Digital + impresa · Digital", "action": "Los dos modos actualizan Cocina." },
+        { "label": "Verifica", "focus": "Cocina · Mesa · Hora · Piezas", "action": "Confirma una sola comanda digital." },
+        { "label": "Impacto", "focus": "Inventario descontado", "action": "Receta y extras se consumen en este momento." }
+      ]
+    },
+    {
+      "id": "cancel-item-order",
+      "category": "sale",
+      "title": "Cómo quitar productos o cancelar una cuenta",
+      "summary": "Distingue entre corregir una línea pendiente, cancelar un producto comandado y cancelar la orden completa.",
+      "audience": ["Mesero", "Caja", "Administrador"],
+      "duration": "5 min",
+      "prerequisites": ["Identificar si el producto está pendiente o ya fue comandado.", "Tener un motivo real para cualquier cancelación registrada."],
+      "steps": [
+        { "title": "Revisa el estado", "detail": "Pendiente significa que aún no llegó a cocina. Comandado, en preparación o listo ya forma parte del flujo operativo.", "impact": "El estado determina si basta con quitar o si debe registrarse una cancelación." },
+        { "title": "Quita una línea pendiente", "detail": "Usa el icono de papelera mientras la línea esté pendiente.", "impact": "No genera incidencia ni repone inventario porque todavía no se descontó." },
+        { "title": "Cancela una línea comandada", "detail": "Usa Cancelar cuando esté disponible, captura la cantidad y añade una Nota opcional cuando ayude a explicar la incidencia.", "impact": "Queda registro en Datos y se repone el inventario de la cantidad cancelada cuando corresponde." },
+        { "title": "Cancela la cuenta completa", "detail": "Pulsa Finalizar, elige Cancelar mesa u orden y documenta el motivo.", "impact": "La orden se cierra sin cobro y aparece como Cancelada en Datos." },
+        { "title": "Verifica el resultado", "detail": "Busca el folio en Datos y revisa el movimiento de inventario si había productos comandados.", "impact": "La trazabilidad protege caja, inventario y análisis de incidencias." }
+      ],
+      "impacts": ["Las líneas pendientes se eliminan sin incidencia.", "Las comandadas generan trazabilidad de cancelación.", "Las recetas comandadas se reponen al cancelar.", "Cancelar una cuenta no crea una venta ni un cobro."],
+      "caution": "No borres una venta cobrada para representar una cancelación operativa. El borrado definitivo está reservado para duplicados y tiene otro impacto.",
+      "expected": "La orden queda corregida o cancelada una sola vez, con inventario y Datos coherentes.",
+      "related": ["command-order", "data-reprint-delete", "full-inventory-count", "open-order"],
+      "tags": ["cancelar cuenta", "cancelar mesa", "cancelar producto", "quitar línea", "reponer inventario", "incidencia"],
+      "visualSteps": [
+        { "label": "Mira el estado", "focus": "Pendiente · Comandado · Preparando", "action": "El estado define la acción correcta." },
+        { "label": "Pendiente", "focus": "Papelera", "action": "Quita sin incidencia porque no hubo consumo." },
+        { "label": "Comandado", "focus": "Cancelar · Cantidad · Nota", "action": "Registra motivo y repone inventario." },
+        { "label": "Cuenta completa", "focus": "Finalizar → Cancelar mesa/orden", "action": "Se cierra sin cobro." },
+        { "label": "Comprueba", "focus": "Datos · Folio · Cancelada", "action": "Valida también los movimientos de inventario." }
+      ]
+    },
+    {
+      "id": "checkout-discounts-tips",
+      "category": "checkout",
+      "title": "Cómo cobrar, aplicar descuentos y registrar propina",
+      "summary": "Cierra una cuenta con el importe, método de pago, descuento y propina correctos.",
+      "audience": ["Caja", "Mesero", "Administrador"],
+      "duration": "5 min",
+      "prerequisites": ["La caja debe estar abierta.", "La orden debe contener productos.", "Revisar si quedan piezas sin comandar."],
+      "steps": [
+        { "title": "Abre Finalizar", "detail": "Revisa el total y cualquier aviso de productos sin comandar.", "impact": "Cerrar convierte la orden en una venta cobrada." },
+        { "title": "Selecciona descuento", "detail": "Elige Sin descuento, fidelidad 10/15/20% o descuento locatario 10%.", "impact": "El descuento reduce consumo e IVA de forma proporcional y queda registrado en Datos y ticket." },
+        { "title": "Elige método de pago", "detail": "Selecciona Efectivo o Tarjeta. En efectivo captura el importe recibido y comprueba el cambio.", "impact": "El método alimenta el corte de caja." },
+        { "title": "Registra propina", "detail": "Elige sin propina, fija o porcentaje y su método de pago.", "impact": "La propina se suma después del consumo y no genera IVA." },
+        { "title": "Confirma", "detail": "Revisa total, efectivo recibido, cambio y propina antes de Confirmar y cerrar.", "impact": "La mesa se libera y la venta queda cerrada." },
+        { "title": "Verifica ticket postpago", "detail": "Confirma la impresión o revisa el aviso pendiente en Datos.", "impact": "El postpago incluye la propina registrada." }
+      ],
+      "impacts": ["Genera una venta y libera la mesa.", "Descuento e IVA quedan desglosados.", "La propina no forma parte de la base de IVA.", "Efectivo, tarjeta y cambio impactan el corte."],
+      "caution": "No cierres la cuenta con un método o propina provisional. Después del corte de caja algunas correcciones dejan de estar disponibles.",
+      "expected": "Datos, ticket y corte muestran los mismos importes, con consumo, descuento, IVA y propina separados.",
+      "related": ["prepaid-postpaid", "cash-daily", "data-reprint-delete", "open-order"],
+      "tags": ["cobrar", "cerrar mesa", "descuento", "fidelidad", "locatario", "propina", "efectivo", "tarjeta"],
+      "visualSteps": [
+        { "label": "Finaliza", "focus": "Finalizar · Total a cobrar", "action": "Atiende avisos antes de cerrar." },
+        { "label": "Descuento", "focus": "Fidelidad · Locatario", "action": "Revisa consumo e IVA recalculados." },
+        { "label": "Pago", "focus": "Efectivo · Tarjeta · Cambio", "action": "Este dato alimenta el corte." },
+        { "label": "Propina", "focus": "Fija · Porcentaje · Método", "action": "La propina no lleva IVA." },
+        { "label": "Confirma", "focus": "Confirmar y cerrar", "action": "La venta queda cerrada y la mesa libre." }
+      ]
+    },
+    {
+      "id": "prepaid-postpaid",
+      "category": "checkout",
+      "title": "Cuándo imprimir ticket prepago y postpago",
+      "summary": "Entrega la cuenta adecuada antes o después del cobro y reimprímela cuando sea necesario.",
+      "audience": ["Mesero", "Caja", "Administrador"],
+      "duration": "4 min",
+      "prerequisites": ["Tener una impresora de tickets seleccionada.", "La orden debe contener productos."],
+      "steps": [
+        { "title": "Usa prepago antes de cobrar", "detail": "Desde la mesa pulsa Imprimir ticket cuando el cliente solicita la cuenta.", "impact": "Por defecto, cada producto y extra muestra su precio final con IVA incluido; el resumen separa subtotal e IVA y no incluye propina futura." },
+        { "title": "No cierres para obtener prepago", "detail": "El prepago puede imprimirse con la orden abierta.", "impact": "La mesa continúa operativa hasta confirmar el pago." },
+        { "title": "Cobra la cuenta", "detail": "Registra método, descuento y propina y confirma el cierre.", "impact": "Solo entonces existe el postpago definitivo." },
+        { "title": "Imprime postpago desde Datos", "detail": "Después del cobro entra en Datos, filtra Postpago pendiente y pulsa Imprimir postpago en la cuenta correcta.", "impact": "El postpago contiene la propina y los datos finales; si falla, el aviso permanece pendiente." },
+        { "title": "Reimprime desde Datos", "detail": "Busca el folio. Usa Reimprimir en Prepago o Imprimir/Reimprimir postpago según la columna.", "impact": "Reimprimir no crea otra venta ni modifica inventario." },
+        { "title": "Omite avisos conscientemente", "detail": "Si el prepago fue suficiente, quita el aviso postpago individual o por filtro.", "impact": "Solo elimina el aviso; la venta permanece intacta." }
+      ],
+      "impacts": ["Las líneas muestran precios finales con IVA incluido por defecto.", "Prepago: orden abierta y sin propina futura.", "Postpago: venta cerrada con propina final.", "Reimpresión no duplica cobro.", "Omitir aviso no borra la venta."],
+      "caution": "No confundas una reimpresión con un nuevo cobro. Comprueba siempre folio, tipo de ticket y estado de la venta.",
+      "expected": "El cliente recibe el tipo correcto de cuenta y Datos refleja si fue impresa u omitida.",
+      "related": ["checkout-discounts-tips", "printer-setup", "data-reprint-delete", "command-order"],
+      "tags": ["ticket prepago", "ticket postpago", "reimprimir", "propina", "IVA incluido", "aviso pendiente", "cuenta"],
+      "visualSteps": [
+        { "label": "Antes del cobro", "focus": "Mesa → Imprimir ticket", "action": "Genera prepago sin propina futura." },
+        { "label": "Cobra", "focus": "Finalizar → Pago + Propina", "action": "Cierra la venta con datos definitivos." },
+        { "label": "Después del cobro", "focus": "Datos → Postpago pendiente → Imprimir postpago", "action": "Incluye propina y pago final." },
+        { "label": "Reimprime", "focus": "Datos → Prepago/Postpago", "action": "No modifica la venta." },
+        { "label": "Gestiona aviso", "focus": "Postpago pendiente · Omitir", "action": "Quita solo el recordatorio." }
+      ]
+    },
+    {
+      "id": "cash-daily",
+      "category": "checkout",
+      "title": "Cómo abrir y cerrar caja",
+      "summary": "Controla fondo inicial, cobros, gastos, efectivo esperado y diferencia del turno.",
+      "audience": ["Caja", "Administrador"],
+      "duration": "4 min",
+      "prerequisites": ["Tener función de caja o administrador.", "Contar físicamente el fondo inicial y el efectivo final."],
+      "steps": [
+        { "title": "Abre caja", "detail": "En Apertura de caja captura el Fondo inicial real, añade una nota si aplica y pulsa Abrir caja.", "impact": "Habilita nuevas mesas, pedidos y cobros." },
+        { "title": "Opera normalmente", "detail": "Registra ventas con su método correcto y gastos en el flujo correspondiente.", "impact": "Efectivo, tarjeta, propinas y gastos alimentan el esperado." },
+        { "title": "Revisa antes del corte", "detail": "Confirma ventas, descuentos, IVA, compras y gastos, y cierra o cancela todas las órdenes abiertas.", "impact": "Cerrar caja y finalizar turno permanece deshabilitado mientras existan órdenes abiertas." },
+        { "title": "Cuenta efectivo", "detail": "Captura el efectivo físico sin ajustar el número para forzar una diferencia cero.", "impact": "LibrePOS compara contado contra esperado." },
+        { "title": "Documenta y cierra", "detail": "Si existe diferencia, escribe una nota clara y confirma el cierre.", "impact": "Después del corte algunas correcciones de propina quedan bloqueadas." }
+      ],
+      "impacts": ["La caja abierta habilita operación.", "Compras registradas pueden reducir efectivo esperado.", "Propinas se separan por método.", "El cierre conserva contado, esperado y diferencia."],
+      "caution": "No cambies movimientos reales para ocultar una diferencia. Registra la nota y revisa la causa con Datos e Inventario.",
+      "expected": "El corte refleja fielmente operación, efectivo contado y cualquier diferencia documentada.",
+      "related": ["checkout-discounts-tips", "inventory-purchase", "data-reprint-delete", "open-order"],
+      "tags": ["abrir caja", "cerrar caja", "corte", "fondo", "efectivo esperado", "diferencia"],
+      "visualSteps": [
+        { "label": "Fondo inicial", "focus": "Caja → Apertura", "action": "Captura el efectivo físico real." },
+        { "label": "Opera", "focus": "Ventas · Gastos · Compras", "action": "Clasifica correctamente cada movimiento." },
+        { "label": "Revisa", "focus": "Efectivo · Tarjeta · Propinas", "action": "Valida antes del corte." },
+        { "label": "Cuenta", "focus": "Efectivo contado", "action": "No fuerces una diferencia cero." },
+        { "label": "Cierra", "focus": "Diferencia · Nota · Cerrar caja", "action": "Documenta cualquier desviación." }
+      ]
+    },
+    {
+      "id": "inventory-purchase",
+      "category": "inventory",
+      "title": "Cómo registrar una compra de inventario",
+      "summary": "Suma existencias, actualiza costo y registra el efecto de caja de una compra.",
+      "audience": ["Administrador"],
+      "duration": "4 min",
+      "prerequisites": ["El insumo debe existir en Catálogo.", "Tener cantidad y costo total del ticket de compra."],
+      "steps": [
+        { "title": "Abre Inventario", "detail": "En Movimiento de inventario selecciona el Insumo comprado.", "impact": "La compra se vincula con un solo insumo por registro." },
+        { "title": "Captura cantidad", "detail": "Introduce la Cantidad comprada en la unidad del insumo.", "impact": "Se suma a la existencia actual." },
+        { "title": "Captura costo", "detail": "En Coste del ticket registra el importe total correspondiente a esa cantidad.", "impact": "LibrePOS calcula y actualiza el costo unitario vigente." },
+        { "title": "Añade referencia", "detail": "Documenta Proveedor y Ticket / nota para facilitar una revisión posterior.", "impact": "La trazabilidad aparece en movimientos y gastos." },
+        { "title": "Confirma", "detail": "Pulsa Subir ticket y revisa nueva cantidad y costo.", "impact": "Con caja abierta, el importe reduce el efectivo esperado." }
+      ],
+      "impacts": ["Aumenta inventario.", "Actualiza costo unitario.", "Crea movimiento y gasto relacionado.", "Puede reducir efectivo esperado del turno."],
+      "caution": "No captures el costo por unidad en el campo de total si el ticket contiene varias unidades; el costo resultante sería incorrecto.",
+      "expected": "La existencia aumenta, el costo vigente coincide con la compra y Caja refleja el gasto cuando aplica.",
+      "related": ["create-ingredient", "inventory-waste", "full-inventory-count", "cash-daily"],
+      "tags": ["compra", "subir ticket", "entrada inventario", "costo unitario", "proveedor", "gasto"],
+      "visualSteps": [
+        { "label": "Selecciona insumo", "focus": "Inventario → Movimiento de inventario", "action": "Comprueba nombre y unidad." },
+        { "label": "Cantidad", "focus": "Cantidad comprada", "action": "Usa la unidad del catálogo." },
+        { "label": "Costo total", "focus": "Coste del ticket", "action": "No confundas total con costo unitario." },
+        { "label": "Referencia", "focus": "Proveedor · Ticket / nota", "action": "Deja evidencia para revisión." },
+        { "label": "Confirma", "focus": "Subir ticket", "action": "Revisa inventario, costo y efecto en caja." }
+      ]
+    },
+    {
+      "id": "inventory-waste",
+      "category": "inventory",
+      "title": "Cómo registrar una merma",
+      "summary": "Descuenta producto perdido sin confundirlo con venta, receta o corrección de conteo.",
+      "audience": ["Administrador"],
+      "duration": "3 min",
+      "prerequisites": ["El insumo debe tener existencia suficiente.", "Conocer cantidad y motivo real de la pérdida."],
+      "steps": [
+        { "title": "Abre Merma", "detail": "En Inventario localiza el panel Merma.", "impact": "Este flujo registra una salida no asociada a venta." },
+        { "title": "Selecciona insumo", "detail": "Comprueba nombre, unidad y existencia antes de continuar.", "impact": "Evita descontar otro insumo con nombre parecido." },
+        { "title": "Captura cantidad", "detail": "Introduce la pérdida en la unidad del inventario.", "impact": "No puede ser mayor que la existencia registrada." },
+        { "title": "Documenta motivo", "detail": "Escribe caducidad, derrame, preparación fallida u otra causa concreta.", "impact": "El motivo permite separar merma de descuadre." },
+        { "title": "Registra y verifica", "detail": "Pulsa Registrar merma y revisa la nueva existencia y el movimiento.", "impact": "Reduce cantidad y valor estimado del inventario." }
+      ],
+      "impacts": ["Reduce existencias.", "Registra movimiento de tipo merma.", "No crea venta ni modifica caja.", "Conserva usuario, fecha y motivo."],
+      "caution": "Si la diferencia se descubrió durante un conteo general, usa Inventario completo; no fabriques una merma si desconoces la causa.",
+      "expected": "El inventario baja exactamente la cantidad perdida y existe un movimiento con motivo verificable.",
+      "related": ["inventory-purchase", "full-inventory-count", "cancel-item-order", "create-ingredient"],
+      "tags": ["merma", "pérdida", "caducidad", "salida inventario", "motivo"],
+      "visualSteps": [
+        { "label": "Abre Merma", "focus": "Inventario → Merma", "action": "Úsala solo para una pérdida conocida." },
+        { "label": "Insumo", "focus": "Nombre · Unidad · Existencia", "action": "Verifica el artículo correcto." },
+        { "label": "Cantidad", "focus": "Cantidad perdida", "action": "No puede superar la existencia." },
+        { "label": "Motivo", "focus": "Motivo obligatorio", "action": "Describe la causa real." },
+        { "label": "Verifica", "focus": "Registrar merma · Movimiento", "action": "Comprueba la nueva existencia." }
+      ]
+    },
+    {
+      "id": "full-inventory-count",
+      "category": "inventory",
+      "title": "Cómo hacer un inventario completo",
+      "summary": "Compara existencias teóricas con conteo físico y aplica diferencias con confirmación.",
+      "audience": ["Administrador"],
+      "duration": "6 min",
+      "prerequisites": ["Detener temporalmente compras, comandas y mermas mientras se cuenta.", "Usar las unidades definidas para cada insumo."],
+      "steps": [
+        { "title": "Prepara el conteo", "detail": "Asegura que no haya movimientos simultáneos y organiza responsables por categoría.", "impact": "Evita que el teórico cambie durante el conteo." },
+        { "title": "Abre Inventario completo", "detail": "Revisa la columna Debe haber de cada insumo.", "impact": "Debe haber procede de compras, comandas, extras, cancelaciones y mermas registradas." },
+        { "title": "Captura solo lo contado", "detail": "Escribe la cantidad física en su unidad. Deja vacío lo que aún no se contó.", "impact": "Vacío no equivale a cero; cero significa que físicamente no existe." },
+        { "title": "Revisa diferencias", "detail": "LibrePOS muestra pérdida o ganancia por insumo y su valor estimado.", "impact": "Los extras pueden producir diferencias por gramajes estimados." },
+        { "title": "Confirma APLICAR", "detail": "Solo después de revisar, pulsa aplicar y escribe la palabra solicitada.", "impact": "Las existencias se reemplazan por el conteo físico." },
+        { "title": "Investiga descuadres", "detail": "Usa movimientos, recetas y mermas para explicar diferencias relevantes.", "impact": "El ajuste corrige existencias, pero no explica por sí solo la causa." }
+      ],
+      "impacts": ["Sustituye existencias teóricas por físicas.", "Registra cada diferencia y su valor.", "Marca consumos estimados de extras.", "No modifica ventas ni caja."],
+      "caution": "Es una operación masiva. No escribas cero en filas no contadas y no la ejecutes mientras otros usuarios generan movimientos.",
+      "expected": "Inventario coincide con el conteo físico y las diferencias quedan registradas para análisis.",
+      "related": ["inventory-purchase", "inventory-waste", "create-extra", "cancel-item-order"],
+      "tags": ["inventario completo", "conteo", "descuadre", "pérdida", "ganancia", "APLICAR"],
+      "visualSteps": [
+        { "label": "Congela movimientos", "focus": "Sin compras ni comandas", "action": "Cuenta sobre una base estable." },
+        { "label": "Captura físico", "focus": "Debe haber · Conteo físico", "action": "Vacío no es lo mismo que cero." },
+        { "label": "Revisa valor", "focus": "Diferencia · Pérdida/Ganancia", "action": "Investiga importes relevantes." },
+        { "label": "Confirma", "focus": "Aplicar · Escribe APLICAR", "action": "Sustituirá existencias teóricas." },
+        { "label": "Analiza", "focus": "Movimientos · Recetas · Extras", "action": "El ajuste no explica la causa por sí solo." }
+      ]
+    },
+    {
+      "id": "printer-setup",
+      "category": "printing",
+      "title": "Cómo configurar y probar impresoras",
+      "summary": "Selecciona impresoras de tickets y comandas, ajusta formato y diagnostica una prueba fallida.",
+      "audience": ["Administrador"],
+      "duration": "6 min",
+      "prerequisites": ["La impresora debe estar instalada en Windows o macOS.", "Bluetooth debe estar vinculado al equipo servidor.", "Realizar la prueba desde el laptop que ejecuta LibrePOS."],
+      "steps": [
+        { "title": "Instala en el sistema", "detail": "Comprueba primero que Windows o macOS pueda imprimir una página de prueba.", "impact": "LibrePOS utiliza las impresoras disponibles en el equipo servidor." },
+        { "title": "Abre Configuración", "detail": "En Impresión entra a Tickets o Comandas según el destino.", "impact": "Cada flujo puede usar una impresora diferente." },
+        { "title": "Selecciona por nombre", "detail": "Elige la impresora detectada o captura Nombre manual y pulsa Seleccionar para tickets o Seleccionar para comandas.", "impact": "La impresora seleccionada queda guardada para ese tipo de impresión." },
+        { "title": "Haz una prueba corta", "detail": "En Tickets empieza por Imprimir solo cabecera o Imprimir ticket de prueba antes de una cuenta completa.", "impact": "Reduce papel desperdiciado durante diagnóstico." },
+        { "title": "Ajusta formato y precios", "detail": "Configura márgenes, logotipo, tamaño y posición. En Precio por producto, IVA incluido es el modo predeterminado.", "impact": "Cada producto y extra muestra su precio final sin una leyenda adicional; el subtotal sin IVA y el IVA permanecen separados al final." },
+        { "title": "Valida comandas", "detail": "Activa impresión automática solo después de una prueba correcta.", "impact": "Digital + impresa y la impresión automática dependen de esta selección." },
+        { "title": "Ante un error", "detail": "Conserva el mensaje completo, verifica conexión y vuelve a probar la impresora desde el sistema operativo.", "impact": "No reinstales LibrePOS ni borres datos para resolver una impresora." }
+      ],
+      "impacts": ["La selección se guarda por tipo de documento.", "La impresión ocurre en el equipo servidor.", "Márgenes, logo y modo de precio solo cambian la salida impresa.", "La comanda digital continúa siendo la referencia operativa."],
+      "caution": "No elimines ni reinstales LibrePOS por una falla de impresión. Primero valida la impresora en Windows/macOS y conserva el error completo.",
+      "expected": "Pruebas, tickets y comandas salen por la impresora elegida con márgenes y contenido legibles.",
+      "related": ["command-order", "prepaid-postpaid", "data-reprint-delete"],
+      "tags": ["impresora", "Windows", "macOS", "Bluetooth", "ticket", "comanda", "margen", "logo", "legacy"],
+      "visualSteps": [
+        { "label": "Prueba del sistema", "focus": "Windows/macOS → Página de prueba", "action": "Debe funcionar antes que LibrePOS." },
+        { "label": "Selecciona destino", "focus": "Config → Impresión → Tickets/Comandas", "action": "Cada tipo tiene su propia selección." },
+        { "label": "Elige impresora", "focus": "Lista detectada · Nombre manual", "action": "Usa el nombre exacto." },
+        { "label": "Prueba corta", "focus": "Cabecera · Test", "action": "Diagnostica sin gastar un ticket completo." },
+        { "label": "Ajusta y activa", "focus": "IVA incluido · Márgenes · Logo · Autoimpresión", "action": "Confirma el precio final y activa automatización tras validar." }
+      ]
+    },
+    {
+      "id": "iva-settings",
+      "category": "control",
+      "title": "Cómo activar, cambiar o iniciar una etapa de IVA",
+      "summary": "Configura el impuesto para órdenes nuevas sin reescribir ventas antiguas.",
+      "audience": ["Administrador"],
+      "duration": "6 min",
+      "prerequisites": ["Definir el porcentaje autorizado.", "Realizar respaldo antes de conversiones o reinicio de folios.", "Cerrar o revisar órdenes abiertas antes del cambio."],
+      "steps": [
+        { "title": "Abre Configuración general", "detail": "En Config pulsa General y localiza Activar IVA y Porcentaje IVA.", "impact": "Los cambios se guardan desde estos controles y solo los heredan las órdenes abiertas después del cambio." },
+        { "title": "Configura porcentaje", "detail": "Activa IVA e introduce el porcentaje, por ejemplo 16%.", "impact": "Ventas antiguas sin IVA guardado permanecen con IVA 0." },
+        { "title": "Decide cómo tratar precios", "detail": "Si los precios actuales deben convertirse en base y el total debe subir, usa la conversión avanzada solo tras revisar ejemplos.", "impact": "La conversión modifica precios de catálogo, incluidos extras; no ventas cerradas." },
+        { "title": "Revisa ejemplos", "detail": "Compara precio actual, IVA y nuevo total en varios productos antes de confirmar.", "impact": "Evita reducir accidentalmente la base o conservar un total incorrecto." },
+        { "title": "Gestiona folios si inicia etapa", "detail": "El reinicio renombra folios anteriores con prefijo A, B u otro y vuelve a iniciar el consecutivo.", "impact": "No borra ventas, inventario ni movimientos históricos." },
+        { "title": "Haz una venta controlada", "detail": "Crea una orden nueva y valida base, IVA, total, ticket y Datos.", "impact": "Confirma el flujo completo antes de operar." }
+      ],
+      "impacts": ["Órdenes nuevas capturan la tasa vigente.", "Órdenes antiguas conservan su IVA histórico.", "La conversión avanzada aumenta precios finales si el actual pasa a ser base.", "El reinicio de folios renombra históricos, no los elimina."],
+      "caution": "No ejecutes la conversión avanzada ni el reinicio de folios sin respaldo y revisión de ejemplos. Son decisiones administrativas de amplio alcance.",
+      "expected": "Las órdenes nuevas muestran el impuesto correcto y el histórico anterior permanece consistente y localizable.",
+      "related": ["edit-product-price", "checkout-discounts-tips", "data-reprint-delete", "create-product"],
+      "tags": ["IVA", "16%", "activar impuesto", "convertir precios", "reiniciar folios", "ventas antiguas"],
+      "visualSteps": [
+        { "label": "Revisa estado", "focus": "Config → General → IVA", "action": "El cambio afecta órdenes nuevas." },
+        { "label": "Tasa", "focus": "Activar IVA · Porcentaje", "action": "Los históricos conservan su tasa." },
+        { "label": "Precios", "focus": "Conversión avanzada · Ejemplos", "action": "Úsala solo si el precio actual será base." },
+        { "label": "Folios", "focus": "Resetear folios · Prefijo histórico", "action": "Renombra, no borra, ventas anteriores." },
+        { "label": "Valida", "focus": "Orden nueva · Ticket · Datos", "action": "Comprueba el flujo completo." }
+      ]
+    },
+    {
+      "id": "data-reprint-delete",
+      "category": "control",
+      "title": "Cómo buscar, reimprimir o borrar una cuenta duplicada",
+      "summary": "Usa Datos para localizar folios, gestionar postpagos y eliminar únicamente duplicados confirmados.",
+      "audience": ["Administrador"],
+      "duration": "6 min",
+      "prerequisites": ["Tener función de administrador.", "Conocer folio, UID, fecha o producto de la cuenta.", "Confirmar que un borrado corresponde realmente a una venta duplicada."],
+      "steps": [
+        { "title": "Busca la orden", "detail": "En Datos usa folio, UID, mesa, pago, producto o rango de fechas.", "impact": "Los filtros también permiten separar abiertas, cobradas, canceladas y tickets pendientes." },
+        { "title": "Abre el detalle", "detail": "Comprueba productos, importes, descuento, IVA, propina, pago y fecha.", "impact": "Evita actuar sobre una cuenta con folio parecido." },
+        { "title": "Reimprime si es necesario", "detail": "Usa la columna prepago o postpago correspondiente.", "impact": "Reimprimir no crea venta, cobro ni consumo adicional." },
+        { "title": "Gestiona postpago pendiente", "detail": "Imprime, reintenta u omite el aviso individualmente o con el filtro actual.", "impact": "Omitir solo quita la advertencia." },
+        { "title": "Borra solo un duplicado", "detail": "En la fila correcta pulsa Borrar cuenta, revisa el resumen y escribe el folio o texto de confirmación solicitado.", "impact": "Elimina definitivamente la cuenta y repone inventario asociado." },
+        { "title": "Comprueba después", "detail": "Repite la búsqueda y revisa movimientos de inventario.", "impact": "El folio eliminado no se reasigna automáticamente." }
+      ],
+      "impacts": ["Búsqueda y reimpresión no cambian datos.", "Omitir postpago solo elimina el aviso.", "Borrar elimina la venta seleccionada.", "El borrado repone inventario y conserva el avance del consecutivo."],
+      "caution": "El borrado es irreversible y solo debe usarse para duplicados comprobados. Para una incidencia operativa usa Cancelar cuenta.",
+      "expected": "La cuenta correcta se localiza y la acción elegida produce exactamente el efecto esperado sin duplicar ventas.",
+      "related": ["prepaid-postpaid", "cancel-item-order", "checkout-discounts-tips", "full-inventory-count"],
+      "tags": ["Datos", "buscar folio", "reimprimir", "postpago pendiente", "borrar cuenta", "duplicado", "reponer inventario"],
+      "visualSteps": [
+        { "label": "Busca", "focus": "Datos · Folio/UID · Fechas", "action": "Usa filtros para reducir errores." },
+        { "label": "Verifica detalle", "focus": "Productos · Total · Pago", "action": "Confirma que sea la cuenta correcta." },
+        { "label": "Reimprime", "focus": "Prepago · Postpago", "action": "No crea otra venta." },
+        { "label": "Gestiona aviso", "focus": "Imprimir · Reintentar · Omitir", "action": "Omitir solo quita la advertencia." },
+        { "label": "Borra duplicado", "focus": "Borrar · Confirmación", "action": "Repone inventario y no reutiliza folio." }
+      ]
+    },
+    {
+      "id": "users-permissions",
+      "category": "control",
+      "title": "Cómo crear usuarios y asignar funciones",
+      "summary": "Da a cada persona solo el acceso necesario para su trabajo.",
+      "audience": ["Administrador"],
+      "duration": "4 min",
+      "prerequisites": ["Tener función de administrador.", "Definir qué tareas realizará la persona."],
+      "steps": [
+        { "title": "Abre Usuarios", "detail": "Revisa la tabla Equipo activo para confirmar que la persona no tenga ya una cuenta.", "impact": "Un usuario debe representar a una sola persona." },
+        { "title": "Crea identidad", "detail": "Pulsa Nuevo usuario y captura Nombre, Usuario y Contraseña inicial.", "impact": "El usuario identifica ventas, comandas, movimientos y fichajes." },
+        { "title": "Asigna funciones", "detail": "Selecciona solo Mesero, Cocina, Caja o Administrador según sus responsabilidades.", "impact": "Las funciones controlan qué secciones y operaciones puede usar." },
+        { "title": "Prueba el acceso", "detail": "Inicia sesión con la cuenta y confirma que vea únicamente lo necesario.", "impact": "Detecta permisos excesivos o faltantes antes de operar." },
+        { "title": "Mantén la cuenta", "detail": "Usa Editar, Resetear clave o Más acciones para desactivar el usuario cuando corresponda.", "impact": "Desactivar conserva historial pero impide nuevos accesos." }
+      ],
+      "impacts": ["Atribuye acciones a una persona.", "Limita acceso por función.", "Desactivar conserva históricos.", "Administrador permite operaciones sensibles."],
+      "caution": "No compartas admin ni asignes Administrador para resolver una falta de acceso puntual. Otorga el mínimo permiso necesario.",
+      "expected": "La persona accede con su propia cuenta y solo puede realizar las tareas autorizadas.",
+      "related": ["cash-daily", "open-order", "command-order", "data-reprint-delete"],
+      "tags": ["usuario", "contraseña", "permisos", "funciones", "mesero", "cocina", "caja", "admin"],
+      "visualSteps": [
+        { "label": "Revisa existentes", "focus": "Usuarios · Equipo activo", "action": "Evita cuentas duplicadas." },
+        { "label": "Crea cuenta", "focus": "Nombre · Usuario · Contraseña", "action": "Usa una identidad por persona." },
+        { "label": "Funciones", "focus": "Mesero · Cocina · Caja · Admin", "action": "Asigna el mínimo acceso necesario." },
+        { "label": "Prueba", "focus": "Cerrar sesión · Entrar", "action": "Confirma secciones y acciones visibles." },
+        { "label": "Mantén", "focus": "Editar · Resetear clave · Más acciones", "action": "Conserva historial y bloquea accesos antiguos." }
+      ]
+    },
+    {
+      "id": "kitchen-flow",
+      "category": "sale",
+      "title": "Cómo gestionar comandas en Cocina",
+      "summary": "Avanza cada comanda de Nuevas a En preparación y Listas para entregar, sin perder opciones ni notas.",
+      "audience": ["Cocina", "Mesero", "Administrador"],
+      "duration": "4 min",
+      "prerequisites": ["La orden debe haberse comandado digitalmente.", "El usuario debe tener función de Cocina."],
+      "steps": [
+        { "title": "Ubica la comanda", "detail": "En Cocina revisa la columna Nuevas y comprueba mesa o pedido, hora, piezas, variantes, extras y notas.", "impact": "La comanda digital es la referencia aunque la impresión haya fallado." },
+        { "title": "Pulsa Preparar", "detail": "Hazlo cuando una persona toma la comanda para elaborarla.", "impact": "La tarjeta pasa de Nuevas a En preparación y comienza a medir ese tiempo." },
+        { "title": "Pulsa Lista", "detail": "Hazlo únicamente cuando todos los productos de esa comanda estén terminados y completos.", "impact": "La tarjeta pasa a Listas para entregar y el personal sabe que puede recogerla." },
+        { "title": "Confirma la entrega desde Mesas", "detail": "Cocina no tiene un botón Entregar. La entrega al cliente se registra desde la mesa u orden correspondiente.", "impact": "Se cierra el recorrido de servicio sin cerrar ni cobrar la cuenta." },
+        { "title": "Gestiona una incidencia", "detail": "Usa el icono Cancelar producto, confirma cantidad y añade una nota cuando ayude a explicar el motivo.", "impact": "Conserva trazabilidad y repone inventario cuando corresponde." }
+      ],
+      "impacts": ["Actualiza el estado visible de cada línea.", "No cobra ni cierra la mesa.", "No vuelve a descontar inventario al cambiar estado.", "Mantiene folio, hora y notas de preparación."],
+      "caution": "No pulses Lista para limpiar el tablero si el producto aún no está completo. La entrega posterior debe confirmarse desde Mesas.",
+      "expected": "Cada comanda avanza de Nuevas a En preparación y Listas para entregar, y la entrega se completa desde Mesas.",
+      "related": ["command-order", "configure-product", "cancel-item-order", "open-order"],
+      "tags": ["cocina", "comanda", "preparación", "listo", "entregado", "folio", "nota"],
+      "visualSteps": [
+        { "label": "Recibe", "focus": "Cocina · Nuevas · Mesa · Hora", "action": "Revisa piezas, opciones y notas." },
+        { "label": "Prepara", "focus": "Preparar", "action": "La comanda pasa a En preparación." },
+        { "label": "Lista", "focus": "Lista", "action": "Confirma que la comanda esté completa." },
+        { "label": "Entrega", "focus": "Mesas · Entregar", "action": "La entrega no se confirma desde Cocina." },
+        { "label": "Incidencia", "focus": "Cancelar producto", "action": "Registra cantidad y motivo cuando aplique." }
+      ]
+    },
+    {
+      "id": "attendance-profile",
+      "category": "control",
+      "title": "Cómo usar Mi perfil y registrar asistencia",
+      "summary": "Registra Entrada o Salida con tu propio usuario y revisa tus registros personales.",
+      "audience": ["Todos"],
+      "duration": "2 min",
+      "prerequisites": ["Entrar con la cuenta personal, no con un usuario compartido."],
+      "steps": [
+        { "title": "Abre Mi perfil", "detail": "Comprueba que nombre y usuario correspondan a la persona que está operando.", "impact": "Las acciones posteriores quedarán atribuidas a esa sesión." },
+        { "title": "Registra Entrada", "detail": "En Mi fichaje pulsa Entrada al comenzar la jornada.", "impact": "Crea un registro con fecha, hora y usuario." },
+        { "title": "Opera con la misma cuenta", "detail": "No intercambies sesión mientras realizas ventas, comandas o movimientos.", "impact": "Mantiene responsabilidad individual." },
+        { "title": "Registra Salida", "detail": "Regresa a Mi perfil y pulsa Salida al finalizar.", "impact": "Cierra la duración del turno; no cierra Caja automáticamente." },
+        { "title": "Revisa incidencias", "detail": "Si olvidaste salir, informa al administrador para revisar el registro.", "impact": "LibrePOS puede cerrar fichajes abandonados, pero debe validarse la hora real." }
+      ],
+      "impacts": ["Registra entrada y salida personal.", "No sustituye apertura o cierre de Caja.", "Vincula acciones con la sesión activa.", "Facilita revisar turnos incompletos."],
+      "caution": "No fiches con admin ni con la cuenta de otra persona. Un usuario compartido elimina la trazabilidad individual.",
+      "expected": "El turno muestra hora de entrada y salida correctas bajo la persona correspondiente.",
+      "related": ["users-permissions", "cash-daily", "open-order", "kitchen-flow"],
+      "tags": ["mi perfil", "fichaje", "entrada", "salida", "turno", "asistencia"],
+      "visualSteps": [
+        { "label": "Identifícate", "focus": "Mi perfil · Nombre de usuario", "action": "Confirma que sea tu cuenta." },
+        { "label": "Entrada", "focus": "Mi fichaje · Entrada", "action": "Registra la hora real de inicio." },
+        { "label": "Opera", "focus": "Misma sesión personal", "action": "No compartas la cuenta durante la jornada." },
+        { "label": "Salida", "focus": "Mi fichaje · Salida", "action": "No cierra Caja automáticamente." },
+        { "label": "Incidencia", "focus": "Turno incompleto", "action": "Solicita revisión al administrador." }
+      ]
+    },
+    {
+      "id": "backup-update",
+      "category": "control",
+      "title": "Cómo respaldar y actualizar LibrePOS",
+      "summary": "Protege ventas e inventario antes de una actualización y comprueba el resultado sin reinstalar.",
+      "audience": ["Administrador"],
+      "duration": "5 min",
+      "prerequisites": ["Usar el equipo servidor.", "No interrumpir ventas durante el respaldo o actualización.", "Tener conexión a Internet solo para actualizar."],
+      "steps": [
+        { "title": "Cierra operación activa", "detail": "Revisa órdenes abiertas y evita que otros usuarios cambien datos durante el proceso.", "impact": "Reduce conflictos entre respaldo y nuevos movimientos." },
+        { "title": "Exporta respaldo", "detail": "Desde Datos descarga Respaldo JSON y guárdalo fuera del equipo servidor.", "impact": "Conserva una copia lógica del estado compartido." },
+        { "title": "Haz copia completa si el cambio es importante", "detail": "Con el servidor detenido, copia la carpeta local de datos a otro disco.", "impact": "Incluye ventas, usuarios, inventario y configuración local." },
+        { "title": "Pulsa Actualizar", "detail": "Solo el administrador verá el botón cuando exista una versión nueva. Espera hasta que termine.", "impact": "Descarga aplicación nueva y conserva la carpeta de datos." },
+        { "title": "Reinicia el servidor", "detail": "Cierra la ventana de LibrePOS y vuelve a abrirla con el acceso normal.", "impact": "Carga también cambios del servidor local." },
+        { "title": "Valida", "detail": "Comprueba versión, login, inventario, últimas ventas, impresoras y un flujo controlado.", "impact": "Detecta problemas antes de reanudar toda la operación." }
+      ],
+      "impacts": ["El respaldo no modifica datos.", "La actualización conserva la carpeta local de operación.", "Reiniciar carga todos los componentes nuevos.", "La validación confirma que el estado anterior sigue disponible."],
+      "caution": "No reinstales ni borres la carpeta de datos para resolver una actualización. Conserva el mensaje de error y utiliza primero la reparación prevista.",
+      "expected": "La versión cambia y ventas, usuarios, inventario, configuración e impresoras siguen disponibles.",
+      "related": ["data-reprint-delete", "printer-setup", "users-permissions", "iva-settings"],
+      "tags": ["respaldo", "backup", "actualizar", "versión", "reinstalar", "conservar datos", "reparar actualización"],
+      "visualSteps": [
+        { "label": "Detén cambios", "focus": "Sin órdenes ni movimientos activos", "action": "Trabaja sobre un estado estable." },
+        { "label": "Respalda", "focus": "Datos → Respaldo JSON", "action": "Guarda una copia fuera del servidor." },
+        { "label": "Actualiza", "focus": "Actualizar · Esperar", "action": "No cierres la ventana durante el proceso." },
+        { "label": "Reinicia", "focus": "Cerrar y abrir LibrePOS", "action": "Carga la aplicación y servidor nuevos." },
+        { "label": "Valida", "focus": "Versión · Ventas · Inventario · Impresión", "action": "Confirma todo antes de operar." }
+      ]
+    }
+  ]
+}

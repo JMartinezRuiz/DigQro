@@ -40,14 +40,20 @@ Detalle:
 |-- sync-store.js
 |-- src/
 |   |-- main.js
+|   |-- help-content.json
+|   |-- catalog-pricing.js
+|   |-- receipt-item-pricing.js
 |   |-- styles.css
 |   `-- vendor/qrcode-generator.js
 |-- scripts/
+|   |-- generate_help_media.py
 |   |-- install.py
 |   |-- start.py
 |   `-- update.js
 |-- assets/
-|   `-- brand.jpg
+|   |-- brand.jpg
+|   `-- help/          # GIFs y posters offline del centro de ayuda
+|       `-- source/    # capturas reales y manifest de recorridos
 |-- docs/
 `-- .librepos/        # generado localmente, no versionar
 ```
@@ -159,14 +165,16 @@ Antes de publicar una actualizacion:
 2. Actualiza `package-lock.json` si corresponde.
 3. Ejecuta `npm install` si cambiaste dependencias.
 4. Ejecuta `npm run build`.
-5. Arranca `npm start` y valida login, caja, mesa, para llevar, comanda, cocina, cobro, exportacion y actualizacion visible.
-6. Sube los cambios al repositorio esperado por el actualizador.
+5. Revisa obligatoriamente el impacto en la ayuda siguiendo [AYUDA.md](AYUDA.md). Actualiza contenido y GIFs o documenta que no requiere cambios.
+6. Arranca `npm start` y valida login, caja, mesa, para llevar, comanda, cocina, cobro, exportacion, soporte y actualizacion visible.
+7. Sube los cambios al repositorio esperado por el actualizador.
 
 ## Pruebas
 
-No hay suite automatizada configurada en `package.json`. La verificacion minima actual es:
+La suite automatizada usa `node:test`:
 
 ```bash
+npm test
 npm run build
 ```
 
@@ -179,3 +187,4 @@ Para cambios de comportamiento, agrega verificacion manual del flujo afectado y 
 - Evita cambios grandes no relacionados con el flujo que estas modificando.
 - Si agregas datos nuevos al estado compartido, actualiza `SHARED_STATE_KEYS`, normalizacion, exportacion y documentacion.
 - Si agregas endpoints, documentalos en `docs/API_LOCAL.md`.
+- Para cualquier cambio, revisa y registra el impacto en la ayuda segun `docs/AYUDA.md`.
