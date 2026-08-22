@@ -187,7 +187,7 @@ En Windows, si el boton queda en `Actualizando` y no termina, cierra LibrePOS, a
 irm https://raw.githubusercontent.com/JMartinezRuiz/DigQro/main/LibrePOS/scripts/repair-update.ps1 | iex
 ```
 
-El reparador descarga el ZIP del ultimo commit, conserva `.librepos/`, escribe el marcador local de version y vuelve a intentar `npm install`.
+El reparador lee la version publica, descarga el ZIP de su etiqueta sin consumir la cuota de la API, conserva `.librepos/`, escribe el marcador local de version y vuelve a intentar `npm install`.
 
 ### El login falla despues de una restauracion manual
 

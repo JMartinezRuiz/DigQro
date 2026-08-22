@@ -7,7 +7,6 @@ $RepoName = "DigQro"
 $Branch = "main"
 $ProjectPath = "LibrePOS"
 $Headers = @{
-  "Accept" = "application/vnd.github+json"
   "User-Agent" = "LibrePOS-Repair-Updater"
 }
 
@@ -31,13 +30,18 @@ function Get-RootPath {
   throw "Ejecuta este reparador desde la carpeta LibrePOS."
 }
 
-function Get-LatestLibrePosCommit {
-  $commitsUrl = "https://api.github.com/repos/$RepoOwner/$RepoName/commits?sha=$Branch&path=$ProjectPath&per_page=1"
-  $commits = Invoke-RestMethod -Uri $commitsUrl -Headers $Headers
-  if (-not $commits -or -not $commits[0].sha) {
+function Get-LatestLibrePosRelease {
+  $cacheKey = [DateTime]::UtcNow.Ticks
+  $packageUrl = "https://raw.githubusercontent.com/$RepoOwner/$RepoName/$Branch/$ProjectPath/package.json?librepos-check=$cacheKey"
+  $package = Invoke-RestMethod -Uri $packageUrl -Headers $Headers
+  $version = [string]$package.version
+  if (-not $version -or $version -notmatch '^\d+(\.\d+)*(-[0-9A-Za-z.-]+)?$') {
     throw "No se pudo leer la version remota en GitHub."
   }
-  return [string]$commits[0].sha
+  return [PSCustomObject]@{
+    Version = $version
+    Ref = "v$version"
+  }
 }
 
 function Copy-DirectoryContents($source, $destination) {
@@ -112,13 +116,19 @@ $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("librepos-repair-" + [S
 New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 
 try {
-  $commitSha = Get-LatestLibrePosCommit
-  Write-Step "Version remota: $($commitSha.Substring(0, 7))"
+  $release = Get-LatestLibrePosRelease
+  Write-Step "Version remota: $($release.Version)"
 
   $zipPath = Join-Path $tempRoot "repo.zip"
-  $zipUrl = "https://codeload.github.com/$RepoOwner/$RepoName/zip/$commitSha"
+  $zipUrl = "https://codeload.github.com/$RepoOwner/$RepoName/zip/refs/tags/$($release.Ref)"
   Write-Step "Descargando actualizacion..."
-  Invoke-WebRequest -Uri $zipUrl -Headers $Headers -OutFile $zipPath -UseBasicParsing
+  try {
+    Invoke-WebRequest -Uri $zipUrl -Headers $Headers -OutFile $zipPath -UseBasicParsing
+  } catch {
+    Write-Step "No se encontro la etiqueta; intentando la rama principal..."
+    $zipUrl = "https://codeload.github.com/$RepoOwner/$RepoName/zip/refs/heads/$Branch"
+    Invoke-WebRequest -Uri $zipUrl -Headers $Headers -OutFile $zipPath -UseBasicParsing
+  }
 
   Write-Step "Descomprimiendo..."
   Expand-Archive -Path $zipPath -DestinationPath $tempRoot -Force
@@ -137,7 +147,7 @@ try {
     Remove-Item -LiteralPath $pycache -Recurse -Force -ErrorAction SilentlyContinue
   }
 
-  Write-VersionMarker -root $root -commitSha $commitSha
+  Write-VersionMarker -root $root -commitSha $release.Ref
   Run-NpmInstall -root $root
 
   $package = Get-Content -Path (Join-Path $root "package.json") -Raw | ConvertFrom-Json
