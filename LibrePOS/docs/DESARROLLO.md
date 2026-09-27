@@ -17,6 +17,7 @@ No hay base de datos externa ni dependencias `pip`.
 ```bash
 npm install
 npm start
+npm run dev:demo
 npm run build
 npm run preview
 npm run update
@@ -24,7 +25,8 @@ npm run update
 
 Detalle:
 
-- `npm start`: arranca Vite en `0.0.0.0` para acceso LAN.
+- `npm start`: arranca Vite en `0.0.0.0:5173` para acceso LAN. Si el puerto está ocupado, falla sin cambiarlo silenciosamente.
+- `npm run dev:demo`: abre una demostración en `0.0.0.0:5174`, accesible en el servidor y su red local, con datos de servidor temporales y almacenamiento de navegador separado. Es la opción indicada para revisión visual y pruebas manuales sin tocar `.librepos/`.
 - `npm run build`: genera `dist/`.
 - `npm run preview`: sirve el build con el mismo middleware local.
 - `npm run update`: aplica actualizacion desde GitHub usando `scripts/update.js`.
@@ -81,6 +83,10 @@ Detalle:
 - Consulta y aplicacion de updates desde GitHub.
 
 `vite.config.js` registra el middleware `createSyncMiddleware()` tanto en desarrollo como en preview.
+
+`src/help-details.js` presenta ejemplos, diagnósticos desplegables y comprobaciones de cada guía; esos campos también alimentan la búsqueda. `lan-access.js` obtiene direcciones desde el socket real, prioriza interfaces físicas y no anuncia acceso LAN si escucha sólo en loopback.
+
+En 2.0, `src/design-v2.css` aplica la capa visual de pantalla. `src/help-assistant.js` resuelve consultas mediante reglas locales y `src/support-chat.js` presenta la conversación de la sesión. Los accesos del asistente se filtran por rol y se vuelven a validar antes de navegar; sólo abren vistas y formularios, nunca guardan o eliminan datos. `LIBREPOS_DATA_DIR` permite separar el directorio de datos del servidor para pruebas.
 
 ## Estado compartido
 

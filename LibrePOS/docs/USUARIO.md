@@ -37,7 +37,7 @@ En operacion real, entra como admin y cambia esta contrasena desde `Usuarios`. D
 3. Agrega productos al ticket.
 4. Configura variantes, extras, notas o partes mixtas cuando el producto lo permita.
 5. Usa `Comandar` para mandar los productos pendientes a cocina o barra.
-6. Cuando el cliente pida la cuenta, usa `Precio` para revisar el total.
+6. Cuando el cliente pida la cuenta, abre `Prepago y descuento` para revisar el total, guardar el descuento e imprimir la cuenta.
 7. Confirma el cobro para cerrar la orden y generar la venta.
 
 Los productos ya comandados no deben modificarse como si fueran nuevos. Si necesitas retirar algo, usa la accion de cancelacion disponible en el ticket para que quede registro.
@@ -79,7 +79,7 @@ La vista `Inventario` es para administradores.
 - Usa `Subir ticket` para registrar compras de insumos: captura insumo, cantidad y coste del ticket. LibrePOS suma inventario, actualiza el costo unitario y descuenta el importe del efectivo esperado si hay caja abierta.
 - Usa `Merma` para descontar insumos por caducidad, rotura, preparacion fallida u otro motivo operativo.
 - Usa `Inventario completo` para comparar lo que debe haber contra el conteo fisico. La diferencia se calcula como perdida o ganancia y se puede aplicar como ajuste de inventario.
-- Las recetas pueden descontar insumos estimados cuando se venden productos configurados.
+- Las recetas y extras descuentan insumos al comandar, no al añadir la línea al ticket.
 - Los insumos usados por extras muestran aviso porque el gramaje de extra es estimado.
 - La accion `Inventario a cero` es destructiva para cantidades; usala solo cuando sea intencional.
 
@@ -88,7 +88,7 @@ La vista `Inventario` es para administradores.
 La vista `Catalogo` permite administrar productos, extras e ingredientes.
 
 - Productos: nombre, seccion, subseccion, precio, estacion, estado activo y receta por unidad.
-- Extras: nombre del extra, precio de venta, insumo de inventario vinculado y gramaje/cantidad estimada que se descuenta al venderlo.
+- Extras: nombre del extra, precio de venta, insumo de inventario vinculado y gramaje/cantidad estimada que se descuenta al comandarlo.
 - Insumos: categoria, proveedor, unidad, costo unitario, cantidad y elegibilidad para receta.
 - Productos inactivos se conservan para historial, pero no aparecen como vendibles.
 - Extras inactivos se conservan para historial, pero ya no aparecen en venta.
@@ -151,3 +151,20 @@ La opcion `Abrir ticket` aparece como proxima funcion, pero permanece deshabilit
 - Haz copia completa de `.librepos/` antes de actualizaciones importantes o cambios de equipo.
 - Manten el equipo servidor conectado a corriente y en una red WiFi estable.
 - No uses LibrePOS desde redes publicas ni lo abras hacia internet.
+
+
+## Resolver una duda durante el servicio
+
+En **Ayuda → Asistente**, puedes escribir «corregir un pago», «configurar terminales», «el teléfono no abre el QR» o «no se sincronizan las mesas». El asistente reconoce palabras clave y abre guías o vistas permitidas para tu función; no guarda ni cambia datos por una frase.
+
+En **Tutoriales**, busca la tarea o el síntoma. Cada guía contiene requisitos, pasos, ejemplo con números, problemas frecuentes desplegables y comprobaciones finales. Puedes avanzar las capturas una a una o reproducir el GIF. Las imágenes antiguas muestran su versión real; los pasos escritos describen la interfaz vigente.
+
+Consulta el [manual completo de las 26 guías](GUIAS_OPERATIVAS.md) para leerlo fuera de la aplicación.
+
+## Corregir una cuenta ya cobrada
+
+En **Caja → Ver cuenta → Corregir pago**, revisa el folio y cambia el método de consumo y propina por separado. Indica el efectivo recibido o terminal y tipo, escribe el motivo y revisa la confirmación. Administración también puede hacerlo desde Datos y después de cerrar el corte. El total y efectivo contado no cambian; esperado y diferencia se recalculan. El postpago queda pendiente de reimpresión. No se realiza ningún movimiento bancario.
+
+## Conectar teléfonos
+
+Administración abre **Mi perfil → Acceso web → Actualizar direcciones**. Comparte el enlace completo o el QR. El teléfono necesita la IP del servidor y su puerto, no localhost. Si abre la aplicación pero faltan datos, comprueba que no sea otra instancia o la demo. Ante una desconexión, revisa en el servidor si la operación llegó antes de repetirla; no borres datos del navegador que puedan contener cambios pendientes.

@@ -2,7 +2,8 @@ import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypt
 import { execFile as execFileCallback } from "node:child_process";
 import https from "node:https";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { networkInterfaces, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
+import { lanAccessUrls } from "./lan-access.js";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -12,7 +13,10 @@ import {
 } from "./src/ticket-settings.js";
 
 const ROOT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(ROOT_DIR, ".librepos");
+// A separate directory lets local previews use demo data without touching the restaurant.
+const DATA_DIR = process.env.LIBREPOS_DATA_DIR
+  ? path.resolve(process.env.LIBREPOS_DATA_DIR)
+  : path.join(ROOT_DIR, ".librepos");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 const TOKEN_FILE = path.join(DATA_DIR, "sync-token");
 const VERSION_FILE = path.join(DATA_DIR, "app-version.json");
@@ -226,20 +230,6 @@ function validateStatePayload(state) {
   return "";
 }
 
-function lanAccessUrls(req) {
-  const host = String(req.headers.host || "localhost:5173");
-  const port = host.includes(":") ? host.split(":").pop() : "5173";
-  const urls = [`http://localhost:${port}/`];
-  Object.values(networkInterfaces()).forEach((entries = []) => {
-    entries.forEach((entry) => {
-      if (entry.family !== "IPv4" || entry.internal || !entry.address) return;
-      const url = `http://${entry.address}:${port}/`;
-      if (!urls.includes(url)) urls.push(url);
-    });
-  });
-  const preferredUrl = urls.find((url) => !url.includes("localhost")) || urls[0];
-  return { preferredUrl, urls };
-}
 
 function cookieValue(req, name) {
   const cookie = req.headers.cookie || "";

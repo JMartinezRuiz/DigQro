@@ -150,12 +150,19 @@ Instala Node.js LTS y vuelve a abrir el instalador.
 
 ### El telefono no abre LibrePOS
 
+En Mi perfil → Acceso web pulsa Actualizar direcciones. Si hay varias, selecciona la red del teléfono. Escribe el enlace manualmente para distinguir un problema de cámara/QR de uno de conexión. Si sólo acepta conexiones del propio equipo, reinicia con el lanzador actualizado.
+
 Verifica:
 
 - El telefono esta en la misma red WiFi que el servidor.
 - Estas usando la IP del servidor, no `localhost`.
 - El firewall permite conexiones entrantes al puerto `5173`.
-- La ventana del servidor sigue abierta.
+- La ventana del servidor sigue abierta y el equipo no está suspendido.
+- La red de invitados o el punto de acceso no aísla dispositivos entre sí.
+- Una VPN no está desviando la conexión.
+- El puerto corresponde a la operación (habitualmente 5173) o a la demo (5174), según lo que quieres abrir.
+
+Si abre pero los datos no coinciden, compara servidor y puerto en ambos equipos. Antes de repetir cobros o comandas tras un corte, comprueba lo recibido en el servidor. No borres el almacenamiento del navegador con cambios pendientes.
 
 ### El puerto `5173` ya esta ocupado
 

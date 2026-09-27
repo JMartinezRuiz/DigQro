@@ -31,11 +31,14 @@ Respuesta:
 {
   "preferredUrl": "http://192.168.1.73:5173/",
   "urls": [
-    "http://localhost:5173/",
     "http://192.168.1.73:5173/"
-  ]
+  ],
+  "localOnly": false,
+  "port": 5173
 }
 ```
+
+El puerto y la interfaz de escucha proceden del socket del servidor. Se priorizan interfaces físicas y, si el cliente ya llegó por una IP anunciada, se conserva. `urls` no incluye localhost. Si el servidor escucha sólo en loopback, `localOnly` es `true`, `urls` está vacío y `preferredUrl` es una cadena vacía; tampoco se ofrece QR si no se detecta una dirección LAN. No comprueba el firewall ni la conectividad desde el teléfono.
 
 ## `POST /api/login`
 

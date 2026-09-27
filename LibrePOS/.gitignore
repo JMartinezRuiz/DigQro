@@ -4,5 +4,6 @@ dist/
 .vite/
 *.log
 .librepos/
+.librepos-review/
 __pycache__/
 *.pyc

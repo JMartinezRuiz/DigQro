@@ -1,7 +1,18 @@
 import "./styles.css";
+import { helpDetailSearchText, renderHelpDetails } from "./help-details.js";
+import { localUserPassword } from "./user-credentials.js";
+import { inventoryCountAdjustments } from "./inventory-count.js";
+import { CARD_TYPES, normalizePaymentTerminals, paymentAllocation, resolveCardDetails, cardDetailsLabel, correctSalePayment, correctedCashSession } from "./payment-records.js";
+import { PREPAYMENT_DISCOUNTS as CHECKOUT_DISCOUNT_OPTIONS, calculatePrepaymentDiscount as calculateCheckoutDiscount } from "./prepayment.js";
+import { renderWhatsNew } from "./whats-new.js";
+import "./payments-v2.css";
+import "./design-v2.css";
+import "./support-chat.css";
+import { renderHelpChat, bindHelpChat, resetHelpChat } from "./support-chat.js";
 import packageData from "../package.json";
 import qrcode from "./vendor/qrcode-generator.js";
 import helpContent from "./help-content.json";
+import helpMediaManifest from "../assets/help/source/manifest.json";
 import {
   catalogBasePriceFromGross,
   catalogGrossPriceForEdit,
@@ -21,11 +32,13 @@ const HELP_MEDIA_URLS = import.meta.glob("../assets/help/*.{gif,png}", {
   query: "?url",
 });
 
-const STORAGE_KEY = "librepos:v2";
+const DEMO_MODE = import.meta.env.VITE_LIBREPOS_DEMO === "true";
+const STORAGE_KEY = DEMO_MODE ? "librepos:demo:v2" : "librepos:v2";
 const CLIENT_ID_KEY = "librepos:client-id";
 const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
+let supportMode = "assistant";
 const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
@@ -34,13 +47,6 @@ const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
-const CHECKOUT_DISCOUNT_OPTIONS = [
-  { code: "none", type: "none", label: "Sin descuento", rate: 0 },
-  { code: "loyalty-10", type: "loyalty", label: "Fidelidad 10%", rate: 0.1 },
-  { code: "loyalty-15", type: "loyalty", label: "Fidelidad 15%", rate: 0.15 },
-  { code: "loyalty-20", type: "loyalty", label: "Fidelidad 20%", rate: 0.2 },
-  { code: "tenant-10", type: "tenant", label: "Descuento locatario 10%", rate: 0.1 },
-];
 const SHARED_STATE_KEYS = [
   "settings",
   "users",
@@ -1340,7 +1346,7 @@ function normalizeUsers(users) {
   const merged = hasAdminAccess ? source : [...defaultUsers, ...source];
   return merged.map((user) => ({
     ...user,
-    password: user.password ?? (sameUsername(user.username, "admin") && !user.passwordHash ? "admin" : ""),
+    password: localUserPassword(user),
     role: user.role || roleFromFunctions(normalizeUserFunctions(user)),
     functions: normalizeUserFunctions(user),
     active: user.active !== false,
@@ -1943,7 +1949,7 @@ function normalizeAccessUrl(value) {
 }
 
 function appAccessUrl() {
-  return normalizeAccessUrl(accessInfo.preferredUrl || accessInfo.urls?.[0] || window.location.origin);
+  return accessInfo.preferredUrl ? normalizeAccessUrl(accessInfo.preferredUrl) : "";
 }
 
 function qrSvgFor(value) {
@@ -1951,7 +1957,7 @@ function qrSvgFor(value) {
     const qr = qrcode(0, "M");
     qr.addData(value);
     qr.make();
-    return qr.createSvgTag(3, 2);
+    return qr.createSvgTag(3, 12);
   } catch {
     return "";
   }
@@ -1960,16 +1966,17 @@ function qrSvgFor(value) {
 async function loadAccessInfo() {
   try {
     const response = await fetch("/api/access-info", { cache: "no-store" });
-    if (!response.ok) return;
+    if (!response.ok) throw new Error("No se pudo consultar la red");
     const payload = await response.json();
     const urls = Array.isArray(payload.urls) ? payload.urls.map(normalizeAccessUrl) : [];
     accessInfo = {
-      preferredUrl: normalizeAccessUrl(payload.preferredUrl || urls[0] || window.location.origin),
-      urls,
+      preferredUrl: payload.preferredUrl ? normalizeAccessUrl(payload.preferredUrl) : "",
+      urls, localOnly: payload.localOnly,
     };
     if (currentUser() && state.view === "profile" && isAdminUser()) render();
   } catch {
-    // The QR falls back to the current browser URL when the local server endpoint is unavailable.
+    accessInfo = { preferredUrl: "", urls: [] };
+    if (currentUser() && state.view === "profile" && isAdminUser()) render();
   }
 }
 
@@ -2471,7 +2478,8 @@ function extraUnitCostTotal(extras = []) {
 
 function calculateTotals(order) {
   const subtotal = roundCurrency(order.items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0));
-  const tax = taxBreakdownForGross(subtotal, orderIvaRate(order));
+  const prepaidDiscount = calculateCheckoutDiscount(subtotal, order.prepaidDiscount?.code || "none", orderIvaRate(order));
+  const tax = taxBreakdownForGross(prepaidDiscount.subtotal, orderIvaRate(order));
   const statusCounts = order.items.reduce(
     (acc, item) => {
       const status = lineServiceStatus(item, order);
@@ -2491,7 +2499,8 @@ function calculateTotals(order) {
     taxAmount: tax.iva,
     ivaRate: tax.ivaRate,
     taxRate: tax.ivaRate,
-    total: subtotal,
+    total: prepaidDiscount.subtotal,
+    prepaidDiscount,
     count: order.items.reduce((sum, item) => sum + item.qty, 0),
     ...statusCounts,
   };
@@ -2600,7 +2609,7 @@ function render() {
   app.innerHTML = `
     <main class="app-shell">
       ${renderHeader()}
-      <section class="view">
+      <section class="view" id="main-content" tabindex="-1">
         ${state.view === "profile" ? renderProfile() : ""}
         ${state.view === "sale" ? renderSale() : ""}
         ${state.view === "tables" ? renderTables() : ""}
@@ -2612,12 +2621,34 @@ function render() {
         ${state.view === "data" ? renderData() : ""}
         ${state.view === "users" ? renderUsers() : ""}
         ${state.view === "support" ? renderSupport() : ""}
+        ${state.view === "news" ? renderWhatsNew() : ""}
       </section>
+      ${state.view !== "support" && !state.modal && !state.productConfig ? `<button class="help-launcher" type="button" data-open-help aria-label="Abrir asistente de ayuda">${svg("help")}<span>¿Necesitas ayuda?</span><b>Beta</b></button>` : ""}
       ${renderModal()}
     </main>
   `;
   syncScrollLock();
   bindEvents();
+  const navViewport = document.querySelector("[data-nav-viewport]");
+  const activeNav = navViewport?.querySelector('[aria-current="page"]');
+  if (navViewport && activeNav && window.innerWidth < 1100) {
+    navViewport.scrollLeft = Math.max(0, activeNav.offsetLeft - navViewport.clientWidth / 2 + activeNav.offsetWidth / 2);
+  }
+  const modalCard = document.querySelector("[data-modal-card]");
+  if (modalCard) {
+    modalCard.setAttribute("role", "dialog");
+    modalCard.setAttribute("aria-modal", "true");
+    const title = modalCard.querySelector("h2, h3");
+    if (title) { title.id = "active-dialog-title"; modalCard.setAttribute("aria-labelledby", title.id); }
+    modalCard.addEventListener("keydown", (event) => {
+      if (event.key !== "Tab") return;
+      const controls = [...modalCard.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]')].filter((element) => element.getClientRects().length);
+      const first = controls[0]; const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    });
+    if (!modalCard.contains(document.activeElement)) modalCard.querySelector("[data-close-modal-button], input, button")?.focus({ preventScroll: true });
+  }
 }
 
 function syncScrollLock() {
@@ -2649,13 +2680,13 @@ function availableNavItems() {
   if (isAdminUser(user)) {
     items.push(
       ["inventory", "Inventario", "inventory"],
-      ["recipes", "Catalogo", "note"],
+      ["recipes", "Catálogo", "note"],
       ["data", "Datos", "data"],
       ["users", "Usuarios", "users"],
-      ["config", "Config", "settings"],
+      ["config", "Configuración", "settings"],
     );
   }
-  items.push(["support", "Soporte", "help"]);
+  items.push(["support", "Ayuda", "help"], ["news", "Novedades", "note"]);
   return items;
 }
 
@@ -2670,18 +2701,20 @@ function renderLogin() {
             <p class="brand-subtitle">Acceso al punto de venta</p>
           </div>
         </div>
-        <form class="login-form" data-login-form autocomplete="off">
+        <div class="login-intro"><span>BIENVENIDO A TU ESPACIO DE TRABAJO</span><h2>Todo listo para<br>un buen servicio.</h2><p>Ventas, cocina y administración, en un solo lugar.</p></div>
+        <form class="login-form" data-login-form>
           <label class="field">
             <span>Usuario</span>
-            <input name="username" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            <input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Tu usuario" />
           </label>
           <label class="field">
-            <span>Contrasena</span>
-            <input name="password" type="password" autocomplete="off" />
+            <span>Contraseña</span>
+            <input name="password" required type="password" autocomplete="current-password" placeholder="Tu contraseña" />
           </label>
           ${state.authError ? `<p class="form-error">${escapeHtml(state.authError)}</p>` : ""}
           <button class="primary-button" type="submit">${svg("check")}Entrar</button>
         </form>
+        <p class="login-footer">LibrePOS 2.0 · Hecho para el ritmo de tu restaurante.</p>
       </section>
     </main>
   `;
@@ -2692,6 +2725,7 @@ function shortCommit(value) {
 }
 
 function renderUpdateButton() {
+  if (DEMO_MODE) return "";
   if (!isAdminUser()) return "";
   if (!state.updateBusy && !state.updateInfo?.available) return "";
   const title = state.updateInfo?.remoteCommit
@@ -2708,50 +2742,41 @@ function renderUpdateButton() {
 function renderHeader() {
   const user = currentUser();
   const updateButton = renderUpdateButton();
-  const navEntries = [
-    ...availableNavItems().map(([view, label, icon]) => ({ type: "nav", view, label, icon })),
-    { type: "logout", label: "Salir", icon: "logout" },
-  ];
-  const pageSize = 5;
-  const maxPage = Math.max(0, Math.ceil(navEntries.length / pageSize) - 1);
-  state.navPage = Math.min(Math.max(Number(state.navPage) || 0, 0), maxPage);
-  const visibleNavEntries = navEntries.slice(state.navPage * pageSize, state.navPage * pageSize + pageSize);
-  const navButtons = visibleNavEntries
-    .map((entry) => {
-      if (entry.type === "logout") {
-        return `<button class="nav-button logout-nav-button" data-logout title="Salir">${svg("logout")}<span>Salir</span></button>`;
-      }
+  const navButtons = availableNavItems()
+    .map(([view, label, icon], index) => {
+      const group = index === 0 ? "Operación" : view === "inventory" ? "Administración" : view === "support" ? "Aprende y resuelve" : "";
       return `
-        <button class="nav-button ${state.view === entry.view ? "is-active" : ""}" data-nav="${entry.view}" title="${escapeAttr(entry.label)}">
-          ${svg(entry.icon)}
-          <span>${escapeHtml(entry.label)}</span>
+        ${group ? `<span class="nav-group-label">${group}</span>` : ""}
+        <button class="nav-button ${state.view === view ? "is-active" : ""}" data-nav="${view}" title="${escapeAttr(label)}" aria-current="${state.view === view ? "page" : "false"}">
+          ${svg(icon)}
+          <span>${escapeHtml(label)}</span>
         </button>
       `;
     })
     .join("");
   return `
+    <a class="skip-link" href="#main-content">Saltar al contenido</a>
     <header class="topbar">
       <div class="brand-lockup">
         <div class="brand-mark"><img src="${BRAND_IMAGE}" alt="Los Tatas" /></div>
         <div class="brand-copy">
           <h1 class="brand-title">
-            <span>${escapeHtml(state.settings.restaurantName)}</span>
+            <span>LibrePOS</span>
             <span class="brand-badge">Los Tatas</span>
-            <span class="version-badge">v${escapeHtml(APP_VERSION)}</span>
+            <span class="version-badge">v${escapeHtml(APP_VERSION)}${DEMO_MODE ? " · Demo" : ""}</span>
           </h1>
-          <p class="brand-subtitle">${escapeHtml(state.settings.subtitle)} · ${escapeHtml(user.name)}</p>
+          <p class="brand-subtitle">Tu restaurante, en orden.</p>
         </div>
       </div>
       <nav class="topbar-actions ${updateButton ? "has-update" : ""}" aria-label="Secciones">
         ${updateButton ? `<div class="topbar-update-slot">${updateButton}</div>` : ""}
-        <button class="nav-scroll-button" data-nav-scroll="-1" title="Ver anteriores" ${state.navPage <= 0 ? "disabled" : ""}>${svg("chevronLeft")}</button>
         <div class="nav-scroll-viewport" data-nav-viewport>
           <div class="nav-scroll-track">
             ${navButtons}
           </div>
         </div>
-        <button class="nav-scroll-button" data-nav-scroll="1" title="Ver mas opciones" ${state.navPage >= maxPage ? "disabled" : ""}>${svg("chevronRight")}</button>
       </nav>
+      <div class="sidebar-footer"><div class="sidebar-user"><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role || "Equipo")}</small></div><button class="nav-button logout-nav-button" data-logout title="Cerrar sesión">${svg("logout")}<span>Salir</span></button></div>
     </header>
   `;
 }
@@ -2842,6 +2867,7 @@ function renderSaleHome() {
   const cashOpen = isCashOpen();
   return `
     <div class="sale-home">
+      <section class="board-header"><div><h2>Tu servicio, de un vistazo</h2><p>Abre una orden, toma el pedido y sigue su recorrido hasta la mesa.</p></div><span class="stat-pill">${cashOpen ? "Caja abierta" : "Por iniciar turno"}</span></section>
       ${cashOpen ? "" : renderCashClosedNotice()}
       ${renderServiceOverview()}
       <section class="action-band">
@@ -2857,7 +2883,7 @@ function renderSaleHome() {
       <section class="panel">
         <div class="panel-header">
           <div>
-            <h2 class="panel-title">Ordenes abiertas</h2>
+            <h2 class="panel-title">Órdenes abiertas</h2>
             <p class="panel-kicker">${getOpenOrders().length} activas</p>
           </div>
         </div>
@@ -2865,7 +2891,7 @@ function renderSaleHome() {
           ${
             getOpenOrders().length
               ? getOpenOrders().map(renderOrderCard).join("")
-              : `<div class="empty-state">No hay mesas ni ordenes para llevar abiertas.</div>`
+              : `<div class="empty-state">${svg("tables", "big-icon")}<strong>Todo listo para la primera orden</strong><p>${cashOpen ? "Elige Abrir nueva mesa o Para llevar para comenzar." : "Abre la caja del turno para empezar a tomar pedidos."}</p></div>`
           }
         </div>
       </section>
@@ -2876,7 +2902,8 @@ function renderSaleHome() {
 function renderCashClosedNotice() {
   return `
     <section class="checkout-warning cash-closed-notice">
-      ${svg("alert")}Caja cerrada. Abre caja antes de abrir mesas, para llevar o comandar productos.
+      ${svg("alert")}<span><strong>Comienza abriendo la caja.</strong> Después podrás abrir mesas, tomar pedidos y comandar.</span>
+      ${hasCashAccess() ? `<button type="button" class="secondary-button compact" data-nav="cash">${svg("cash")}Ir a Caja</button>` : ""}
     </section>
   `;
 }
@@ -3064,7 +3091,7 @@ function renderTableTile(number, order) {
             <div class="table-actions-row ${readyQty ? "has-delivery" : ""}">
               ${readyQty ? `<button class="primary-button deliver-button" data-deliver-ready="${order.id}">${svg("check")}Entregar listos (${readyQty})</button>` : ""}
               <button class="secondary-button" data-open-order="${order.id}">${svg("sale")}Continuar</button>
-              <button class="secondary-button" data-print-prepaid-order="${order.id}" ${order.items.length ? "" : "disabled"}>${svg("print")}Imprimir ticket</button>
+              <button class="secondary-button" data-print-prepaid-order="${order.id}" ${order.items.length ? "" : "disabled"}>${svg("print")}Prepago y descuento</button>
               <button class="secondary-button" data-open-modal="table-note" data-order-id="${order.id}">${svg("note")}Nota</button>
               <button class="danger-button" data-close-order="${order.id}">${svg("check")}Cerrar</button>
             </div>
@@ -3188,15 +3215,14 @@ function renderTicket(order) {
   return `
     <aside class="ticket-column">
       <section class="ticket-head">
-        <button class="ghost-button compact" data-back-home>${svg("minus")}Venta</button>
         <div>
-          <h2>${escapeHtml(orderLabel(order))}</h2>
-          <p>${escapeHtml(waiterName(order.waiterId))}${order.guests ? ` · ${order.guests} comensales` : ""} · ${elapsed(order.openedAt)}</p>
+          <h2>Cuenta · ${escapeHtml(orderLabel(order))}</h2>
+          <p>${escapeHtml(waiterName(order.waiterId))}</p>
           <span class="tax-snapshot-pill">${escapeHtml(orderTaxLabel(order))}</span>
           ${order.comments ? `<p class="ticket-comment">${escapeHtml(order.comments)}</p>` : ""}
           ${renderOrderAlerts(order)}
         </div>
-        <button class="ghost-button compact" data-open-modal="table-note" data-order-id="${order.id}">${svg("note")}Nota orden</button>
+        <button class="ghost-button compact" data-open-modal="table-note" data-order-id="${order.id}" aria-label="Añadir nota a la orden">${svg("note")}Nota</button>
       </section>
       <section class="ticket-list">
         ${
@@ -3218,8 +3244,9 @@ function renderTicket(order) {
           <span>Entregado</span>
           <strong>${totals.delivered} pzas</strong>
         </div>
+        ${totals.prepaidDiscount.amount > 0 ? `<div class="total-line"><span>${escapeHtml(totals.prepaidDiscount.label)}</span><strong>-${money.format(totals.prepaidDiscount.amount)}</strong></div>` : ""}
         <div class="total-line grand">
-          <span>Precio</span>
+          <span>Total</span>
           <strong>${money.format(totals.total)}</strong>
         </div>
         <div class="total-line compact-tax-line">
@@ -3229,7 +3256,7 @@ function renderTicket(order) {
         <div class="ticket-actions">
           <button class="primary-button" data-open-modal="command" ${totals.pending && cashOpen ? "" : "disabled"}>${svg("digital")}Comandar</button>
           <button class="secondary-button" data-open-modal="price">${svg("cash")}Precio</button>
-          <button class="secondary-button" data-print-prepaid-order="${order.id}" ${order.items.length ? "" : "disabled"}>${svg("print")}Imprimir ticket</button>
+          <button class="secondary-button" data-print-prepaid-order="${order.id}" ${order.items.length ? "" : "disabled"}>${svg("print")}Prepago y descuento</button>
           <button class="secondary-button" data-finalize-order ${order.items.length ? "" : "disabled"}>${svg("check")}Finalizar</button>
         </div>
       </section>
@@ -3342,22 +3369,22 @@ function renderMenu(order) {
     const inSection = item.section === state.activeSection;
     const inSubsection = state.activeSubsection === "Todos" || item.subsection === state.activeSubsection;
     const text = normalize(`${item.name} ${item.description} ${item.section} ${item.subsection}`);
-    return inSection && inSubsection && text.includes(query);
+    return query ? query.split(/\s+/).every((word) => text.includes(word)) : inSection && inSubsection;
   });
 
   return `
     <section class="menu-column">
       <div class="menu-head">
         <div>
-          <h2>Menu</h2>
-          <p>${escapeHtml(state.activeSection)} · ${products.length} productos</p>
+          <h2>Menú</h2>
+          <p>${query ? "Búsqueda en todo el menú" : escapeHtml(state.activeSection)} · ${products.length} productos</p>
         </div>
         <span>${escapeHtml(orderLabel(order))} · ${escapeHtml(orderTaxLabel(order))}</span>
       </div>
       <div class="menu-toolbar">
         <div class="search-wrap">
           ${svg("search")}
-          <input class="search-input" data-search value="${escapeAttr(state.productSearch)}" placeholder="Buscar en el menu" />
+          <input class="search-input" data-search value="${escapeAttr(state.productSearch)}" placeholder="Buscar en todo el menú" aria-label="Buscar en todo el menú" />
         </div>
       </div>
       <div class="mobile-menu-filters" aria-label="Filtros de menu movil">
@@ -4092,12 +4119,14 @@ function renderModal() {
     command: order ? renderCommandModal(order) : "",
     price: order ? renderPriceModal(order) : "",
     checkout: modalOrder ? renderCheckoutModal(modalOrder) : "",
+    prepaid: modalOrder?.status === "open" ? renderPrepaidModal(modalOrder) : "",
     "cancel-order": modalOrder ? renderCancelOrderModal(modalOrder) : "",
     "cancel-line": lineTarget ? renderCancelLineModal(lineTarget.order, lineTarget.line, state.modal) : "",
     "table-note": modalOrder ? renderTableNoteModal(modalOrder) : "",
     "line-note": lineTarget ? renderLineNoteModal(lineTarget.order, lineTarget.line) : "",
     "adjust-tip": saleTarget ? renderAdjustTipModal(saleTarget) : "",
     "sale-detail": saleTarget ? renderSaleDetailModal(saleTarget) : "",
+    "correct-payment": saleTarget && canCorrectSalePayment(saleTarget) ? renderCorrectPaymentModal(saleTarget) : "",
     "delete-sale": isAdminUser() && saleTarget ? renderDeleteSaleModal(saleTarget) : "",
     "support-ticket-preview": renderSupportTicketPreviewModal(),
   }[state.modal.type] || "";
@@ -4291,9 +4320,170 @@ function renderPriceModal(order) {
   `;
 }
 
+function paymentTerminals() {
+  return normalizePaymentTerminals(state.settings.paymentTerminals);
+}
+
+function renderCardFields(payment = {}) {
+  const active = paymentTerminals().filter((terminal) => terminal.active);
+  return `<fieldset class="card-details" data-card-fields>
+    <legend>Pago con tarjeta</legend>
+    <p class="muted-text">Registra la terminal utilizada y el tipo de tarjeta, también si sólo la propina se pagó con tarjeta.</p>
+    <div class="payment-fields-grid">
+      <label class="field"><span>Terminal utilizada</span><select name="terminalId" data-terminal-select>
+        <option value="">Selecciona terminal</option>
+        ${active.map((terminal) => `<option value="${escapeAttr(terminal.id)}" ${terminal.id === payment.terminalId ? "selected" : ""}>${escapeHtml(terminal.name)}</option>`).join("")}
+      </select></label>
+      <label class="field"><span>Tipo de tarjeta</span><select name="cardType" data-card-type>
+        <option value="">Crédito o débito</option>
+        ${Object.entries(CARD_TYPES).map(([id, label]) => `<option value="${id}" ${id === payment.cardType ? "selected" : ""}>${label}</option>`).join("")}
+      </select></label>
+    </div>
+    ${active.length ? "" : `<p class="form-error">No hay terminales activas. Pide a administración crear una en Configuración → Terminales.</p>`}
+  </fieldset>`;
+}
+
+function toggleCardFields(form, cardDue) {
+  const box = form?.querySelector("[data-card-fields]");
+  if (!box) return;
+  box.hidden = cardDue <= 0;
+  box.disabled = cardDue <= 0;
+  box.querySelectorAll("select").forEach((select) => { select.required = cardDue > 0; });
+}
+
+function cardFieldsValue(form, cardDue) {
+  return resolveCardDetails(cardDue, form.elements.terminalId?.value, form.elements.cardType?.value, paymentTerminals());
+}
+
+function canCorrectSalePayment(sale) {
+  if (!sale || !currentUser()) return false;
+  if (isAdminUser()) return true;
+  const session = currentCashSession();
+  return hasCashAccess() && Boolean(session) && sale.cashSessionId === session.id;
+}
+
+function paymentCorrectionButton(sale) {
+  return canCorrectSalePayment(sale) ? `<button class="secondary-button compact" data-open-modal="correct-payment" data-sale-id="${escapeAttr(sale.id)}" type="button">${svg("cash")}Corregir pago</button>` : "";
+}
+
+function salePaymentLabel(sale) {
+  const amounts = paymentAllocation(saleSubtotal(sale), saleTip(sale), paymentBucket(sale.paymentMethod) === "card" ? "Tarjeta" : "Efectivo", paymentBucket(saleTipPaymentMethod(sale)) === "card" ? "Tarjeta" : "Efectivo");
+  return `${sale.paymentMethod || "Efectivo"}${amounts.cardDue > 0 ? ` · ${cardDetailsLabel(sale.payment)}` : ""}`;
+}
+
+function renderPaymentCorrectionHistory(sale) {
+  const history = Array.isArray(sale.paymentCorrections) ? sale.paymentCorrections : [];
+  if (!history.length) return "";
+  return `<details class="payment-history"><summary>Historial de correcciones (${history.length})</summary>
+    ${[...history].reverse().map((entry) => `<article>
+      <strong>${escapeHtml(entry.before?.paymentMethod || "")} → ${escapeHtml(entry.after?.paymentMethod || "")}</strong>
+      <p>${escapeHtml(entry.reason)}</p>
+      <small>Propina: ${escapeHtml(entry.before?.tipPaymentMethod || "")} → ${escapeHtml(entry.after?.tipPaymentMethod || "")}</small>
+      ${entry.before?.payment?.cardDue > 0 ? `<small>Antes: ${escapeHtml(cardDetailsLabel(entry.before.payment))}</small>` : ""}
+      ${entry.after?.payment?.cardDue > 0 ? `<small>Después: ${escapeHtml(cardDetailsLabel(entry.after.payment))}</small>` : ""}
+      <small>${escapeHtml(waiterName(entry.createdBy))} · ${formatDateTime(entry.createdAt)}</small>
+    </article>`).join("")}</details>`;
+}
+
+function renderCorrectPaymentModal(sale) {
+  const closed = state.cashSessions.find((session) => session.id === sale.cashSessionId)?.status === "closed";
+  return `<section class="panel modal-panel">
+    <div class="panel-header"><div><h2 class="panel-title">Corregir pago</h2><p class="panel-kicker">Cuenta ${escapeHtml(orderNumberLabel(sale))} · ${escapeHtml(sale.label || "Venta")}</p></div><button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button></div>
+    <form class="panel-body field-grid" data-correct-payment-form data-sale-id="${escapeAttr(sale.id)}">
+      <div class="checkout-total"><span>Total cobrado · no cambia</span><strong>${money.format(saleTotal(sale))}</strong><small>Actual: ${escapeHtml(sale.paymentMethod || "Efectivo")}</small></div>
+      <p class="payment-notice">Sólo corrige el registro en LibrePOS. No cobra, devuelve ni mueve dinero en el banco. Verifica el comprobante antes de guardar.</p>
+      ${closed ? `<p class="checkout-warning">Caja ya cerrada: se recalcularán el efectivo esperado y la diferencia del corte. Se conservará el efectivo contado y quedará una corrección de administrador.</p>` : ""}
+      <div class="payment-fields-grid">
+        <label class="field"><span>Pago correcto del consumo</span><select name="paymentMethod">${["Efectivo", "Tarjeta"].map((method) => `<option ${sale.paymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}</select></label>
+        <label class="field"><span>Pago de propina (${money.format(saleTip(sale))})</span><select name="tipPaymentMethod">${["Efectivo", "Tarjeta"].map((method) => `<option ${saleTipPaymentMethod(sale) === method ? "selected" : ""}>${method}</option>`).join("")}</select></label>
+      </div>
+      ${renderCardFields(sale.payment)}
+      <label class="field" data-correction-cash><span>Efectivo realmente recibido</span><input name="cashReceived" type="number" min="0" step="0.01" value="${Number(sale.payment?.cashReceived || 0).toFixed(2)}" required /></label>
+      <p class="payment-allocation" data-correction-preview></p>
+      <label class="field"><span>Motivo de la corrección</span><textarea name="reason" minlength="5" maxlength="240" rows="2" placeholder="Ej. Se marcó tarjeta, pero el cliente pagó en efectivo" required></textarea></label>
+      <button class="primary-button" type="submit">${svg("check")}Guardar corrección</button>
+    </form></section>`;
+}
+
+function updateCorrectionPreview(event) {
+  const form = event?.currentTarget || document.querySelector("[data-correct-payment-form]");
+  const sale = state.sales.find((item) => item.id === form?.dataset.saleId);
+  if (!sale) return;
+  const amounts = paymentAllocation(saleSubtotal(sale), saleTip(sale), form.elements.paymentMethod.value, form.elements.tipPaymentMethod.value);
+  toggleCardFields(form, amounts.cardDue);
+  form.querySelector("[data-correction-cash]").hidden = amounts.cashDue <= 0;
+  form.elements.cashReceived.disabled = amounts.cashDue <= 0;
+  const received = Number(form.elements.cashReceived.value) || 0;
+  form.querySelector("[data-correction-preview]").textContent = `Efectivo: ${money.format(amounts.cashDue)} · Tarjeta: ${money.format(amounts.cardDue)} · ${received < amounts.cashDue ? `Falta efectivo: ${money.format(amounts.cashDue - received)}` : `Cambio: ${money.format(amounts.cashDue > 0 ? received - amounts.cashDue : 0)}`}`;
+}
+
+function savePaymentCorrection(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const sale = state.sales.find((item) => item.id === form.dataset.saleId);
+  if (!canCorrectSalePayment(sale)) { showToast("Sólo caja en su turno abierto o administración puede corregir pagos."); return; }
+  try {
+    const corrected = correctSalePayment(sale, Object.fromEntries(new FormData(form)), {
+      subtotal: saleSubtotal(sale), tipAmount: saleTip(sale), userId: currentUser().id,
+      at: new Date().toISOString(), id: safeId("payment-correction"), terminals: paymentTerminals(),
+    });
+    if (!window.confirm(`¿Guardar la corrección de ${orderNumberLabel(sale)}?\n\nConsumo: ${sale.paymentMethod} → ${corrected.paymentMethod}\nEfectivo: ${money.format(corrected.payment.cashDue)}\nTarjeta: ${money.format(corrected.payment.cardDue)}\nTotal sin cambios: ${money.format(saleTotal(sale))}\n\nSe actualizará el registro de caja y quedará historial.`)) return;
+    Object.assign(sale, corrected);
+    const order = state.orders.find((item) => item.id === sale.orderId);
+    if (order) Object.assign(order, { paymentMethod: sale.paymentMethod, payment: structuredClone(sale.payment), tip: structuredClone(sale.tip), paymentCorrections: structuredClone(sale.paymentCorrections) });
+    const session = state.cashSessions.find((item) => item.id === sale.cashSessionId);
+    if (session) Object.assign(session, correctedCashSession(session, cashSessionTotals(session), { ...structuredClone(sale.paymentCorrections.at(-1)), saleId: sale.id, orderId: sale.orderId, orderNumber: orderNumberValue(sale) }));
+    state.modal = { type: "sale-detail", saleId: sale.id };
+    persist(); render(); showToast("Pago corregido. El postpago está pendiente de reimpresión.");
+  } catch (error) { showToast(error.message); }
+}
+
+function renderPrepaidModal(order) {
+  const totals = calculateTotals(order);
+  return `<section class="panel modal-panel">
+    <div class="panel-header"><div><h2 class="panel-title">Preparar prepago</h2><p class="panel-kicker">${escapeHtml(orderLabel(order))} · Revisa antes de cobrar</p></div><button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button></div>
+    <form class="panel-body field-grid" data-prepaid-form data-order-id="${order.id}">
+      <p class="payment-notice">Aplica aquí el descuento. Queda guardado en la cuenta, se imprime en el prepago y se respeta al cobrar. No se aplica un segundo descuento en el postpago.</p>
+      <label class="field"><span>Descuento del prepago</span><select name="discountCode">${CHECKOUT_DISCOUNT_OPTIONS.map((option) => `<option value="${option.code}" ${totals.prepaidDiscount.code === option.code ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>
+      <div class="checkout-discount-summary" data-prepaid-summary></div>
+      <p class="muted-text">Si agregas o quitas platos después, se recalcula el porcentaje. Imprime un nuevo prepago para entregar el importe actualizado.</p>
+      <div class="prepaid-actions"><button class="primary-button" type="submit" name="action" value="save">${svg("check")}Guardar prepago</button><button class="secondary-button" type="submit" name="action" value="print">${svg("print")}Guardar e imprimir</button><button class="secondary-button" type="submit" name="action" value="checkout">Continuar al cobro</button></div>
+    </form></section>`;
+}
+
+function updatePrepaidPreview(event) {
+  const form = event?.currentTarget || document.querySelector("[data-prepaid-form]");
+  const order = getOrder(form?.dataset.orderId);
+  if (!order) return;
+  const totals = calculateTotals(order);
+  const discount = calculateCheckoutDiscount(totals.subtotal, form.elements.discountCode.value, totals.ivaRate);
+  const tax = taxBreakdownForGross(discount.subtotal, totals.ivaRate);
+  form.querySelector("[data-prepaid-summary]").innerHTML = `<span>Consumo antes</span><strong>${money.format(discount.originalSubtotal)}</strong><span>${escapeHtml(discount.label)}</span><strong>-${money.format(discount.amount)}</strong><span>IVA incluido</span><strong>${money.format(tax.iva)}</strong><span class="grand">Total del prepago</span><strong class="grand">${money.format(discount.subtotal)}</strong>`;
+}
+
+function savePrepaid(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const order = state.orders.find((item) => item.id === form.dataset.orderId && item.status === "open");
+  if (!order || !hasUserFunction(currentUser(), "mesero") && !hasCashAccess()) return;
+  const totals = calculateTotals(order);
+  const discount = calculateCheckoutDiscount(totals.subtotal, form.elements.discountCode.value, totals.ivaRate);
+  if (order.prepaidDiscount?.code !== discount.code) {
+    order.prepaidReceiptPrintedAt = "";
+    order.prepaidReceiptError = "";
+  }
+  order.prepaidDiscount = { ...discount, preparedAt: new Date().toISOString(), preparedBy: currentUser().id };
+  state.modal = null;
+  persist(); render();
+  const action = event.submitter?.value;
+  if (action === "print") void printPrepaidOrderReceipt(order.id);
+  else if (action === "checkout") openCheckout(order.id);
+  else showToast(`Prepago guardado: ${money.format(discount.subtotal)}.`);
+}
+
 function renderCheckoutModal(order) {
   const totals = calculateTotals(order);
-  const discount = calculateCheckoutDiscount(totals.subtotal, "none", totals.ivaRate);
+  const discount = totals.prepaidDiscount;
   const cashSession = currentCashSession();
   const paymentMethod = state.paymentMethod || "Efectivo";
   const cashDue = paymentBucket(paymentMethod) === "cash" ? discount.subtotal : 0;
@@ -4322,15 +4512,10 @@ function renderCheckoutModal(order) {
           <small data-checkout-tax-summary>Subtotal s/IVA ${money.format(totals.netSubtotal)} · ${escapeHtml(ivaLabel(totals.ivaRate))} ${money.format(totals.iva)}</small>
         </div>
         <section class="checkout-discount-box" data-checkout-discount-box>
-          <label class="field">
-            <span>Descuento</span>
-            <select name="discountCode" data-checkout-discount>
-              ${CHECKOUT_DISCOUNT_OPTIONS.map((option) => `<option value="${escapeAttr(option.code)}">${escapeHtml(option.label)}</option>`).join("")}
-            </select>
-          </label>
+          <div class="tip-box-head"><strong>Preparado en prepago</strong><button class="ghost-button compact" type="button" data-open-modal="prepaid" data-order-id="${order.id}">Revisar prepago</button></div>
           <div class="checkout-discount-summary">
             <span>Consumo antes</span><strong data-discount-original>${money.format(discount.originalSubtotal)}</strong>
-            <span data-discount-label>Sin descuento</span><strong data-discount-amount>${money.format(0)}</strong>
+            <span data-discount-label>${escapeHtml(discount.label)}</span><strong data-discount-amount>-${money.format(discount.amount)}</strong>
             <span class="grand">Consumo</span><strong class="grand" data-discount-subtotal>${money.format(discount.subtotal)}</strong>
           </div>
         </section>
@@ -4380,6 +4565,7 @@ function renderCheckoutModal(order) {
             </div>
           </div>
         </section>
+        ${renderCardFields()}
         <div class="checkout-actions">
           <button class="primary-button" type="submit" ${cashSession ? "" : "disabled"}>${svg("check")}Confirmar y cerrar</button>
           <button class="danger-button" type="button" data-open-modal="cancel-order" data-order-id="${order.id}">${svg("cancel")}${cancelLabel}</button>
@@ -4419,6 +4605,8 @@ function renderAdjustTipModal(sale) {
             <label><input type="radio" name="tipPaymentMethod" value="Tarjeta" ${tipMethod === "Tarjeta" ? "checked" : ""} ${canAdjust ? "" : "disabled"} />Tarjeta</label>
           </div>
         </div>
+        ${renderCardFields(sale.payment)}
+        <label class="field" data-tip-cash><span>Efectivo recibido (incluida propina)</span><input name="cashReceived" type="number" min="0" step="0.01" value="${Number(sale.payment?.cashReceived || 0).toFixed(2)}" required /></label>
         <button class="primary-button" type="submit" ${canAdjust ? "" : "disabled"}>${svg("check")}Guardar propina</button>
       </form>
     </section>
@@ -4470,6 +4658,8 @@ function renderSaleDetailModal(sale) {
           <div><span>Cajero</span><strong>${escapeHtml(waiterName(sale.cashierId))}</strong></div>
           <div><span>Tiempo mesa</span><strong>${formatDuration(waitMinutes)}</strong></div>
         </section>
+        ${paymentAllocation(subtotal, tipAmount, sale.paymentMethod === "Tarjeta" ? "Tarjeta" : "Efectivo", saleTipPaymentMethod(sale) === "Tarjeta" ? "Tarjeta" : "Efectivo").cardDue > 0 ? `<p class="payment-terminal-summary">${escapeHtml(cardDetailsLabel(sale.payment))}</p>` : ""}
+        ${renderPaymentCorrectionHistory(sale)}
         <section class="sale-detail-lines">
           <div class="sale-detail-section-head">
             <h3>Resumen de cuenta</h3>
@@ -4521,6 +4711,7 @@ function renderSaleDetailModal(sale) {
           isAdminUser() || sale.cashierId === currentUser()?.id || sale.waiterId === currentUser()?.id
             ? `
               <section class="sale-detail-actions">
+                ${paymentCorrectionButton(sale)}
                 <button class="secondary-button" data-open-modal="adjust-tip" data-sale-id="${escapeAttr(sale.id || sale.orderId || "")}">${svg("cash")}Ajustar propina</button>
               </section>
             `
@@ -5095,7 +5286,7 @@ function renderRecipes() {
     <div class="recipes-layout">
       <section class="board-header catalog-board-header">
         <div>
-          <h2>Catalogo</h2>
+          <h2>Catálogo</h2>
           <p>Define lo que vendes y como descuenta inventario.</p>
         </div>
         <div class="catalog-header-controls">
@@ -5155,18 +5346,18 @@ function renderRecipeProductCatalog(products, categories) {
     const inSection = product.section === state.recipesSection;
     const inSubsection = state.recipesSubsection === "Todos" || product.subsection === state.recipesSubsection;
     const text = normalize(`${product.name} ${product.description} ${product.section} ${product.subsection}`);
-    return inSection && inSubsection && text.includes(query);
+    return query ? query.split(/\s+/).every((word) => text.includes(word)) : inSection && inSubsection;
   });
   return `
     <section class="panel recipe-catalog-panel">
       <div class="panel-header">
         <div>
-          <h2 class="panel-title">Platillos y bebidas en venta</h2>
-          <p class="panel-kicker">Cada elemento tiene precio propio y una receta obligatoria.</p>
+          <h2 class="panel-title">Platillos y bebidas</h2>
+          <p class="panel-kicker">${query ? `Resultados en todo el catálogo · ${filtered.length} coincidencias` : "Precio, disponibilidad y receta de cada producto."}</p>
         </div>
         <div class="search-wrap compact-search">
           ${svg("search")}
-          <input class="search-input" data-recipes-search value="${escapeAttr(state.recipesSearch)}" placeholder="Buscar articulo" />
+          <input class="search-input" data-recipes-search value="${escapeAttr(state.recipesSearch)}" placeholder="Buscar en todo el catálogo" aria-label="Buscar en todo el catálogo" />
         </div>
       </div>
       <div class="panel-body">
@@ -5464,6 +5655,7 @@ function renderRecipeRowsFromRecipe(recipeSource = [], { itemAttr = "data-recipe
             <span>Cantidad</span>
             <input ${qtyAttr} type="number" min="0" step="0.001" value="${row ? formatPlainNumber(row.qty) : ""}" placeholder="0" />
           </label>
+          <button class="icon-button recipe-remove" type="button" data-remove-recipe-row title="Quitar insumo de la receta" aria-label="Quitar insumo ${index + 1} de la receta">${svg("trash")}</button>
         </div>
       `;
     })
@@ -5645,7 +5837,7 @@ function renderMenuProductModal(product = null) {
         <section class="catalog-form-section">
           <div class="catalog-form-section-head">
             <span class="catalog-form-step">3</span>
-            <span><strong>Receta por unidad</strong><small>Obligatoria: define lo que se descuenta al comandar.</small></span>
+            <span><strong>Receta por unidad</strong><small>Define cuánto consume un platillo. Si el insumo se mide en kilos, 0.200 son 200 g.</small></span>
             <b class="catalog-required-label">Obligatoria</b>
           </div>
           <div class="recipe-editor">
@@ -5656,7 +5848,7 @@ function renderMenuProductModal(product = null) {
             <div class="recipe-row-list" data-recipe-row-list>
               ${renderRecipeRows(product)}
             </div>
-            <button class="secondary-button compact" type="button" data-add-recipe-row>${svg("plus")}Anadir otro insumo</button>
+            <button class="secondary-button compact" type="button" data-add-recipe-row>${svg("plus")}Añadir otro insumo</button>
           </div>
         </section>
         <details class="catalog-optional-section" ${hasVariants ? "open" : ""}>
@@ -5674,7 +5866,7 @@ function renderMenuProductModal(product = null) {
         </template>
         </div>
         <div class="catalog-form-actions">
-          <span>${isEdit ? "Los cambios se aplicaran a las siguientes ordenes." : "Se agregara como producto independiente en Venta."}</span>
+          <span>${isEdit ? "Revisa las órdenes en curso antes de cambiar una receta." : "Se agregará como producto independiente en Venta."}</span>
           <button class="primary-button" type="submit">${svg("check")}${isEdit ? "Guardar cambios" : "Crear platillo o bebida"}</button>
         </div>
       </form>
@@ -5947,6 +6139,7 @@ function helpArticleSearchText(article) {
     ...(article.impacts || []),
     article.caution,
     article.expected,
+    helpDetailSearchText(article),
   ].filter(Boolean).join(" "));
 }
 
@@ -5955,7 +6148,7 @@ function filteredHelpArticles() {
   const query = normalize(state.supportSearch);
   return [...helpContent.articles]
     .filter((article) => category === "all" || article.category === category)
-    .filter((article) => !query || helpArticleSearchText(article).includes(query))
+    .filter((article) => !query || query.split(/\s+/).every((word) => helpArticleSearchText(article).includes(word)))
     .sort((left, right) => Number(helpArticleMatchesCurrentUser(right)) - Number(helpArticleMatchesCurrentUser(left)));
 }
 
@@ -5985,7 +6178,8 @@ function helpMediaPaths(article) {
 function renderHelpArticle(article) {
   const category = helpCategory(article.category);
   const media = helpMediaPaths(article);
-  const animationsEnabled = !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const frames = helpMediaManifest.articles[article.id] || [];
+  const captureVersions = [...new Set(frames.map((frame) => frame.captureVersion || helpMediaManifest.captureVersion))];
   const related = (article.related || []).map(helpArticle).filter(Boolean).slice(0, 4);
   return `
     <article class="panel support-article" data-support-article-view="${escapeAttr(article.id)}">
@@ -6004,17 +6198,22 @@ function renderHelpArticle(article) {
       <div class="support-article-body">
         <figure class="support-media">
           <img
-            src="${escapeAttr(animationsEnabled ? media.gif : media.poster)}"
+            src="${escapeAttr(media.poster)}"
             data-help-media
+            data-article-id="${escapeAttr(article.id)}"
+            data-step="0"
             data-gif-src="${escapeAttr(media.gif)}"
             data-poster-src="${escapeAttr(media.poster)}"
             alt="Recorrido con capturas reales: ${escapeAttr(article.title)}"
           />
           <div class="support-media-footer">
-            <figcaption>Capturas reales de LibrePOS v${escapeHtml(helpContent.interfaceVersion)}. Los pasos completos aparecen debajo.</figcaption>
-            <button class="secondary-button compact" type="button" data-help-animation-toggle data-playing="${animationsEnabled}">
-              ${svg(animationsEnabled ? "pause" : "play")}${animationsEnabled ? "Pausar animación" : "Reproducir animación"}
-            </button>
+            <figcaption>Capturas reales · ${captureVersions.map((version) => `v${escapeHtml(version)}`).join(" / ")}. ${captureVersions.some((version) => version !== APP_VERSION) ? "Algunas imágenes muestran el diseño anterior; sigue los pasos escritos para la interfaz actual." : "Avanza a tu ritmo o reproduce el recorrido."}</figcaption>
+            <div class="support-media-controls">
+              <button class="icon-button" type="button" data-help-step="-1" title="Paso anterior" disabled>${svg("chevronLeft")}</button>
+              <span data-help-step-count aria-live="polite">Paso 1 de ${frames.length}</span>
+              <button class="icon-button" type="button" data-help-step="1" title="Paso siguiente" ${frames.length < 2 ? "disabled" : ""}>${svg("chevronRight")}</button>
+              <button class="secondary-button compact" type="button" data-help-animation-toggle data-playing="false">${svg("play")}Reproducir GIF</button>
+            </div>
           </div>
         </figure>
         <section class="support-prerequisites">
@@ -6042,6 +6241,7 @@ function renderHelpArticle(article) {
             `).join("")}
           </ol>
         </section>
+        ${renderHelpDetails(article)}
         <section class="support-impact-section">
           <div class="support-section-title">
             <span>${svg("data")}</span>
@@ -6099,15 +6299,19 @@ function renderSupport() {
     <div class="support-layout">
       <section class="board-header support-board-header">
         <div>
-          <h2>Soporte</h2>
-          <p>Guías operativas de LibrePOS disponibles sin conexión.</p>
+          <h2>¿En qué te ayudamos?</h2>
+          <p>Resuelve una duda, aprende una tarea y sigue con tu servicio.</p>
         </div>
         <div class="support-header-metrics">
           <span>${svg("book")}<strong>${helpContent.articles.length}</strong> guías</span>
           <span>${svg("users")}<strong>${relevantCount}</strong> para tu rol</span>
         </div>
       </section>
-      ${renderSupportTicketPanel()}
+      <div class="support-mode-tabs" role="tablist" aria-label="Tipo de ayuda">
+        <button type="button" role="tab" aria-selected="${supportMode === "assistant"}" class="${supportMode === "assistant" ? "is-active" : ""}" data-support-mode="assistant">${svg("help")}Asistente <span class="beta-pill">Beta</span></button>
+        <button type="button" role="tab" aria-selected="${supportMode === "guides"}" class="${supportMode === "guides" ? "is-active" : ""}" data-support-mode="guides">${svg("book")}Tutoriales</button>
+      </div>
+      ${supportMode === "assistant" ? renderHelpChat(helpContent.articles) : `
       <div class="support-workspace">
         <aside class="panel support-library">
           <div class="support-library-head">
@@ -6149,6 +6353,7 @@ function renderSupport() {
           </section>
         `}
       </div>
+      `}
     </div>
   `;
 }
@@ -6188,14 +6393,59 @@ function toggleHelpAnimation(button) {
   if (!media) return;
   const playing = button.dataset.playing === "true";
   if (playing) {
-    media.src = media.dataset.posterSrc;
+    const step = Number(media.dataset.step) || 0;
+    media.src = HELP_MEDIA_URLS[`../assets/help/${media.dataset.articleId}-step-${step + 1}.png`] || media.dataset.posterSrc;
     button.dataset.playing = "false";
-    button.innerHTML = `${svg("play")}Reproducir animación`;
+    button.innerHTML = `${svg("play")}Reproducir GIF`;
+    const count = button.closest(".support-media")?.querySelector("[data-help-step-count]");
+    if (count) count.textContent = `Paso ${step + 1} de ${helpMediaManifest.articles[media.dataset.articleId]?.length || 1}`;
     return;
   }
   media.src = `${media.dataset.gifSrc}?replay=${Date.now()}`;
   button.dataset.playing = "true";
-  button.innerHTML = `${svg("pause")}Pausar animación`;
+  button.innerHTML = `${svg("pause")}Ver paso a paso`;
+  const count = button.closest(".support-media")?.querySelector("[data-help-step-count]");
+  if (count) count.textContent = "Recorrido GIF";
+}
+
+function showHelpStep(direction) {
+  const media = document.querySelector("[data-help-media]");
+  if (!media) return;
+  const frames = helpMediaManifest.articles[media.dataset.articleId] || [];
+  const step = Math.min(Math.max((Number(media.dataset.step) || 0) + direction, 0), frames.length - 1);
+  media.dataset.step = String(step);
+  media.src = HELP_MEDIA_URLS[`../assets/help/${media.dataset.articleId}-step-${step + 1}.png`] || media.dataset.posterSrc;
+  media.alt = `Paso ${step + 1}: ${frames[step]?.caption || "Recorrido visual"}`;
+  const count = document.querySelector("[data-help-step-count]");
+  if (count) count.textContent = `Paso ${step + 1} de ${frames.length}`;
+  document.querySelectorAll("[data-help-step]").forEach((button) => { button.disabled = Number(button.dataset.helpStep) < 0 ? step <= 0 : step >= frames.length - 1; });
+  const toggle = document.querySelector("[data-help-animation-toggle]");
+  if (toggle) { toggle.dataset.playing = "false"; toggle.innerHTML = `${svg("play")}Reproducir GIF`; }
+}
+
+function openHelpArticle(id) {
+  if (!helpArticle(id)) return;
+  state.view = "support";
+  state.supportArticleId = id;
+  state.supportSearch = "";
+  state.supportCategory = "all";
+  supportMode = "guides";
+  render();
+  document.querySelector("[data-support-article-view]")?.scrollIntoView({ block: "start" });
+}
+
+function openHelpAction(action) {
+  // The assistant can navigate to permitted views and open empty creation forms only.
+  if (!availableNavItems().some(([view]) => view === action.view)) return;
+  const allowedModals = ["new-product", "new-ingredient", "new-extra"];
+  if (action.modal && (!isAdminUser() || !allowedModals.includes(action.modal))) return;
+  state.view = action.view;
+  if (["products", "ingredients", "extras"].includes(action.catalogMode)) state.recipesMode = action.catalogMode;
+  if (action.view === "config") state.configTab = ["general", "printing", "terminals"].includes(action.configTab) ? action.configTab : "general";
+  state.modal = action.modal ? { type: action.modal } : null;
+  state.productConfig = null;
+  render();
+  (document.querySelector(".modal-card input") || document.querySelector("#main-content"))?.focus({ preventScroll: true });
 }
 
 function renderCashRegister() {
@@ -6334,7 +6584,7 @@ function renderCashSessionSales(session) {
                             <td>${formatDateTime(saleClosedAt(sale))}</td>
                             <td><strong>${escapeHtml(sale.label || "Venta")}</strong></td>
                             <td>${escapeHtml(waiterName(sale.cashierId))}</td>
-                            <td>${escapeHtml(sale.paymentMethod || "Efectivo")}</td>
+                            <td>${escapeHtml(salePaymentLabel(sale))}<div class="row-actions"><button class="secondary-button compact" data-open-modal="sale-detail" data-sale-id="${escapeAttr(sale.id)}" type="button">Ver cuenta</button>${paymentCorrectionButton(sale)}</div></td>
                             <td>${saleDiscountAmount(sale) > 0 ? `-${money.format(saleDiscountAmount(sale))}<small>${escapeHtml(saleDiscount(sale).label)}</small>` : "-"}</td>
                             <td>${money.format(saleIvaAmount(sale))}</td>
                             <td>${money.format(saleTip(sale))}<small>${escapeHtml(saleTipPaymentMethod(sale))}</small></td>
@@ -6771,6 +7021,7 @@ function configTabs() {
   return [
     ["general", "General"],
     ["printing", "Impresion"],
+    ["terminals", "Terminales"],
   ];
 }
 
@@ -6782,7 +7033,7 @@ function printingTabs() {
 }
 
 function activeConfigTab() {
-  return state.configTab === "printing" ? "printing" : "general";
+  return configTabs().some(([id]) => id === state.configTab) ? state.configTab : "general";
 }
 
 function activePrintingTab() {
@@ -6794,7 +7045,7 @@ function isPrintingConfigView() {
 }
 
 function setConfigTab(tab) {
-  state.configTab = tab === "printing" ? "printing" : "general";
+  state.configTab = configTabs().some(([id]) => id === tab) ? tab : "general";
   persist();
   render();
 }
@@ -6813,9 +7064,9 @@ function renderConfig() {
       <section class="board-header">
         <div>
           <h2>Configuracion</h2>
-          <p>Parametros generales e impresion de tickets</p>
+          <p>Parámetros generales, impresión y terminales de pago</p>
         </div>
-        <span class="stat-pill">${active === "printing" ? "Impresion" : "General"}</span>
+        <span class="stat-pill">${escapeHtml(configTabs().find(([id]) => id === active)?.[1] || "General")}</span>
       </section>
       <section class="panel data-grid-wide config-tabs-panel">
         <div class="panel-body">
@@ -6830,9 +7081,40 @@ function renderConfig() {
           </div>
         </div>
       </section>
-      ${active === "printing" ? renderPrinterTest() : renderGeneralConfig()}
+      ${active === "printing" ? renderPrinterTest() : active === "terminals" ? renderPaymentTerminals() : renderGeneralConfig()}
     </div>
   `;
+}
+
+function renderPaymentTerminals() {
+  return `<section class="panel data-grid-wide"><div class="panel-header"><div><h2 class="panel-title">Terminales de pago</h2><p class="panel-kicker">Identifica dónde se realizó cada pago con tarjeta</p></div><span class="stat-pill">${paymentTerminals().filter((terminal) => terminal.active).length} activas</span></div>
+    <div class="panel-body field-grid"><p class="payment-notice">Empiezas con Terminal 1 y Terminal 2. Ponles el nombre que usa tu equipo. Puedes crear más o desactivar las que ya no se utilicen; las ventas anteriores conservarán el nombre registrado.</p>
+      <div class="terminal-grid">${paymentTerminals().map((terminal) => `<form class="terminal-card field-grid" data-terminal-form data-terminal-id="${escapeAttr(terminal.id)}">
+        <span class="shift-status ${terminal.active ? "is-active" : ""}">${terminal.active ? "Activa" : "Inactiva"}</span>
+        <label class="field"><span>Nombre de terminal</span><input name="name" value="${escapeAttr(terminal.name)}" maxlength="60" required /></label>
+        <label class="terminal-toggle"><input name="active" type="checkbox" ${terminal.active ? "checked" : ""} /> Disponible para nuevos pagos</label>
+        <button class="secondary-button" type="submit">Guardar terminal</button></form>`).join("")}</div>
+      <form class="new-terminal-form" data-new-terminal-form><label class="field"><span>Nueva terminal</span><input name="name" placeholder="Ej. Barra · terminal BBVA" maxlength="60" required /></label><button class="primary-button" type="submit">${svg("plus")}Crear terminal</button></form>
+      <p class="muted-text">No conecta con el banco ni guarda números de tarjeta. Las cuentas antiguas sin estos datos se muestran como «sin registrar».</p>
+    </div></section>`;
+}
+
+function savePaymentTerminal(event) {
+  event.preventDefault();
+  if (!isAdminUser()) return;
+  const form = event.currentTarget;
+  const name = String(form.elements.name.value || "").trim().replace(/\s+/g, " ").slice(0, 60);
+  if (!name) { showToast("Escribe un nombre para la terminal."); return; }
+  const terminals = paymentTerminals();
+  const id = form.dataset.terminalId;
+  if (terminals.some((terminal) => terminal.id !== id && normalize(terminal.name) === normalize(name))) { showToast("Ya existe una terminal con ese nombre."); return; }
+  if (id) {
+    const terminal = terminals.find((item) => item.id === id);
+    if (!terminal) return;
+    Object.assign(terminal, { name, active: form.elements.active.checked });
+  } else terminals.push({ id: safeId("terminal"), name, active: true });
+  state.settings = { ...state.settings, paymentTerminals: terminals };
+  persist(); render(); showToast(id ? "Terminal actualizada." : "Terminal creada.");
 }
 
 function renderGeneralConfig() {
@@ -7531,6 +7813,7 @@ function buildPrepaidReceiptText(order) {
     receiptPrintRule(),
     ...(Array.isArray(order.items) ? order.items.flatMap((item) => saleReceiptItemLines(item, totals.ivaRate)) : []),
     receiptPrintRule(),
+    ...(totals.prepaidDiscount.amount > 0 ? [receiptPrintColumns("Consumo antes", receiptPrintMoney(totals.subtotal)), receiptPrintColumns(totals.prepaidDiscount.label, `-${receiptPrintMoney(totals.prepaidDiscount.amount)}`)] : []),
     receiptPrintColumns("Subtotal s/IVA", receiptPrintMoney(totals.netSubtotal)),
     receiptPrintColumns(ivaLabel(totals.ivaRate), receiptPrintMoney(totals.iva)),
     receiptPrintColumns("TOTAL", receiptPrintMoney(totals.total)),
@@ -7584,7 +7867,7 @@ function buildPostpaidReceiptText(sale) {
   const tax = saleTaxBreakdown(sale);
   const orderLabelText = sale.type === "table" ? `Mesa ${sale.tableNumber || ""}`.trim() : "Para llevar";
   const paymentLines = [];
-  if (cardDue > 0) paymentLines.push(receiptPrintColumns("Pago tarjeta", receiptPrintMoney(cardDue)));
+  if (cardDue > 0) paymentLines.push(receiptPrintColumns("Pago tarjeta", receiptPrintMoney(cardDue)), ...receiptPrintCenteredWrap(cardDetailsLabel(payment)));
   if (cashDue > 0) {
     paymentLines.push(receiptPrintColumns("Pago efectivo", receiptPrintMoney(cashReceived || cashDue)));
     paymentLines.push(receiptPrintColumns("Cambio", receiptPrintMoney(changeGiven)));
@@ -8350,7 +8633,7 @@ function orderSearchRecords() {
       date: saleClosedAt(sale) || sale.createdAt || new Date().toISOString(),
       label: sale.label || sale.orderId || "Venta",
       waiter: waiterName(sale.waiterId),
-      payment: sale.paymentMethod || "Efectivo",
+      payment: salePaymentLabel(sale),
       total: saleTotal(sale),
       iva: saleIvaAmount(sale),
       discountAmount: discount.amount,
@@ -8552,6 +8835,7 @@ function renderOrderSearchData() {
                                   ? `
                                     <div class="row-actions">
                                       <button class="secondary-button compact" data-open-modal="sale-detail" data-sale-id="${escapeAttr(record.saleId)}" type="button">${svg("note")}Ver cuenta</button>
+                                      ${paymentCorrectionButton(state.sales.find((sale) => sale.id === record.saleId))}
                                       ${
                                         isAdminUser()
                                           ? `<button class="icon-button compact subtle-danger" data-open-modal="delete-sale" data-sale-id="${escapeAttr(record.saleId)}" type="button" title="Borrar cuenta ${escapeAttr(record.id || record.uid || "")}">${svg("trash")}</button>`
@@ -9128,16 +9412,18 @@ function renderAttendanceHistory(userId = null) {
 function renderAdminAccessQr() {
   if (!isAdminUser()) return "";
   const url = appAccessUrl();
-  const qr = qrSvgFor(url);
-  if (!qr) return "";
+  const qr = url ? qrSvgFor(url) : "";
   return `
     <section class="panel admin-qr-panel">
       <div class="admin-qr-code" aria-label="Codigo QR de acceso a LibrePOS">
-        ${qr}
+        ${qr || "Sin acceso de red"}
       </div>
       <div class="admin-qr-copy">
         <strong>Acceso web</strong>
-        <span>${escapeHtml(url)}</span>
+        ${url ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>` : `<span>${accessInfo.localOnly ? "El servidor sólo acepta conexiones de este equipo. Reinicia LibrePOS para habilitar el acceso por red." : "No se pudo obtener una dirección de red. Comprueba el WiFi del servidor y actualiza las direcciones."}</span>`}
+        <p>Conecta el teléfono a la misma red. Mantén LibrePOS abierto en el servidor. Si no conecta, revisa el firewall y que el WiFi permita comunicación entre dispositivos.</p>
+        ${accessInfo.urls.length > 1 ? `<label>Dirección para el teléfono<select data-access-url>${accessInfo.urls.map((item) => `<option value="${escapeAttr(item)}" ${item === url ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>` : ""}
+        <button class="secondary-button compact" type="button" data-refresh-access>Actualizar direcciones</button>
       </div>
     </section>
   `;
@@ -9401,14 +9687,33 @@ function closeModal() {
 }
 
 function bindEvents() {
+  const openAssistant = () => { state.view = "support"; supportMode = "assistant"; render(); document.querySelector("#help-chat-query")?.focus({ preventScroll: true }); };
+  document.querySelector("[data-open-help]")?.addEventListener("click", openAssistant);
+  document.querySelectorAll("[data-news-guide]").forEach((button) => button.addEventListener("click", () => openHelpArticle(button.dataset.newsGuide)));
+  document.querySelectorAll("[data-support-mode]").forEach((button) => button.addEventListener("click", () => { supportMode = button.dataset.supportMode; render(); }));
+  document.querySelectorAll("[data-help-step]").forEach((button) => button.addEventListener("click", () => showHelpStep(Number(button.dataset.helpStep))));
+  if (state.view === "support" && supportMode === "assistant") bindHelpChat({
+    articles: helpContent.articles,
+    functions: userFunctionOptions.filter((option) => hasUserFunction(currentUser(), option.id)).map((option) => option.id),
+    rerender: render,
+    openArticle: openHelpArticle,
+    openAction: openHelpAction,
+    openLibrary: () => { supportMode = "guides"; render(); },
+  });
+  document.querySelector("[data-refresh-access]")?.addEventListener("click", loadAccessInfo);
+  document.querySelector("[data-access-url]")?.addEventListener("change", (event) => {
+    if (accessInfo.urls.includes(event.target.value)) { accessInfo.preferredUrl = event.target.value; render(); }
+  });
   document.querySelector("[data-apply-update]")?.addEventListener("click", applyUpdate);
   document.querySelectorAll("[data-nav]").forEach((button) => {
     button.addEventListener("click", () => {
       state.view = button.dataset.nav;
+      if (state.view === "profile") loadAccessInfo();
       state.productConfig = null;
       state.modal = null;
       persist();
       render();
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     });
   });
   document.querySelectorAll("[data-nav-scroll]").forEach((button) => {
@@ -9424,6 +9729,7 @@ function bindEvents() {
     button.addEventListener("click", () => {
       state.sessionUserId = null;
       state.activeOrderId = null;
+      resetHelpChat();
       state.productConfig = null;
       state.modal = null;
       persist();
@@ -9454,7 +9760,7 @@ function bindEvents() {
       if (!article) return;
       state.supportArticleId = article.id;
       if (button.closest(".support-related")) {
-        state.supportCategory = article.category;
+        state.supportCategory = "all";
         state.supportSearch = "";
       }
       persist();
@@ -9522,7 +9828,7 @@ function bindEvents() {
     button.addEventListener("click", () => openCheckout(button.dataset.closeOrder));
   });
   document.querySelectorAll("[data-print-prepaid-order]").forEach((button) => {
-    button.addEventListener("click", () => printPrepaidOrderReceipt(button.dataset.printPrepaidOrder));
+    button.addEventListener("click", () => { state.modal = { type: "prepaid", orderId: button.dataset.printPrepaidOrder }; persist(); render(); });
   });
   document.querySelectorAll("[data-print-prepaid-sale]").forEach((button) => {
     button.addEventListener("click", () => printPrepaidSaleReceipt(button.dataset.printPrepaidSale));
@@ -9540,7 +9846,28 @@ function bindEvents() {
   checkoutForm?.addEventListener("input", updateCheckoutPaymentPreview);
   checkoutForm?.addEventListener("change", updateCheckoutPaymentPreview);
   if (checkoutForm) updateCheckoutPaymentPreview();
-  document.querySelector("[data-adjust-tip-form]")?.addEventListener("submit", saveSaleTip);
+  const tipForm = document.querySelector("[data-adjust-tip-form]");
+  tipForm?.addEventListener("submit", saveSaleTip);
+  const updateTipCardFields = () => {
+    const sale = state.sales.find((item) => item.id === tipForm?.dataset.saleId);
+    if (!sale) return;
+    const amount = Math.max(0, Number(tipForm.elements.tipAmount.value) || 0);
+    const amounts = paymentAllocation(saleSubtotal(sale), amount, sale.paymentMethod === "Tarjeta" ? "Tarjeta" : "Efectivo", tipForm.querySelector('input[name="tipPaymentMethod"]:checked')?.value || "Efectivo");
+    toggleCardFields(tipForm, amounts.cardDue);
+    tipForm.querySelector("[data-tip-cash]").hidden = amounts.cashDue <= 0;
+    tipForm.elements.cashReceived.disabled = amounts.cashDue <= 0;
+  };
+  tipForm?.addEventListener("input", updateTipCardFields);
+  if (tipForm) updateTipCardFields();
+  const correctionForm = document.querySelector("[data-correct-payment-form]");
+  correctionForm?.addEventListener("submit", savePaymentCorrection);
+  correctionForm?.addEventListener("input", updateCorrectionPreview);
+  if (correctionForm) updateCorrectionPreview();
+  const prepaidForm = document.querySelector("[data-prepaid-form]");
+  prepaidForm?.addEventListener("submit", savePrepaid);
+  prepaidForm?.addEventListener("change", updatePrepaidPreview);
+  if (prepaidForm) updatePrepaidPreview();
+  document.querySelectorAll("[data-terminal-form], [data-new-terminal-form]").forEach((form) => form.addEventListener("submit", savePaymentTerminal));
   document.querySelector("[data-delete-sale-form]")?.addEventListener("submit", deleteSaleFromForm);
   document.querySelectorAll("[data-clear-alert]").forEach((button) => {
     button.addEventListener("click", () => clearOrderAlert(button.dataset.clearAlert));
@@ -9657,6 +9984,19 @@ function bindEvents() {
   menuProductForm?.addEventListener("keydown", preventMenuProductEnterSubmit);
   menuProductForm?.addEventListener("input", updateMenuProductFormPreviewFromEvent);
   menuProductForm?.addEventListener("change", updateMenuProductFormPreviewFromEvent);
+  menuProductForm?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-recipe-row]");
+    if (!button) return;
+    const row = button.closest(".recipe-row");
+    const list = row?.parentElement;
+    if (!list) return;
+    const variant = button.closest("[data-variant-recipe]");
+    if (list.querySelectorAll(".recipe-row").length > 1) row.remove();
+    else row.querySelectorAll("input, select").forEach((field) => { field.value = ""; });
+    renumberRecipeRows(list);
+    if (variant) updateVariantSummary(variant);
+    list.querySelector("select")?.focus();
+  });
   if (menuProductForm) updateMenuProductPricePreview(menuProductForm);
   document.querySelectorAll("[data-add-recipe-row]").forEach((button) => {
     button.addEventListener("click", () => addRecipeRow(button));
@@ -10073,29 +10413,8 @@ function checkoutDiscountOption(code) {
   return CHECKOUT_DISCOUNT_OPTIONS.find((option) => option.code === code) || CHECKOUT_DISCOUNT_OPTIONS[0];
 }
 
-function calculateCheckoutDiscount(subtotal, code = "none", ivaRate = 0) {
-  const originalSubtotal = roundCurrency(Math.max(0, Number(subtotal) || 0));
-  const option = checkoutDiscountOption(code);
-  const amount = roundCurrency(originalSubtotal * option.rate);
-  const discountedSubtotal = roundCurrency(Math.max(0, originalSubtotal - amount));
-  const originalTax = taxBreakdownForGross(originalSubtotal, ivaRate);
-  const discountedTax = taxBreakdownForGross(discountedSubtotal, ivaRate);
-  return {
-    code: option.code,
-    type: option.type,
-    label: option.label,
-    rate: option.rate,
-    percent: roundCurrency(option.rate * 100),
-    amount,
-    netAmount: roundCurrency(Math.max(0, originalTax.netSubtotal - discountedTax.netSubtotal)),
-    ivaAmount: roundCurrency(Math.max(0, originalTax.iva - discountedTax.iva)),
-    originalSubtotal,
-    subtotal: discountedSubtotal,
-  };
-}
-
 function readCheckoutDiscount(subtotal, ivaRate, form = document.querySelector("[data-checkout-form]")) {
-  const code = form?.querySelector?.("[data-checkout-discount]")?.value || "none";
+  const code = getOrder(form?.dataset?.orderId)?.prepaidDiscount?.code || "none";
   return calculateCheckoutDiscount(subtotal, code, ivaRate);
 }
 
@@ -10657,6 +10976,7 @@ function updateCheckoutPaymentPreview(event) {
   if (discountSubtotal) discountSubtotal.textContent = money.format(payment.subtotal);
   const cashFields = form.querySelector("[data-cash-fields]");
   cashFields?.classList.toggle("is-hidden", payment.cashDue <= 0);
+  toggleCardFields(form, payment.cardDue);
   const cashDue = form.querySelector("[data-cash-due]");
   const cashTip = form.querySelector("[data-cash-tip]");
   const cashChange = form.querySelector("[data-cash-change]");
@@ -10685,6 +11005,8 @@ function confirmCheckoutPayment(event) {
     showToast(`Faltan ${money.format(payment.cashDue - payment.cashReceived)} en efectivo.`);
     return;
   }
+  try { Object.assign(payment, cardFieldsValue(form, payment.cardDue)); }
+  catch (error) { showToast(error.message); return; }
   const pending = order.items.some((item) => item.status === "pending");
   const details = [
     `Total: ${money.format(payment.total)}`,
@@ -10694,6 +11016,7 @@ function confirmCheckoutPayment(event) {
     `${ivaLabel(payment.ivaRate)}: ${money.format(payment.iva)}`,
     `Pago principal: ${payment.paymentMethod}`,
     payment.cardDue > 0 ? `A tarjeta: ${money.format(payment.cardDue)}` : "",
+    payment.cardDue > 0 ? cardDetailsLabel(payment) : "",
     payment.cashDue > 0 ? `A efectivo: ${money.format(payment.cashDue)}` : "",
     payment.cashDue > 0 ? `Recibido: ${money.format(payment.cashReceived)}` : "",
     payment.cashDue > 0 ? `Cambio: ${money.format(payment.changeGiven)}` : "",
@@ -10748,7 +11071,7 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
     };
   }
   const paymentMethod = typeof payment === "string" ? payment : state.paymentMethod || "Efectivo";
-  const discount = calculateCheckoutDiscount(baseTotals.subtotal, "none", baseTotals.ivaRate);
+  const discount = calculateCheckoutDiscount(baseTotals.subtotal, order.prepaidDiscount?.code || "none", baseTotals.ivaRate);
   const tip = readCheckoutTip(discount.subtotal);
   tip.paymentMethod = tip.paymentMethod || paymentMethod;
   const cashDue = roundCurrency(
@@ -10785,6 +11108,8 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   if (!order) return;
   const baseTotals = calculateTotals(order);
   const checkout = normalizeCheckoutPayment(order, payment, baseTotals);
+  try { Object.assign(checkout, resolveCardDetails(checkout.cardDue, checkout.terminalId, checkout.cardType, paymentTerminals())); }
+  catch (error) { showToast(error.message); return; }
   const paymentMethod = checkout.paymentMethod;
   const orderNumber = ensureOrderNumber(order);
   if (!order.items.length) {
@@ -10800,6 +11125,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     order.payment = {
       uid: paymentUid,
       method: paymentMethod,
+      terminalId: checkout.terminalId, terminalName: checkout.terminalName, cardType: checkout.cardType,
       cashDue: checkout.cashDue,
       cardDue: checkout.cardDue,
       cashReceived: checkout.cashReceived,
@@ -10845,6 +11171,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
   const paymentRecord = {
     uid: paymentUid,
     method: paymentMethod,
+    terminalId: checkout.terminalId, terminalName: checkout.terminalName, cardType: checkout.cardType,
     cashDue: checkout.cashDue,
     cardDue: checkout.cardDue,
     cashReceived: checkout.cashReceived,
@@ -10968,6 +11295,13 @@ function saveSaleTip(event) {
   const subtotal = saleSubtotal(sale);
   const tax = saleTaxBreakdown(sale);
   const now = new Date().toISOString();
+  const amounts = paymentAllocation(subtotal, amount, sale.paymentMethod === "Tarjeta" ? "Tarjeta" : "Efectivo", paymentMethod);
+  let card;
+  try { card = cardFieldsValue(event.currentTarget, amounts.cardDue); }
+  catch (error) { showToast(error.message); return; }
+  const received = amounts.cashDue > 0 ? Number(form.get("cashReceived")) : 0;
+  if (!Number.isFinite(received) || received < amounts.cashDue) { showToast(`El efectivo recibido debe cubrir ${money.format(amounts.cashDue)}.`); return; }
+  const previous = { payment: structuredClone(sale.payment || {}), tip: structuredClone(sale.tip || {}), total: saleTotal(sale) };
   sale.tip = {
     ...(sale.tip || {}),
     mode: "fixed",
@@ -10993,6 +11327,12 @@ function saveSaleTip(event) {
     total: roundCurrency(subtotal + amount),
   };
   sale.total = sale.totals.total;
+  sale.payment = { ...(sale.payment || {}), ...amounts, ...card, cashReceived: roundCurrency(received), changeGiven: roundCurrency(received - amounts.cashDue) };
+  sale.tipHistory = [...(sale.tipHistory || []), { before: previous, after: { payment: structuredClone(sale.payment), tip: structuredClone(sale.tip), total: sale.total }, createdAt: now, createdBy: currentUser().id }];
+  sale.postpaidReceiptPrintedAt = "";
+  sale.postpaidReceiptWarningDismissedAt = "";
+  const sourceOrder = state.orders.find((item) => item.id === sale.orderId);
+  if (sourceOrder) { sourceOrder.tip = structuredClone(sale.tip); sourceOrder.payment = structuredClone(sale.payment); }
   sale.tipAdjustedAt = now;
   sale.tipAdjustedBy = currentUser().id;
   state.modal = null;
@@ -12462,7 +12802,7 @@ function uniqueMenuProductId(name) {
 
 function preventMenuProductEnterSubmit(event) {
   if (event.key !== "Enter") return;
-  if (event.target?.tagName === "TEXTAREA") return;
+  if (!["INPUT", "SELECT"].includes(event.target?.tagName)) return;
   event.preventDefault();
 }
 
@@ -12488,6 +12828,7 @@ function renumberRecipeRows(container) {
   [...(container?.querySelectorAll(".recipe-row") || [])].forEach((row, index) => {
     const label = row.querySelector(".field span");
     if (label) label.textContent = `Insumo ${index + 1}`;
+    row.querySelector("[data-remove-recipe-row]")?.setAttribute("aria-label", `Quitar insumo ${index + 1} de la receta`);
   });
 }
 
@@ -13042,19 +13383,15 @@ function applyFullInventoryCount(event) {
   }
   const form = event.currentTarget;
   updateFullInventoryPreview(form);
-  const adjustments = [];
-  form.querySelectorAll("[data-inventory-count-row]").forEach((row) => {
-    const input = row.querySelector("input");
-    const rawValue = String(input?.value || "").trim();
-    if (!rawValue) return;
-    const item = currentInventory().find((entry) => entry.id === row.dataset.itemId);
-    if (!item) return;
-    const expected = Number(item.qty) || 0;
-    const counted = Math.max(0, Number(rawValue) || 0);
-    const diff = counted - expected;
-    if (Math.abs(diff) < 0.0005) return;
-    adjustments.push({ item, expected, counted, diff });
-  });
+  // currentInventory normalizes into a new array: call it once so every
+  // confirmed adjustment refers to the inventory that will be persisted.
+  const adjustments = inventoryCountAdjustments(
+    currentInventory(),
+    [...form.querySelectorAll("[data-inventory-count-row]")].map((row) => ({
+      itemId: row.dataset.itemId,
+      value: row.querySelector("input")?.value,
+    })),
+  );
   if (!adjustments.length) {
     showToast("No hay descuadros para aplicar.");
     return;

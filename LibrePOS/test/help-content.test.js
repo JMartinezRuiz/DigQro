@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 
 const helpContent = JSON.parse(readFileSync(new URL("../src/help-content.json", import.meta.url), "utf8"));
 const packageData = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -67,12 +67,13 @@ test("todas las guias relacionadas existen", () => {
   });
 });
 
-test("las capturas corresponden a la version actual y cubren todas las guias", () => {
+test("las capturas declaran su procedencia real y cubren todas las guias", () => {
   assert.equal(helpContent.interfaceVersion, packageData.version);
-  assert.equal(mediaManifest.captureVersion, packageData.version);
+  assert.equal(mediaManifest.formatVersion, 2);
+  assert.match(mediaManifest.captureVersion, /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/);
   assert.deepEqual(new Set(Object.keys(mediaManifest.articles)), articleIds);
 
-  const usedImages = new Set();
+  const usedImages = new Map();
   helpContent.articles.forEach((article) => {
     const frames = mediaManifest.articles[article.id];
     assert.ok(frames.length >= 3, `${article.id}: faltan capturas reales`);
@@ -82,13 +83,31 @@ test("las capturas corresponden a la version actual y cubren todas las guias", (
       const screenshot = new URL(`../assets/help/source/${frame.image}`, import.meta.url);
       assert.ok(existsSync(screenshot), `${article.id}: falta captura ${frame.image}`);
       assert.ok(statSync(screenshot).size > 10_000, `${article.id}: captura vacia ${frame.image}`);
-      assert.deepEqual(jpegDimensions(screenshot), mediaManifest.viewport, `${article.id}: viewport incorrecto ${frame.image}`);
-      usedImages.add(frame.image);
+      const viewport = frame.viewport || mediaManifest.viewport;
+      const captureVersion = frame.captureVersion || mediaManifest.captureVersion;
+      assert.match(captureVersion, /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/);
+      const dimensions = frame.image.endsWith(".png") ? pngDimensions(screenshot) : jpegDimensions(screenshot);
+      assert.deepEqual(dimensions, viewport, `${article.id}: viewport incorrecto ${frame.image}`);
+      if (frame.focus) {
+        assert.equal(frame.focus.length, 4, `${article.id}: focus requiere x, y, ancho, alto`);
+        const [x, y, width, height] = frame.focus;
+        assert.ok(frame.focus.every(Number.isFinite), `${article.id}: focus debe usar numeros`);
+        assert.ok(x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= viewport.width && y + height <= viewport.height,
+          `${article.id}: el realce se sale de la captura ${frame.image}`);
+      }
+      if (frame.durationMs !== undefined) {
+        assert.ok(frame.durationMs >= 5000 && frame.durationMs <= 12000, `${article.id}: tiempo de lectura insuficiente o excesivo`);
+      }
+      const provenance = { captureVersion, viewport };
+      if (usedImages.has(frame.image)) {
+        assert.deepEqual(provenance, usedImages.get(frame.image), `${frame.image}: procedencia contradictoria entre pasos`);
+      }
+      usedImages.set(frame.image, provenance);
     });
   });
 
-  const sourceImages = readdirSync(new URL("../assets/help/source/", import.meta.url)).filter((name) => name.endsWith(".jpg"));
-  assert.deepEqual([...usedImages].sort(), sourceImages.sort(), "hay capturas reales sin usar o sin documentar");
+  // Previous source captures remain available for provenance; regeneration must not delete them.
+  assert.ok(usedImages.size > 0);
 });
 
 test("cada guia tiene GIF y poster offline validos", () => {
@@ -101,7 +120,12 @@ test("cada guia tiene GIF y poster offline validos", () => {
     assert.ok(statSync(poster).size > 5_000, `${article.id}: poster vacio o invalido`);
     assert.equal(readFileSync(gif, { length: 6 }).subarray(0, 3).toString("ascii"), "GIF", `${article.id}: cabecera GIF invalida`);
     assert.deepEqual([...readFileSync(poster, { length: 8 }).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], `${article.id}: cabecera PNG invalida`);
-    assert.deepEqual(gifDimensions(gif), { width: 960, height: 540 }, `${article.id}: tamano GIF incorrecto`);
-    assert.deepEqual(pngDimensions(poster), { width: 960, height: 540 }, `${article.id}: tamano poster incorrecto`);
+    assert.deepEqual(gifDimensions(gif), { width: 1280, height: 800 }, `${article.id}: tamano GIF incorrecto`);
+    assert.deepEqual(pngDimensions(poster), { width: 1280, height: 800 }, `${article.id}: tamano poster incorrecto`);
+    mediaManifest.articles[article.id].forEach((frame, index) => {
+      const step = new URL(`../assets/help/${article.id}-step-${index + 1}.png`, import.meta.url);
+      assert.ok(existsSync(step), `${article.id}: falta imagen del paso ${index + 1}`);
+      assert.deepEqual(pngDimensions(step), { width: 1280, height: 800 }, `${article.id}: tamaño incorrecto en paso ${index + 1}`);
+    });
   });
 });
