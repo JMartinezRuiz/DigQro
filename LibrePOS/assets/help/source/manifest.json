@@ -576,18 +576,29 @@
     ],
     "checkout-discounts-tips": [
       {
-        "image": "sale-order.jpg",
-        "caption": "Desde el ticket, pulsa Finalizar",
-        "focus": [
-          51,
-          672,
-          137,
-          46
-        ]
+        "image": "pending-order-discount.jpg",
+        "caption": "Asigna el descuento desde la cuenta abierta",
+        "captureVersion": "2.0.1",
+        "capturedAt": "2026-09-26",
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión",
+        "viewport": {
+          "width": 1270,
+          "height": 714
+        },
+        "durationMs": 7000
       },
       {
-        "image": "sale-price.jpg",
-        "caption": "Usa Precio si necesitas revisar subtotal, IVA y total antes de cobrar"
+        "image": "pending-prepaid-preview.jpg",
+        "caption": "Consulta Total para el cliente y el ticket antes de cobrar",
+        "captureVersion": "2.0.1",
+        "capturedAt": "2026-09-26",
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión",
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "durationMs": 7000,
+        "hint": "En móvil, abre Prepago desde la barra inferior"
       },
       {
         "image": "v201-checkout-card.jpg",
@@ -607,8 +618,16 @@
         ]
       },
       {
-        "image": "sale-checkout.jpg",
-        "caption": "Selecciona descuento y método de pago"
+        "image": "pending-prepaid-checkout.jpg",
+        "caption": "Comprueba el descuento preparado y el total al cobrar",
+        "captureVersion": "2.0.1",
+        "capturedAt": "2026-09-26",
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión",
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "durationMs": 7000
       },
       {
         "image": "sale-checkout-discount-tip.jpg",
@@ -635,31 +654,43 @@
     ],
     "prepaid-postpaid": [
       {
-        "image": "v201-prepaid.jpg",
-        "caption": "En Prepago y descuento revisa el importe antes de cobrar",
+        "image": "pending-order-discount.jpg",
+        "caption": "Elige Descuento de la cuenta antes de Finalizar",
         "captureVersion": "2.0.1",
         "capturedAt": "2026-09-26",
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión",
         "viewport": {
-          "width": 1280,
-          "height": 720
+          "width": 1270,
+          "height": 714
         },
-        "durationMs": 7000
+        "durationMs": 7000,
+        "hint": "Se guarda al elegir y se incluye en el prepago"
       },
       {
-        "image": "v201-prepaid.jpg",
-        "caption": "Guarda o imprime; la orden permanece abierta",
+        "image": "pending-prepaid-preview.jpg",
+        "caption": "Revisa el descuento y el total en el ticket antes de imprimir",
         "captureVersion": "2.0.1",
         "capturedAt": "2026-09-26",
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión",
         "viewport": {
           "width": 1280,
           "height": 720
         },
         "durationMs": 7000,
-        "hint": "El descuento se reutiliza al cobrar, sin aplicarlo dos veces"
+        "hint": "Guarda el prepago o usa Guardar e imprimir; la cuenta sigue abierta"
       },
       {
-        "image": "sale-checkout.jpg",
-        "caption": "Finaliza el cobro para cerrar la cuenta"
+        "image": "pending-prepaid-checkout.jpg",
+        "caption": "Continúa al cobro con el descuento ya preparado",
+        "captureVersion": "2.0.1",
+        "capturedAt": "2026-09-26",
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión",
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "durationMs": 7000,
+        "hint": "El descuento se aplica una sola vez"
       },
       {
         "image": "data-postpaid-pending.jpg",
@@ -967,6 +998,24 @@
         "caption": "Marca únicamente Mesero, Cocina, Caja o Admin necesarios"
       },
       {
+        "image": "pending-payment-permission.jpg",
+        "caption": "Configura el permiso de pagos; Caja empieza sin permiso",
+        "captureVersion": "2.0.1",
+        "capturedAt": "2026-09-26",
+        "viewport": {
+          "width": 1280,
+          "height": 720
+        },
+        "durationMs": 8000,
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión",
+        "focus": [
+          333,
+          426,
+          602,
+          248
+        ]
+      },
+      {
         "image": "login.jpg",
         "caption": "Cierra sesión y prueba la nueva cuenta"
       },
@@ -1042,6 +1091,18 @@
       }
     ],
     "correct-payment": [
+      {
+        "image": "pending-payment-scroll.jpg",
+        "caption": "Desplaza la tabla hasta Ver cuenta y Corregir pago",
+        "captureVersion": "2.0.1",
+        "capturedAt": "2026-09-26",
+        "viewport": {
+          "width": 1270,
+          "height": 714
+        },
+        "durationMs": 8000,
+        "sourceRevision": "Desarrollo de 2.0.2 sobre la base 2.0.1, capturado antes del cambio de versión"
+      },
       {
         "image": "v201-sale-card.jpg",
         "caption": "Abre Ver cuenta y comprueba folio, método y total",

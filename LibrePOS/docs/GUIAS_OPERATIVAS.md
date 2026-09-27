@@ -1,6 +1,6 @@
 # Guías operativas de LibrePOS
 
-Interfaz 2.0.1 · Contenido 2026.09.26
+Interfaz 2.0.2 · Contenido 2026.09.26
 
 La misma referencia está disponible en Ayuda → Tutoriales, con capturas y GIFs sin conexión a Internet. Los ejemplos son ficticios. Consulta la versión de cada captura; los pasos escritos describen la interfaz vigente.
 
@@ -599,9 +599,9 @@ Para: Caja, Mesero, Administrador. Tiempo orientativo: 5 min.
 
 ### Pasos
 
-1. **Abre Finalizar.** Revisa el total y cualquier aviso de productos sin comandar. Efecto: Cerrar convierte la orden en una venta cobrada.
+1. **Prepara el descuento antes de cobrar.** En la cuenta abierta, elige Descuento de la cuenta junto al total. Se guarda al seleccionar y actualiza el importe en ese momento; no necesitas pulsar Finalizar para decir al cliente cuánto debe pagar. Efecto: El total y el prepago incorporan el descuento antes del cierre.
 
-2. **Selecciona descuento.** Si hay descuento guardado en prepago, revisa Preparado en prepago y usa Revisar prepago para modificarlo. Si aún no lo preparaste, elige Sin descuento, fidelidad 10/15/20% o descuento locatario 10% en el formulario. Efecto: El descuento reduce consumo e IVA de forma proporcional y queda registrado en Datos y ticket.
+2. **Revisa prepago y abre Finalizar.** Abre Prepago y descuento para ver el ticket completo y Total para el cliente. También puedes cambiar Descuento del prepago, comprobar el resultado y usar Guardar prepago, Guardar e imprimir o Continuar al cobro. En Finalizar, Revisar prepago permite volver a esa vista. Efecto: El mismo descuento se reutiliza al cobrar; no se aplica dos veces.
 
 3. **Elige método de pago.** Selecciona Efectivo o Tarjeta para el consumo. En efectivo captura lo recibido; si consumo o propina lleva tarjeta, selecciona la terminal y Crédito o Débito. Efecto: El método alimenta el corte de caja.
 
@@ -618,7 +618,7 @@ Para: Caja, Mesero, Administrador. Tiempo orientativo: 5 min.
 ### Si algo no funciona
 
 - **No puedo confirmar el pago:** Revisa efectivo suficiente y, si cualquier parte va con tarjeta, terminal activa y Crédito o Débito. Confirma que la caja esté abierta.
-- **Ya cerré con el método equivocado:** Usa Corregir pago desde Caja o el detalle de la venta. No abras otra cuenta ni borres la venta: conserva total y registra motivo. Después del corte necesita administrador.
+- **Ya cerré con el método equivocado:** Usa Corregir pago desde Caja o el detalle de la venta. No abras otra cuenta ni borres la venta: conserva total y registra motivo. Por defecto solo administración puede corregir; puede conceder el permiso desde Usuarios → Editar → Permiso para corregir pagos.
 
 ### Comprueba antes de terminar
 
@@ -643,28 +643,30 @@ Relacionadas: [Cómo corregir el pago de una cuenta cerrada](#correct-payment) �
 
 ## Cuándo imprimir ticket prepago y postpago
 
-Entrega la cuenta adecuada antes o después del cobro y reimprímela cuando sea necesario.
+Consulta el total con descuento y el ticket antes de imprimir o cobrar. El postpago refleja el cierre.
 
 Para: Mesero, Caja, Administrador. Tiempo orientativo: 4 min.
 
 ### Antes de empezar
 
-- Tener una impresora de tickets seleccionada.
+- Para imprimir, tener una impresora de tickets seleccionada. Consultar el total y guardar el descuento no requiere impresora.
 - La orden debe contener productos.
 
 ### Pasos
 
-1. **Usa prepago antes de cobrar.** Desde la cuenta abre Prepago y descuento. Selecciona el descuento, revisa el total y usa Guardar e imprimir; también puedes Guardar prepago sin imprimir o Continuar al cobro. Efecto: Guarda el descuento en la orden y lo muestra en prepago. Al cobrar se reutiliza una sola vez; la orden sigue abierta.
+1. **Selecciona el descuento en la cuenta.** En Venta, abre la cuenta y elige Descuento de la cuenta junto al total. Se guarda al seleccionar y muestra cuánto debe pagar el cliente sin abrir Finalizar. Sin descuento retira el descuento existente. En móvil, toca Prepago en la barra inferior de Venta. Efecto: Afecta consumo e IVA; conserva abierta la cuenta.
 
-2. **No cierres para obtener prepago.** El prepago puede imprimirse con la orden abierta. Efecto: La mesa continúa operativa hasta confirmar el pago.
+2. **Visualiza el prepago antes de imprimir.** Pulsa Prepago y descuento desde la cuenta, Mesas, para llevar o el registro abierto en Datos. Total para el cliente aparece arriba y Así queda el ticket muestra productos, descuento, IVA y total. Cambiar Descuento del prepago actualiza ambos al instante. Efecto: Esta vista no imprime ni cobra. Un cambio de descuento aquí permanece pendiente hasta guardarlo; cerrar la ventana lo descarta.
 
-3. **Cobra la cuenta.** Registra método, descuento y propina y confirma el cierre. Efecto: Solo entonces existe el postpago definitivo.
+3. **Guarda el importe confirmado.** Usa Guardar prepago para conservarlo sin imprimir, Guardar e imprimir para enviarlo al papel o Continuar al cobro para pasar a Finalizar con el descuento guardado. Si solo estás consultando, puedes cerrar la vista sin modificar la cuenta. Efecto: La impresión y el cobro usan el descuento de la cuenta, una sola vez.
 
-4. **Imprime postpago desde Datos.** Después del cobro entra en Datos, filtra Postpago pendiente y pulsa Imprimir postpago en la cuenta correcta. Efecto: El postpago contiene la propina y los datos finales; si falla, el aviso permanece pendiente.
+4. **Cobra la cuenta.** Registra método y propina, revisa el descuento preparado y confirma el cierre. Si debes cambiarlo, usa Revisar prepago. Efecto: Solo entonces existe el postpago definitivo.
 
-5. **Reimprime desde Datos.** Busca el folio. Usa Reimprimir en Prepago o Imprimir/Reimprimir postpago según la columna. Efecto: Reimprimir no crea otra venta ni modifica inventario.
+5. **Imprime postpago desde Datos.** Después del cobro entra en Datos, filtra Postpago pendiente y pulsa Imprimir postpago en la cuenta correcta. Efecto: El postpago contiene la propina y los datos finales; si falla, el aviso permanece pendiente.
 
-6. **Omite avisos conscientemente.** Si el prepago fue suficiente, quita el aviso postpago individual o por filtro. Efecto: Solo elimina el aviso; la venta permanece intacta.
+6. **Reimprime desde Datos.** Busca el folio. Usa Reimprimir en Prepago o Imprimir/Reimprimir postpago según la columna. Efecto: Reimprimir no crea otra venta ni modifica inventario.
+
+7. **Omite avisos conscientemente.** Si el prepago fue suficiente, quita el aviso postpago individual o por filtro. Efecto: Solo elimina el aviso; la venta permanece intacta.
 
 ### Ejemplo
 
@@ -674,12 +676,14 @@ Para: Mesero, Caja, Administrador. Tiempo orientativo: 4 min.
 
 - **El prepago no coincide con el cobro:** Comprueba si añadiste o quitaste productos después de imprimir. Revisa el descuento guardado y recuerda que el prepago no incluye una propina futura.
 - **El postpago vuelve a aparecer pendiente:** Una corrección de pago invalida el comprobante anterior. Reimprime el postpago corregido; quitar el aviso no imprime ni elimina la venta.
+- **Cerré la vista y no se guardó el descuento:** En la cuenta principal se guarda al seleccionar. Dentro de la vista previa, el cambio es un borrador: usa Guardar prepago, Guardar e imprimir o Continuar al cobro. Cerrar sin guardar conserva el descuento anterior.
 
 ### Comprueba antes de terminar
 
 - El tipo de ticket corresponde al momento del servicio.
 - El descuento se guardó antes de cobrar si debía verse en prepago.
 - La última impresión coincide con los datos de la cuenta.
+- El importe visible en Total para el cliente y el TOTAL del ticket coinciden antes de imprimir.
 
 ### Efectos de la operación
 
@@ -720,7 +724,7 @@ Para: Caja, Administrador. Tiempo orientativo: 4 min.
 
 5. **Documenta y cierra.** Si existe diferencia, escribe una nota clara y confirma el cierre. Efecto: Después del corte algunas correcciones de propina quedan bloqueadas.
 
-6. **Corrige un método equivocado.** En Datos busca la cuenta cerrada y pulsa Corregir pago. Selecciona el pago de consumo y propina, indica efectivo recibido o terminal y tipo de tarjeta, escribe el motivo, guarda y confirma. Caja puede hacerlo en la caja abierta; administración también después del corte. Efecto: Conserva el total y el efectivo contado; actualiza importes por método, esperado y diferencia. Guarda historial y deja el postpago pendiente de reimpresión.
+6. **Corrige un método equivocado.** En Datos busca la cuenta cerrada y pulsa Corregir pago. Selecciona el pago de consumo y propina, indica efectivo recibido o terminal y tipo de tarjeta, escribe el motivo, guarda y confirma. Por defecto solo administración puede corregir, incluso con la caja abierta. Puede autorizar a otro usuario con función Caja desde Usuarios → Editar → Permiso para corregir pagos. Efecto: Conserva el total y el efectivo contado; actualiza importes por método, esperado y diferencia. Guarda historial y deja el postpago pendiente de reimpresión.
 
 ### Ejemplo
 
@@ -1085,7 +1089,7 @@ Relacionadas: [Cómo corregir el pago de una cuenta cerrada](#correct-payment) �
 
 ## Cómo crear usuarios y asignar funciones
 
-Da a cada persona solo el acceso necesario para su trabajo.
+Configura funciones y el permiso individual para corregir pagos. Por defecto, solo administración puede corregirlos.
 
 Para: Administrador. Tiempo orientativo: 4 min.
 
@@ -1102,24 +1106,28 @@ Para: Administrador. Tiempo orientativo: 4 min.
 
 3. **Asigna funciones.** Selecciona solo Mesero, Cocina, Caja o Administrador según sus responsabilidades. Efecto: Las funciones controlan qué secciones y operaciones puede usar.
 
-4. **Prueba el acceso.** Inicia sesión con la cuenta y confirma que vea únicamente lo necesario. Efecto: Detecta permisos excesivos o faltantes antes de operar.
+4. **Configura la corrección de pagos.** En Nuevo usuario o Editar, busca Permiso para corregir pagos. Deja Sin permiso para mantener la restricción a administradores. Para una persona con función Caja puedes elegir Solo caja abierta o Cualquier caja (incluye cortes cerrados). Pulsa Guardar cambios al editar. Efecto: El permiso es individual. Los administradores siempre tienen acceso; una persona con función Caja no lo obtiene automáticamente.
 
-5. **Mantén la cuenta.** Usa Editar, Resetear clave o Más acciones para desactivar el usuario cuando corresponda. Efecto: Desactivar conserva historial pero impide nuevos accesos.
+5. **Prueba el acceso.** Inicia sesión con la cuenta y confirma que vea únicamente lo necesario. Efecto: Detecta permisos excesivos o faltantes antes de operar.
+
+6. **Mantén la cuenta.** Usa Editar, Resetear clave o Más acciones para desactivar el usuario cuando corresponda. Efecto: Desactivar conserva historial pero impide nuevos accesos.
 
 ### Ejemplo
 
-**Una persona con dos funciones.** Una persona que atiende mesas y cobra puede tener Mesero y Caja sin Administrador. Comprueba su acceso con su usuario y conserva la atribución de acciones por persona.
+**Cobrar sin poder corregir pagos.** Una persona con función Caja y Sin permiso puede cobrar, pero no cambiar el pago de una venta cerrada. Si administración le concede Solo caja abierta podrá corregir ventas del turno actual. Al volver a Sin permiso pierde ese acceso también en las sesiones que ya tenía abiertas.
 
 ### Si algo no funciona
 
 - **No aparece una sección:** Revisa las funciones asignadas y que el usuario esté activo. No compartas admin para resolver una falta de permiso; solicita el acceso adecuado.
 - **No entra después de un cambio de clave:** Comprueba usuario exacto, nueva contraseña y mismo servidor. Tras restauraciones, una exportación JSON de interfaz puede no contener credenciales completas; usa la copia completa del servidor.
+- **Tiene Caja pero no puede corregir:** Es el comportamiento predeterminado. Solo administración configura el campo Permiso para corregir pagos. Comprueba también el alcance de caja abierta o cualquier caja y que el usuario haya iniciado sesión con el servidor.
 
 ### Comprueba antes de terminar
 
 - Cada persona tiene su identidad propia.
 - Sólo tiene las funciones necesarias.
 - Se comprobó el acceso y se conserva un administrador activo.
+- Los usuarios existentes de Caja quedan sin permiso de corrección salvo concesión explícita.
 
 ### Efectos de la operación
 
@@ -1132,7 +1140,7 @@ Para: Administrador. Tiempo orientativo: 4 min.
 
 **Resultado esperado:** La persona accede con su propia cuenta y solo puede realizar las tareas autorizadas.
 
-Relacionadas: [Cómo abrir y cerrar caja](#cash-daily) · [Cómo abrir una mesa o pedido para llevar](#open-order) · [Cómo comandar: digital o digital + impresa](#command-order) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete)
+Relacionadas: [Cómo abrir y cerrar caja](#cash-daily) · [Cómo abrir una mesa o pedido para llevar](#open-order) · [Cómo comandar: digital o digital + impresa](#command-order) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo corregir el pago de una cuenta cerrada](#correct-payment)
 
 <a id="kitchen-flow"></a>
 
@@ -1306,12 +1314,12 @@ Para: Caja, Administrador. Tiempo orientativo: 6 min.
 ### Antes de empezar
 
 - Tener la venta identificada por folio, fecha e importe y el comprobante real.
-- Caja puede corregir ventas de la caja abierta; un administrador también puede corregir cortes cerrados.
+- Por defecto solo un administrador puede corregir pagos. Otro usuario necesita función Caja y un permiso explícito: Solo caja abierta o Cualquier caja (incluye cortes cerrados).
 - Si hay importe con tarjeta, debe existir una terminal activa.
 
 ### Pasos
 
-1. **Localiza la venta.** En Caja, o en Datos si tienes acceso, busca la cuenta y abre Ver cuenta. Comprueba folio, productos, hora y total. Efecto: Evita cambiar otra venta de importe parecido.
+1. **Localiza la venta.** En Caja, o en Datos si tienes acceso, busca la cuenta y abre Ver cuenta. Comprueba folio, productos, hora y total. Si no ves las últimas columnas, usa Desplazar tabla: arrastra la barra o pulsa las flechas izquierda/derecha encima de las filas. Efecto: Evita cambiar otra venta de importe parecido.
 
 2. **Abre Corregir pago.** Pulsa Corregir pago en la fila o el detalle. Revisa el método actual y el aviso si la caja ya está cerrada. Efecto: No reabre la orden ni crea un nuevo cobro.
 
@@ -1329,9 +1337,11 @@ Para: Caja, Administrador. Tiempo orientativo: 6 min.
 
 ### Si algo no funciona
 
-- **No aparece Corregir pago:** Comprueba que la venta pertenezca a la caja abierta y que tengas función Caja. Si el corte ya cerró, solicita a un administrador.
+- **No aparece Corregir pago:** Tener función Caja ya no concede este permiso. Solicita a administración que revise Usuarios → Editar → Permiso para corregir pagos. Sin permiso bloquea la corrección; Solo caja abierta se limita al turno actual y Cualquier caja incluye cortes cerrados.
 - **Cambió consumo, pero todavía pide terminal:** Revisa el método de la propina. Si alguna parte sigue en tarjeta, necesita terminal y tipo; cambia la propina sólo si también se pagó en efectivo.
 - **El corte ahora muestra otra diferencia:** Es el efecto de reclasificar un pago. Revisa esperado, contado e historial; no cambies el contado para ocultar la diferencia.
+- **Pide volver a iniciar sesión:** El permiso se verifica con el servidor. Tras reiniciarlo o al caducar la sesión, entra de nuevo con tu usuario antes de guardar. No repitas la corrección si no has comprobado primero el método de pago actual.
+- **No veo Corregir pago al final de la fila:** En el buscador de Datos o en los cobros de Caja, usa Desplazar tabla encima de las filas. Arrastra la barra a la derecha o pulsa la flecha derecha; la flecha izquierda vuelve a las primeras columnas.
 
 ### Comprueba antes de terminar
 
@@ -1350,7 +1360,7 @@ Para: Caja, Administrador. Tiempo orientativo: 6 min.
 
 **Resultado esperado:** La misma venta muestra el método correcto, la corrección queda registrada y caja refleja la nueva distribución.
 
-Relacionadas: [Cómo configurar terminales y registrar tarjetas](#payment-terminals) · [Cómo abrir y cerrar caja](#cash-daily) · [Cuándo imprimir ticket prepago y postpago](#prepaid-postpaid) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete)
+Relacionadas: [Cómo configurar terminales y registrar tarjetas](#payment-terminals) · [Cómo abrir y cerrar caja](#cash-daily) · [Cuándo imprimir ticket prepago y postpago](#prepaid-postpaid) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo crear usuarios y asignar funciones](#users-permissions)
 
 <a id="payment-terminals"></a>
 

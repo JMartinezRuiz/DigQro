@@ -2,9 +2,9 @@
 
 LibrePOS es un punto de venta local para restaurante. Incluye venta por mesas y para llevar, comandas digitales, cocina, caja, inventario, catalogo, usuarios, fichaje, exportacion de datos y sincronizacion por red WiFi.
 
-## Versión 2.0.1
+## Versión 2.0.2
 
-La versión 2.0 incorpora navegación completa, un diseño más legible, asistente de ayuda local por palabras clave y tutoriales con GIFs ampliados y controles paso a paso. El asistente orienta y abre formularios; los cambios se revisan y guardan desde las pantallas habituales.
+La versión 2.0.2 permite elegir el descuento en la cuenta abierta y ver el ticket prepago con el total antes de imprimir o cobrar. Solo administración puede corregir pagos por defecto y puede conceder permisos desde Usuarios. Las tablas de pagos incluyen una barra horizontal visible. La ayuda y los tutoriales explican estos cambios.
 
 Para probar con datos de demostración separados de la operación:
 
@@ -14,7 +14,7 @@ npm run dev:demo
 
 Abre `http://127.0.0.1:5174/` e ingresa con `admin` / `admin`. Cada ejecución crea una carpeta temporal de datos de prueba. El almacenamiento del navegador también está separado. `npm start` continúa usando los datos habituales del restaurante.
 
-Consulta [las notas de la versión 2.0.1](docs/VERSION_2.0.1.md) y [la revisión técnica de 2.0](docs/REVISION_2.0.md). Ayuda actualizada: 26 guías con ejemplos, diagnóstico de problemas, comprobaciones finales y capturas reales. Incluye corrección de pagos, terminales y conexión desde teléfono. Las capturas de versiones previas conservan su versión visible. El asistente por palabras clave sigue en beta.
+Consulta [las notas de la versión 2.0.2](docs/VERSION_2.0.2.md) y [la revisión técnica de 2.0](docs/REVISION_2.0.md). Ayuda actualizada: 26 guías con ejemplos, diagnóstico de problemas, comprobaciones finales y capturas reales. Incluye corrección de pagos, terminales y conexión desde teléfono. Las capturas de versiones previas conservan su versión visible. El asistente por palabras clave sigue en beta.
 
 ## Documentacion
 

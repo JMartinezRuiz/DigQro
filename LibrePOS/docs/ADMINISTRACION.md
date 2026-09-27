@@ -199,3 +199,17 @@ El reparador lee la version publica, descarga el ZIP de su etiqueta sin consumir
 ### El login falla despues de una restauracion manual
 
 Si se restauro desde un JSON incompleto, pueden faltar datos de contrasenas. Restaura desde copia completa de `.librepos/` siempre que sea posible.
+
+## Permiso para corregir pagos
+
+Por defecto solo los administradores pueden corregir pagos, con la caja abierta o con el corte cerrado. Los usuarios existentes con función Caja no reciben permiso automáticamente.
+
+En **Usuarios → Editar → Permiso para corregir pagos**, administración puede configurar cada usuario:
+
+- **Sin permiso:** puede cobrar si tiene Caja, pero no corregir pagos.
+- **Solo caja abierta:** con función Caja, corrige ventas de la caja actualmente abierta.
+- **Cualquier caja (incluye cortes cerrados):** con función Caja, corrige también ventas históricas; el buscador aparece en Caja.
+
+Los administradores siempre conservan acceso a todas las correcciones. El servidor verifica el permiso guardado y la identidad de quien inició sesión. Si pide iniciar sesión de nuevo tras un reinicio o caducidad, hazlo antes de corregir.
+
+Las tablas de cobros de Caja y del buscador de Datos tienen **Desplazar tabla** encima de las filas. Arrastra la barra o usa las flechas; la tabla también conserva el desplazamiento táctil y con teclado.

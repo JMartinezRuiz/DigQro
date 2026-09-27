@@ -42,3 +42,25 @@
   .news-card-copy { padding: 22px; }
   .new-terminal-form { align-items: stretch; flex-direction: column; }
 }
+
+/* Discount is available while the order is open and in the real ticket preview. */
+.ticket-discount-field { margin: 10px 0; }
+.ticket-discount-field small { color: var(--muted); font-size: .75rem; }
+.modal-card.prepaid-modal-card { width: min(960px, 100%); }
+.modal-panel.prepaid-modal { width: 100%; }
+.prepaid-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(290px, .9fr); gap: 24px; align-items: start; }
+.prepaid-editor { min-width: 0; }
+.prepaid-total { display: grid; gap: 6px; padding: 18px; border-radius: 12px; background: var(--brand-soft); }
+.prepaid-total > span { font-weight: 700; }
+.prepaid-total strong { font-size: 2.3rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.prepaid-total small { color: var(--muted); }
+.prepaid-ticket-preview { min-width: 0; }
+.prepaid-ticket-preview h3 { margin: 0 0 12px; font-size: .9rem; }
+.prepaid-ticket-preview .printer-receipt-preview { max-width: 100%; margin: 0 auto; }
+.prepaid-modal .prepaid-actions { gap: 8px; }
+.prepaid-actions button { flex: 1 1 160px; }
+.mobile-order-bar .mobile-order-actions { grid-template-columns: minmax(72px, auto) minmax(68px, auto) 42px; }
+@media (max-width: 700px) {
+  .prepaid-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .prepaid-total strong { font-size: 2rem; }
+}

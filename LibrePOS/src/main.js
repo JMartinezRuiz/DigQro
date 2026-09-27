@@ -1,9 +1,11 @@
+import { PAYMENT_CORRECTION_SCOPES, normalizeUserPermissions, paymentCorrectionScope, mayCorrectSalePayment } from "./user-permissions.js";
+import { renderTableScrollControls, bindTableScrollControls } from "./table-scroll.js";
 import "./styles.css";
 import { helpDetailSearchText, renderHelpDetails } from "./help-details.js";
 import { localUserPassword } from "./user-credentials.js";
 import { inventoryCountAdjustments } from "./inventory-count.js";
 import { CARD_TYPES, normalizePaymentTerminals, paymentAllocation, resolveCardDetails, cardDetailsLabel, correctSalePayment, correctedCashSession } from "./payment-records.js";
-import { PREPAYMENT_DISCOUNTS as CHECKOUT_DISCOUNT_OPTIONS, calculatePrepaymentDiscount as calculateCheckoutDiscount } from "./prepayment.js";
+import { PREPAYMENT_DISCOUNTS as CHECKOUT_DISCOUNT_OPTIONS, calculatePrepaymentDiscount as calculateCheckoutDiscount, prepaymentForOrder, prepareOrderDiscount } from "./prepayment.js";
 import { renderWhatsNew } from "./whats-new.js";
 import "./payments-v2.css";
 import "./design-v2.css";
@@ -34,11 +36,14 @@ const HELP_MEDIA_URLS = import.meta.glob("../assets/help/*.{gif,png}", {
 
 const DEMO_MODE = import.meta.env.VITE_LIBREPOS_DEMO === "true";
 const STORAGE_KEY = DEMO_MODE ? "librepos:demo:v2" : "librepos:v2";
+const SESSION_TOKEN_KEY = `${STORAGE_KEY}:session-token`;
+const sessionHeaders = () => ({ "X-LibrePOS-Session": sessionStorage.getItem(SESSION_TOKEN_KEY) || "" });
 const CLIENT_ID_KEY = "librepos:client-id";
 const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
 let supportMode = "assistant";
+let disposeTableScroll = () => {};
 const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
 const DEFAULT_TICKET_LOGO_WIDTH_MM = 24;
@@ -1349,6 +1354,7 @@ function normalizeUsers(users) {
     password: localUserPassword(user),
     role: user.role || roleFromFunctions(normalizeUserFunctions(user)),
     functions: normalizeUserFunctions(user),
+    permissions: normalizeUserPermissions(user.permissions),
     active: user.active !== false,
   }));
 }
@@ -1678,12 +1684,19 @@ async function pushSharedState() {
   try {
     const response = await fetch("/api/state", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...sessionHeaders() },
       body: JSON.stringify({ clientId: syncClientId, baseVersion: syncVersion, state: shared }),
     });
     const payload = await response.json();
     if (response.status === 409) {
       await resolveSyncConflict(payload, shared, baseSnapshot);
+      return;
+    }
+    if (response.status === 403 && payload.state) {
+      applySharedState(payload.state);
+      syncVersion = Number(payload.version) || syncVersion;
+      syncLastPayload = JSON.stringify(sharedStateFromCurrent());
+      persistLocal(); render(); showToast(payload.error || "No se guardaron los cambios: permiso denegado.");
       return;
     }
     if (!response.ok) return;
@@ -1710,11 +1723,17 @@ async function resolveSyncConflict(payload, localShared, base) {
   try {
     const retry = await fetch("/api/state", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...sessionHeaders() },
       body: JSON.stringify({ clientId: syncClientId, baseVersion: syncVersion, state: sharedStateFromCurrent() }),
     });
-    if (!retry.ok) return;
     const saved = await retry.json();
+    if (!retry.ok) {
+      if (retry.status === 403 && saved.state) {
+        applySharedState(saved.state); syncVersion = Number(saved.version) || syncVersion;
+        syncLastPayload = JSON.stringify(sharedStateFromCurrent()); persistLocal(); render(); showToast(saved.error);
+      }
+      return;
+    }
     syncVersion = Number(saved.version) || syncVersion;
     if (saved.state) applySharedState(saved.state);
     syncLastPayload = JSON.stringify(sharedStateFromCurrent());
@@ -1808,6 +1827,14 @@ async function initNetworkSync() {
     syncVersion = Number(payload.version) || 0;
     if (payload.state) {
       applySharedState(payload.state);
+      if (state.sessionUserId) {
+        const session = await fetch("/api/session", { cache: "no-store", headers: sessionHeaders() });
+        const identity = await session.json();
+        if (!session.ok || identity.userId !== state.sessionUserId) {
+          state.sessionUserId = null; state.modal = null;
+          sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        }
+      }
       const remotePayload = JSON.stringify(payload.state);
       const normalizedPayload = JSON.stringify(sharedStateFromCurrent());
       syncLastPayload = remotePayload;
@@ -2478,7 +2505,7 @@ function extraUnitCostTotal(extras = []) {
 
 function calculateTotals(order) {
   const subtotal = roundCurrency(order.items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0));
-  const prepaidDiscount = calculateCheckoutDiscount(subtotal, order.prepaidDiscount?.code || "none", orderIvaRate(order));
+  const prepaidDiscount = prepaymentForOrder(order, undefined, orderIvaRate(order));
   const tax = taxBreakdownForGross(prepaidDiscount.subtotal, orderIvaRate(order));
   const statusCounts = order.items.reduce(
     (acc, item) => {
@@ -2588,6 +2615,7 @@ function celebrateAction(type = "success", source, label = "") {
 }
 
 function render() {
+  disposeTableScroll();
   setTheme();
   // Sanitiza fichajes abandonados antes de pintar.
   if (autoCloseStaleShifts()) {
@@ -2813,8 +2841,8 @@ function renderMobileOrderBar(order) {
       </div>
       <div class="mobile-order-actions">
         <button class="primary-button compact" data-open-modal="command" ${totals.pending && cashOpen ? "" : "disabled"}>${svg("digital")}Comandar</button>
-        <button class="secondary-button compact" data-open-modal="price">${svg("cash")}</button>
-        <button class="secondary-button compact" data-finalize-order ${order.items.length ? "" : "disabled"}>${svg("check")}</button>
+        <button class="secondary-button compact" data-print-prepaid-order="${order.id}" aria-label="Prepago y descuento" ${order.items.length ? "" : "disabled"}>Prepago</button>
+        <button class="secondary-button compact" data-finalize-order aria-label="Finalizar cuenta" ${order.items.length ? "" : "disabled"}>${svg("check")}</button>
       </div>
     </section>
   `;
@@ -3030,6 +3058,7 @@ function renderTakeoutNoteCard(order) {
       <div class="takeout-note-actions">
         ${readyQty ? `<button class="primary-button deliver-button" data-deliver-ready="${order.id}">${svg("check")}Entregar (${readyQty})</button>` : ""}
         <button class="secondary-button" data-open-order="${order.id}">${svg("sale")}Continuar</button>
+        <button class="secondary-button" data-print-prepaid-order="${order.id}" ${order.items.length ? "" : "disabled"}>${svg("print")}Prepago y descuento</button>
         <button class="secondary-button" data-open-modal="table-note" data-order-id="${order.id}">${svg("note")}Nota</button>
         <button class="danger-button" data-close-order="${order.id}">${svg("check")}Cerrar</button>
       </div>
@@ -3244,6 +3273,13 @@ function renderTicket(order) {
           <span>Entregado</span>
           <strong>${totals.delivered} pzas</strong>
         </div>
+        <label class="field ticket-discount-field">
+          <span>Descuento de la cuenta</span>
+          <select data-order-discount="${escapeAttr(order.id)}" ${order.items.length ? "" : "disabled"}>
+            ${renderDiscountOptions(totals.prepaidDiscount.code)}
+          </select>
+          <small>Se guarda al elegir y se incluye en el prepago.</small>
+        </label>
         ${totals.prepaidDiscount.amount > 0 ? `<div class="total-line"><span>${escapeHtml(totals.prepaidDiscount.label)}</span><strong>-${money.format(totals.prepaidDiscount.amount)}</strong></div>` : ""}
         <div class="total-line grand">
           <span>Total</span>
@@ -4134,7 +4170,7 @@ function renderModal() {
   const wideModal = ["sale-detail", "new-product", "edit-product", "new-ingredient", "edit-ingredient", "new-extra", "edit-extra"].includes(state.modal.type);
   return `
     <div class="modal-backdrop" data-close-modal>
-      <div class="modal-card ${wideModal ? "wide-modal-card" : ""}" data-modal-card>
+      <div class="modal-card ${wideModal ? "wide-modal-card" : ""} ${state.modal.type === "prepaid" ? "prepaid-modal-card" : ""}" data-modal-card>
         ${modalContent}
       </div>
     </div>
@@ -4197,6 +4233,7 @@ function renderCreateUserModal() {
           </label>
         </div>
         ${renderFunctionChoices(["mesero"])}
+        ${renderPaymentPermissionChoice()}
         <button class="primary-button" type="submit">${svg("plus")}Crear usuario</button>
       </form>
     </section>
@@ -4225,6 +4262,7 @@ function renderEditUserModal(userId) {
           <input name="username" value="${escapeAttr(user.username || "")}" placeholder="usuario o nombre con espacios" required />
         </label>
         ${renderFunctionChoices(normalizeUserFunctions(user))}
+        ${renderPaymentPermissionChoice(user)}
         <button class="primary-button" type="submit">${svg("check")}Guardar cambios</button>
       </form>
     </section>
@@ -4355,11 +4393,22 @@ function cardFieldsValue(form, cardDue) {
   return resolveCardDetails(cardDue, form.elements.terminalId?.value, form.elements.cardType?.value, paymentTerminals());
 }
 
+async function ensurePermissionSession() {
+  try {
+    const response = await fetch("/api/session", { cache: "no-store", headers: sessionHeaders() });
+    const payload = await response.json();
+    if (response.ok && payload.userId === currentUser()?.id) return true;
+    state.sessionUserId = null;
+    state.modal = null;
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    persistLocal(); render();
+    showToast("Vuelve a iniciar sesión para verificar tus permisos.");
+  } catch { showToast("Conecta con el servidor para guardar cambios de permisos o pagos."); }
+  return false;
+}
+
 function canCorrectSalePayment(sale) {
-  if (!sale || !currentUser()) return false;
-  if (isAdminUser()) return true;
-  const session = currentCashSession();
-  return hasCashAccess() && Boolean(session) && sale.cashSessionId === session.id;
+  return mayCorrectSalePayment(currentUser(), sale, state.cashSessions);
 }
 
 function paymentCorrectionButton(sale) {
@@ -4392,7 +4441,7 @@ function renderCorrectPaymentModal(sale) {
     <form class="panel-body field-grid" data-correct-payment-form data-sale-id="${escapeAttr(sale.id)}">
       <div class="checkout-total"><span>Total cobrado · no cambia</span><strong>${money.format(saleTotal(sale))}</strong><small>Actual: ${escapeHtml(sale.paymentMethod || "Efectivo")}</small></div>
       <p class="payment-notice">Sólo corrige el registro en LibrePOS. No cobra, devuelve ni mueve dinero en el banco. Verifica el comprobante antes de guardar.</p>
-      ${closed ? `<p class="checkout-warning">Caja ya cerrada: se recalcularán el efectivo esperado y la diferencia del corte. Se conservará el efectivo contado y quedará una corrección de administrador.</p>` : ""}
+      ${closed ? `<p class="checkout-warning">Caja ya cerrada: se recalcularán el efectivo esperado y la diferencia del corte. Se conservará el efectivo contado y quedará registrado quién hizo la corrección.</p>` : ""}
       <div class="payment-fields-grid">
         <label class="field"><span>Pago correcto del consumo</span><select name="paymentMethod">${["Efectivo", "Tarjeta"].map((method) => `<option ${sale.paymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}</select></label>
         <label class="field"><span>Pago de propina (${money.format(saleTip(sale))})</span><select name="tipPaymentMethod">${["Efectivo", "Tarjeta"].map((method) => `<option ${saleTipPaymentMethod(sale) === method ? "selected" : ""}>${method}</option>`).join("")}</select></label>
@@ -4417,11 +4466,13 @@ function updateCorrectionPreview(event) {
   form.querySelector("[data-correction-preview]").textContent = `Efectivo: ${money.format(amounts.cashDue)} · Tarjeta: ${money.format(amounts.cardDue)} · ${received < amounts.cashDue ? `Falta efectivo: ${money.format(amounts.cashDue - received)}` : `Cambio: ${money.format(amounts.cashDue > 0 ? received - amounts.cashDue : 0)}`}`;
 }
 
-function savePaymentCorrection(event) {
+async function savePaymentCorrection(event) {
   event.preventDefault();
-  const form = event.currentTarget;
+  const submittedForm = event.currentTarget;
+  if (!(await ensurePermissionSession())) return;
+  const form = submittedForm;
   const sale = state.sales.find((item) => item.id === form.dataset.saleId);
-  if (!canCorrectSalePayment(sale)) { showToast("Sólo caja en su turno abierto o administración puede corregir pagos."); return; }
+  if (!canCorrectSalePayment(sale)) { showToast("No tienes permiso para corregir el pago de esta cuenta. Solicítalo a administración."); return; }
   try {
     const corrected = correctSalePayment(sale, Object.fromEntries(new FormData(form)), {
       subtotal: saleSubtotal(sale), tipAmount: saleTip(sale), userId: currentUser().id,
@@ -4438,16 +4489,45 @@ function savePaymentCorrection(event) {
   } catch (error) { showToast(error.message); }
 }
 
+function renderDiscountOptions(selected) {
+  return CHECKOUT_DISCOUNT_OPTIONS.map(option => `<option value="${option.code}" ${selected === option.code ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("");
+}
+
+function saveOrderDiscount(order, code) {
+  if (!currentUser() || (!hasUserFunction(currentUser(), "mesero") && !hasCashAccess())) {
+    throw new Error("Solo meseros, caja o administración pueden preparar el descuento.");
+  }
+  Object.assign(order, prepareOrderDiscount(order, code, { ivaRate: orderIvaRate(order), userId: currentUser().id, at: new Date().toISOString() }));
+}
+
+function changeOrderDiscount(event) {
+  const order = getOrder(event.currentTarget.dataset.orderDiscount);
+  if (!order) return;
+  try {
+    saveOrderDiscount(order, event.currentTarget.value);
+    persist(); render();
+    showToast(`Descuento guardado. Total: ${money.format(calculateTotals(order).total)}.`);
+  } catch (error) { showToast(error.message); }
+}
+
 function renderPrepaidModal(order) {
   const totals = calculateTotals(order);
-  return `<section class="panel modal-panel">
-    <div class="panel-header"><div><h2 class="panel-title">Preparar prepago</h2><p class="panel-kicker">${escapeHtml(orderLabel(order))} · Revisa antes de cobrar</p></div><button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button></div>
-    <form class="panel-body field-grid" data-prepaid-form data-order-id="${order.id}">
-      <p class="payment-notice">Aplica aquí el descuento. Queda guardado en la cuenta, se imprime en el prepago y se respeta al cobrar. No se aplica un segundo descuento en el postpago.</p>
-      <label class="field"><span>Descuento del prepago</span><select name="discountCode">${CHECKOUT_DISCOUNT_OPTIONS.map((option) => `<option value="${option.code}" ${totals.prepaidDiscount.code === option.code ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}</select></label>
-      <div class="checkout-discount-summary" data-prepaid-summary></div>
-      <p class="muted-text">Si agregas o quitas platos después, se recalcula el porcentaje. Imprime un nuevo prepago para entregar el importe actualizado.</p>
-      <div class="prepaid-actions"><button class="primary-button" type="submit" name="action" value="save">${svg("check")}Guardar prepago</button><button class="secondary-button" type="submit" name="action" value="print">${svg("print")}Guardar e imprimir</button><button class="secondary-button" type="submit" name="action" value="checkout">Continuar al cobro</button></div>
+  const selected = state.modal?.discountCode ?? totals.prepaidDiscount.code;
+  return `<section class="panel modal-panel prepaid-modal">
+    <div class="panel-header"><div><h2 class="panel-title">Preparar prepago</h2><p class="panel-kicker">${escapeHtml(orderLabel(order))} · Consulta el total antes de cobrar</p></div><button class="icon-button" data-close-modal-button title="Cerrar">${svg("minus")}</button></div>
+    <form class="panel-body prepaid-layout" data-prepaid-form data-order-id="${order.id}">
+      <div class="prepaid-editor field-grid">
+        <div class="prepaid-total" aria-live="polite"><span>Total para el cliente</span><strong data-prepaid-total></strong><small>Consumo con descuento · sin propina</small></div>
+        <label class="field"><span>Descuento del prepago</span><select name="discountCode">${renderDiscountOptions(selected)}</select></label>
+        <div class="checkout-discount-summary" data-prepaid-summary></div>
+        <p class="muted-text" data-prepaid-save-status></p>
+        <div class="prepaid-actions"><button class="primary-button" type="submit" name="action" value="save">${svg("check")}Guardar prepago</button><button class="secondary-button" type="submit" name="action" value="print">${svg("print")}Guardar e imprimir</button><button class="secondary-button" type="submit" name="action" value="checkout">Continuar al cobro</button></div>
+        <p class="muted-text">El descuento se conserva al cobrar. Si cambia el consumo, se recalcula el porcentaje; entrega un nuevo prepago.</p>
+      </div>
+      <section class="prepaid-ticket-preview" aria-label="Vista previa del ticket prepago" ${ticketMarginPreviewStyle()}>
+        <h3>Así queda el ticket</h3>
+        <div data-prepaid-receipt></div>
+      </section>
     </form></section>`;
 }
 
@@ -4455,30 +4535,31 @@ function updatePrepaidPreview(event) {
   const form = event?.currentTarget || document.querySelector("[data-prepaid-form]");
   const order = getOrder(form?.dataset.orderId);
   if (!order) return;
-  const totals = calculateTotals(order);
-  const discount = calculateCheckoutDiscount(totals.subtotal, form.elements.discountCode.value, totals.ivaRate);
-  const tax = taxBreakdownForGross(discount.subtotal, totals.ivaRate);
-  form.querySelector("[data-prepaid-summary]").innerHTML = `<span>Consumo antes</span><strong>${money.format(discount.originalSubtotal)}</strong><span>${escapeHtml(discount.label)}</span><strong>-${money.format(discount.amount)}</strong><span>IVA incluido</span><strong>${money.format(tax.iva)}</strong><span class="grand">Total del prepago</span><strong class="grand">${money.format(discount.subtotal)}</strong>`;
+  const discount = prepaymentForOrder(order, form.elements.discountCode.value, orderIvaRate(order));
+  const tax = taxBreakdownForGross(discount.subtotal, orderIvaRate(order));
+  if (state.modal?.type === "prepaid") state.modal.discountCode = discount.code;
+  form.querySelector("[data-prepaid-total]").textContent = money.format(discount.subtotal);
+  form.querySelector("[data-prepaid-summary]").innerHTML = `<span>Consumo antes</span><strong>${money.format(discount.originalSubtotal)}</strong><span>${escapeHtml(discount.label)}</span><strong>-${money.format(discount.amount)}</strong><span>IVA incluido</span><strong>${money.format(tax.iva)}</strong>`;
+  form.querySelector("[data-prepaid-save-status]").textContent = discount.code !== (order.prepaidDiscount?.code || "none")
+    ? "Cambio pendiente: guarda el prepago o usa Guardar e imprimir para aplicar este descuento."
+    : "Este es el total actual de la cuenta. Puedes consultarlo sin imprimir ni cerrar la venta.";
+  // The preview uses exactly the same receipt builder as the print request.
+  form.querySelector("[data-prepaid-receipt]").innerHTML = renderReceiptPreviewHtml(buildPrepaidReceiptText({ ...order, prepaidDiscount: discount }));
 }
 
 function savePrepaid(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const order = state.orders.find((item) => item.id === form.dataset.orderId && item.status === "open");
-  if (!order || !hasUserFunction(currentUser(), "mesero") && !hasCashAccess()) return;
-  const totals = calculateTotals(order);
-  const discount = calculateCheckoutDiscount(totals.subtotal, form.elements.discountCode.value, totals.ivaRate);
-  if (order.prepaidDiscount?.code !== discount.code) {
-    order.prepaidReceiptPrintedAt = "";
-    order.prepaidReceiptError = "";
-  }
-  order.prepaidDiscount = { ...discount, preparedAt: new Date().toISOString(), preparedBy: currentUser().id };
+  if (!order) return;
+  try { saveOrderDiscount(order, form.elements.discountCode.value); }
+  catch (error) { showToast(error.message); return; }
   state.modal = null;
   persist(); render();
   const action = event.submitter?.value;
   if (action === "print") void printPrepaidOrderReceipt(order.id);
   else if (action === "checkout") openCheckout(order.id);
-  else showToast(`Prepago guardado: ${money.format(discount.subtotal)}.`);
+  else showToast(`Prepago guardado: ${money.format(order.prepaidDiscount.subtotal)}.`);
 }
 
 function renderCheckoutModal(order) {
@@ -6519,6 +6600,7 @@ function renderCashRegister() {
         </section>
       </div>
       ${activeSession ? renderCashSessionSales(activeSession) : ""}
+      ${!isAdminUser() && paymentCorrectionScope(currentUser()) === "all" ? renderOrderSearchData() : ""}
       ${renderCashSessionHistory()}
     </div>
   `;
@@ -6568,7 +6650,8 @@ function renderCashSessionSales(session) {
           <p class="panel-kicker">${sales.length} ticket${sales.length === 1 ? "" : "s"}</p>
         </div>
       </div>
-      <div class="panel-body table-wrap">
+      ${renderTableScrollControls("cash-payments-table")}
+      <div id="cash-payments-table" class="panel-body table-wrap payment-table-wrap" tabindex="0" role="region" aria-label="Cobros de la caja abierta">
         <table class="data-table">
           <thead><tr><th>UID</th><th>Hora</th><th>Orden</th><th>Cajero</th><th>Pago</th><th>Descuento</th><th>IVA</th><th>Propina</th><th>Recibido</th><th>Cambio</th><th>Total</th></tr></thead>
           <tbody>
@@ -7904,7 +7987,7 @@ async function postPrinterRequest(path, body, fallbackError) {
   try {
     response = await fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...sessionHeaders() },
       body: JSON.stringify(body),
     });
   } catch (error) {
@@ -8499,7 +8582,7 @@ async function removeSelectedSystemPrinter() {
   try {
     const response = await fetch("/api/printers/remove", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...sessionHeaders() },
       body: JSON.stringify({ userId: currentUser()?.id || "", printerName }),
     });
     const payload = await response.json().catch(() => ({}));
@@ -8587,8 +8670,8 @@ function orderSearchRecords() {
       const payment = order.payment || {};
       const total = isClosed ? roundCurrency(payment.total ?? payment.subtotal ?? totals.total) : totals.total;
       const iva = isClosed ? roundCurrency(payment.iva ?? payment.taxAmount ?? totals.iva) : totals.iva;
-      const discountAmount = isClosed ? roundCurrency(payment.discountAmount ?? payment.discount?.amount) : 0;
-      const discountLabel = isClosed && discountAmount > 0 ? String(payment.discount?.label || "Descuento") : "";
+      const discountAmount = isClosed ? roundCurrency(payment.discountAmount ?? payment.discount?.amount) : totals.prepaidDiscount.amount;
+      const discountLabel = discountAmount > 0 ? (isClosed ? String(payment.discount?.label || "Descuento") : totals.prepaidDiscount.label) : "";
       return {
         recordType: isCancelled ? "Cancelada" : isClosed ? "Cerrada" : "Abierta",
         statusKey: isCancelled ? "cancelled" : isClosed ? "closed" : "open",
@@ -8809,7 +8892,8 @@ function renderOrderSearchData() {
             })
             .join("")}
         </div>
-        <div class="table-wrap">
+        ${renderTableScrollControls("order-payments-table")}
+      <div id="order-payments-table" class="table-wrap payment-table-wrap" tabindex="0" role="region" aria-label="Cuentas y pagos">
           <table class="data-table">
             <thead><tr><th>ID</th><th>UID</th><th>Fecha</th><th>Orden</th><th>Estado</th><th>Pago</th><th>Total</th><th>Prepago</th><th>Postpago</th><th>Productos</th><th>Detalle</th></tr></thead>
             <tbody>
@@ -9031,9 +9115,21 @@ function renderFunctionChoices(selected = ["mesero"]) {
   `;
 }
 
+function renderPaymentPermissionChoice(user) {
+  const scope = normalizeUserPermissions(user?.permissions).correctPayments;
+  return `<label class="field payment-permission-field">
+    <span>Permiso para corregir pagos</span>
+    <select name="correctPayments">
+      ${PAYMENT_CORRECTION_SCOPES.map(option => `<option value="${option.id}" ${scope === option.id ? "selected" : ""}>${option.label}</option>`).join("")}
+    </select>
+    <small>Solo administración configura este permiso. Para otros usuarios requiere la función Caja. Los administradores siempre pueden corregir cualquier cuenta; esta selección se aplica si dejan de ser administradores.</small>
+  </label>`;
+}
+
 function renderUserFunctionTags(user) {
   return `
     <div class="function-tags">
+      <span class="function-tag">Corrección de pagos: ${escapeHtml(PAYMENT_CORRECTION_SCOPES.find(scope => scope.id === paymentCorrectionScope(user)).label)}</span>
       ${normalizeUserFunctions(user)
         .map((item) => `<span class="function-tag fn-${escapeAttr(item)}">${escapeHtml(functionLabel(item))}</span>`)
         .join("")}
@@ -9658,11 +9754,12 @@ async function authenticateUser(username, password) {
   try {
     const response = await fetch("/api/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...sessionHeaders() },
       body: JSON.stringify({ username: loginUsername, password }),
     });
     if (response.ok) {
       const payload = await response.json();
+      sessionStorage.setItem(SESSION_TOKEN_KEY, payload.sessionToken || "");
       syncEnabled = true;
       syncVersion = Number(payload.version) || syncVersion;
       if (payload.state) {
@@ -9687,6 +9784,7 @@ function closeModal() {
 }
 
 function bindEvents() {
+  disposeTableScroll = bindTableScrollControls();
   const openAssistant = () => { state.view = "support"; supportMode = "assistant"; render(); document.querySelector("#help-chat-query")?.focus({ preventScroll: true }); };
   document.querySelector("[data-open-help]")?.addEventListener("click", openAssistant);
   document.querySelectorAll("[data-news-guide]").forEach((button) => button.addEventListener("click", () => openHelpArticle(button.dataset.newsGuide)));
@@ -9727,6 +9825,8 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-logout]").forEach((button) => {
     button.addEventListener("click", () => {
+      fetch("/api/logout", { method: "POST", headers: sessionHeaders() }).catch(() => {});
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
       state.sessionUserId = null;
       state.activeOrderId = null;
       resetHelpChat();
@@ -9863,6 +9963,7 @@ function bindEvents() {
   correctionForm?.addEventListener("submit", savePaymentCorrection);
   correctionForm?.addEventListener("input", updateCorrectionPreview);
   if (correctionForm) updateCorrectionPreview();
+  document.querySelectorAll("[data-order-discount]").forEach(select => select.addEventListener("change", changeOrderDiscount));
   const prepaidForm = document.querySelector("[data-prepaid-form]");
   prepaidForm?.addEventListener("submit", savePrepaid);
   prepaidForm?.addEventListener("change", updatePrepaidPreview);
@@ -12074,13 +12175,15 @@ function finalizeOrder(source) {
   openCheckout(order.id);
 }
 
-function createUser(event) {
+async function createUser(event) {
   event.preventDefault();
+  const submittedForm = event.currentTarget;
+  if (!(await ensurePermissionSession())) return;
   if (!isAdminUser()) {
     showToast("Solo admin puede crear usuarios.");
     return;
   }
-  const form = new FormData(event.currentTarget);
+  const form = new FormData(submittedForm);
   const username = cleanUserText(form.get("username"));
   const name = cleanUserText(form.get("name"));
   const password = String(form.get("password") || "").trim();
@@ -12108,6 +12211,7 @@ function createUser(event) {
     name,
     role: roleFromFunctions(functions),
     functions,
+    permissions: normalizeUserPermissions({ correctPayments: form.get("correctPayments") }),
     active: true,
     createdAt: new Date().toISOString(),
   });
@@ -12117,16 +12221,18 @@ function createUser(event) {
   render();
 }
 
-function editUser(event) {
+async function editUser(event) {
   event.preventDefault();
+  const submittedForm = event.currentTarget;
+  if (!(await ensurePermissionSession())) return;
   if (!isAdminUser()) {
     showToast("Solo admin puede editar usuarios.");
     return;
   }
-  const userId = event.currentTarget.dataset.userId;
+  const userId = submittedForm.dataset.userId;
   const user = state.users.find((item) => item.id === userId && item.active);
   if (!user) return;
-  const form = new FormData(event.currentTarget);
+  const form = new FormData(submittedForm);
   const username = cleanUserText(form.get("username"));
   const name = cleanUserText(form.get("name"));
   const functions = form.getAll("functions").map(String);
@@ -12151,6 +12257,7 @@ function editUser(event) {
   user.username = username;
   user.name = name;
   user.functions = functions;
+  user.permissions = normalizeUserPermissions({ correctPayments: form.get("correctPayments") });
   user.role = roleFromFunctions(functions);
   user.updatedAt = new Date().toISOString();
   user.updatedBy = currentUser()?.id;

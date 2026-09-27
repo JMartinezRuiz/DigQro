@@ -69,7 +69,7 @@ const ACTIONS = {
 
 const REPLIES = {
   "correct-payment": {
-    text: "Para corregir una cuenta cobrada, busca la venta en Caja o en Datos si tienes acceso y pulsa Corregir pago.\n1. Comprueba folio y total.\n2. Elige por separado el pago del consumo y el de la propina.\n3. Indica efectivo realmente recibido o terminal y Crédito/Débito si alguna parte va con tarjeta.\n4. Escribe el motivo, guarda y revisa la confirmación.\nEl total no cambia. Queda historial y se ajusta caja; en un corte cerrado se conserva el contado y se recalculan esperado y diferencia. Caja puede hacerlo en la caja abierta; después del corte necesita administrador. Reimprime el postpago corregido. Esto no realiza movimientos bancarios.",
+    text: "Para corregir una cuenta cobrada, busca la venta en Caja o en Datos si tienes acceso y pulsa Corregir pago.\n1. Comprueba folio y total.\n2. Elige por separado el pago del consumo y el de la propina.\n3. Indica efectivo realmente recibido o terminal y Crédito/Débito si alguna parte va con tarjeta.\n4. Escribe el motivo, guarda y revisa la confirmación.\nEl total no cambia. Queda historial y se ajusta caja; en un corte cerrado se conserva el contado y se recalculan esperado y diferencia. Por defecto solo administración puede corregir pagos. Puede conceder permisos por usuario en Usuarios → Editar → Permiso para corregir pagos: Sin permiso, Solo caja abierta o Cualquier caja. Otros usuarios necesitan además la función Caja. Usa Desplazar tabla y sus flechas si no ves las últimas columnas. Reimprime el postpago corregido. Esto no realiza movimientos bancarios.",
     articleIds: ["correct-payment", "cash-daily", "payment-terminals"], actions: ["cash", "data"],
     suggestions: [suggestion("Configurar terminales"), suggestion("Reimprimir una cuenta"), suggestion("Cerrar caja")],
   },
@@ -198,7 +198,7 @@ const REPLIES = {
     suggestions: [suggestion("Problemas de impresión"), suggestion("Cancelar un producto comandado", "Quitar una línea comandada")],
   },
   checkout: {
-    text: "Abre la cuenta y pulsa Finalizar. Revisa productos pendientes, descuento y total. Elige Efectivo o Tarjeta; si es efectivo, captura lo recibido y comprueba el cambio. Si consumo o propina lleva tarjeta, indica terminal y Crédito o Débito. Registra la propina y su método si corresponde. Confirma y cierra sólo cuando los importes sean correctos. El postpago se puede imprimir desde Datos después del cobro.",
+    text: "Antes de Finalizar, elige Descuento de la cuenta junto al total o abre Prepago y descuento para consultar el ticket y Total para el cliente. Guarda el descuento y continúa al cobro. Revisa productos pendientes y total. Elige Efectivo o Tarjeta; si es efectivo, captura lo recibido y comprueba el cambio. Si consumo o propina lleva tarjeta, indica terminal y Crédito o Débito. Registra la propina y su método si corresponde. Confirma y cierra sólo cuando los importes sean correctos. El postpago se puede imprimir desde Datos después del cobro.",
     articleIds: ["checkout-discounts-tips", "prepaid-postpaid"], actions: ["sale", "tables", "cash"],
     suggestions: [suggestion("Ticket prepago y postpago"), suggestion("Cerrar caja"), suggestion("Cancelar la cuenta completa", "Cancelar una orden completa")],
   },
@@ -233,7 +233,7 @@ const REPLIES = {
     suggestions: [suggestion("Ticket prepago y postpago"), suggestion("Reimprimir una cuenta"), suggestion("Flujo de cocina")],
   },
   tickets: {
-    text: "El prepago es la cuenta antes de cobrar: desde la cuenta abre Prepago y descuento, revisa el descuento y usa Guardar e imprimir. El descuento se conserva al cobrar y no se aplica una segunda vez; la orden sigue abierta. El postpago refleja el pago y propina finales; después de cobrar se imprime desde Datos → Postpago pendiente. Para reimprimir, busca el folio y elige la columna Prepago o Postpago correcta. Reimprimir no crea otra venta.",
+    text: "El prepago es la cuenta antes de cobrar: puedes elegir Descuento de la cuenta junto al total antes de Finalizar. En Prepago y descuento verás Total para el cliente y el ticket completo. Cambia Descuento del prepago y comprueba el importe al instante; usa Guardar prepago sin imprimir o Guardar e imprimir. Cerrar la vista sin guardar descarta ese cambio. El descuento se conserva al cobrar y no se aplica una segunda vez; la orden sigue abierta. El postpago refleja el pago y propina finales; después de cobrar se imprime desde Datos → Postpago pendiente. Para reimprimir, busca el folio y elige la columna Prepago o Postpago correcta. Reimprimir no crea otra venta.",
     articleIds: ["prepaid-postpaid", "data-reprint-delete"], actions: ["data", "tables"],
     suggestions: [suggestion("Problemas de impresión"), suggestion("Cobrar la cuenta"), suggestion("Buscar una cuenta en Datos")],
   },
@@ -281,6 +281,7 @@ function detectIntent(query, previousIntent) {
   if (has("wifi", "wi", "qr", "telefono", "celular", "red", "localhost", "vpn", "enlace")) return "lan-access";
   if ((has("corregir", "correccion", "cambiar", "equivoque", "equivocado", "equivocada", "error") && has("pago", "tarjeta", "efectivo", "terminal", "propina")) || includes("tarjeta a efectivo", "efectivo a tarjeta", "marque tarjeta", "marque efectivo")) return "correct-payment";
   if (has("terminal", "terminales", "credito", "debito")) return "payment-terminals";
+  if (has("descuento") && !has("inventario", "insumo", "propina")) return "tickets";
   // Resolve a short answer only when the immediately preceding reply offered it.
   if (previousIntent === "remove-choice") {
     if (/^(1|catalogo|del catalogo|menu|del menu|ocultar|ocultarlo)$/.test(query)) return "hide-product";

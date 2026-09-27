@@ -1,3 +1,4 @@
+import { protectedStateChangeError } from "./payment-permission-guard.js";
 import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import https from "node:https";
@@ -54,6 +55,9 @@ let sharedVersion = 0;
 let accessToken = "";
 let updateInProgress = false;
 const clients = new Set();
+const loginSessions = new Map();
+let stateWriteQueue = Promise.resolve();
+const LOGIN_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const execFile = promisify(execFileCallback);
 
 async function loadSharedState() {
@@ -267,6 +271,18 @@ async function requireAccess(req, res) {
     return false;
   }
   return true;
+}
+
+function loggedInUser(req) {
+  const token = req.headers["x-librepos-session"];
+  const session = loginSessions.get(token);
+  if (!session) return null;
+  const user = sharedState?.users.find(item => item.id === session.userId && item.active !== false);
+  if (session.expiresAt <= Date.now() || !user || user.passwordHash !== session.passwordHash) {
+    loginSessions.delete(token);
+    return null;
+  }
+  return user;
 }
 
 function githubApiUrl(pathname) {
@@ -2113,7 +2129,7 @@ export function createSyncMiddleware() {
       res.setHeader("Vary", "Origin");
     }
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-LibrePOS-Session");
     if (req.method === "OPTIONS") {
       if (await requireAccess(req, res)) {
         res.statusCode = 204;
@@ -2303,6 +2319,18 @@ export function createSyncMiddleware() {
         return;
       }
 
+      if (url.pathname === "/api/session" && req.method === "GET") {
+        await loadSharedState();
+        const user = loggedInUser(req);
+        sendJson(res, user ? 200 : 401, { userId: user?.id || null });
+        return;
+      }
+      if (url.pathname === "/api/logout" && req.method === "POST") {
+        loginSessions.delete(req.headers["x-librepos-session"]);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
       if (url.pathname === "/api/login" && req.method === "POST") {
         await loadSharedState();
         if (!sharedState) {
@@ -2323,7 +2351,11 @@ export function createSyncMiddleware() {
           sharedState = normalized.state;
           await writeStateFile();
         }
-        sendJson(res, 200, { userId: user.id, version: sharedVersion, state: publicState(sharedState) });
+        for (const [token, session] of loginSessions) if (session.expiresAt <= Date.now()) loginSessions.delete(token);
+        const sessionToken = randomBytes(32).toString("hex");
+        const savedUser = sharedState.users.find(item => item.id === user.id);
+        loginSessions.set(sessionToken, { userId: user.id, passwordHash: savedUser.passwordHash, expiresAt: Date.now() + LOGIN_LIFETIME_MS });
+        sendJson(res, 200, { userId: user.id, sessionToken, version: sharedVersion, state: publicState(sharedState) });
         return;
       }
 
@@ -2342,17 +2374,26 @@ export function createSyncMiddleware() {
           sendJson(res, 400, { error: validationError });
           return;
         }
-        const baseVersion = Number(payload.baseVersion);
-        if (!Number.isFinite(baseVersion)) {
-          sendJson(res, 400, { error: "missing-base-version", version: sharedVersion, state: publicState(sharedState) });
-          return;
-        }
-        if (baseVersion !== sharedVersion) {
-          sendJson(res, 409, { error: "version-mismatch", version: sharedVersion, state: publicState(sharedState) });
-          return;
-        }
-        const saved = await saveSharedState(payload.state, String(payload.clientId || ""));
-        sendJson(res, 200, saved);
+        const save = stateWriteQueue.then(async () => {
+          const baseVersion = Number(payload.baseVersion);
+          if (!Number.isFinite(baseVersion)) {
+            sendJson(res, 400, { error: "missing-base-version", version: sharedVersion, state: publicState(sharedState) });
+            return;
+          }
+          if (baseVersion !== sharedVersion) {
+            sendJson(res, 409, { error: "version-mismatch", version: sharedVersion, state: publicState(sharedState) });
+            return;
+          }
+          const permissionError = protectedStateChangeError(sharedState, payload.state, loggedInUser(req));
+          if (permissionError) {
+            sendJson(res, 403, { error: permissionError, version: sharedVersion, state: publicState(sharedState) });
+            return;
+          }
+          const saved = await saveSharedState(payload.state, String(payload.clientId || ""));
+          sendJson(res, 200, saved);
+        });
+        stateWriteQueue = save.catch(() => {});
+        await save;
         return;
       }
 

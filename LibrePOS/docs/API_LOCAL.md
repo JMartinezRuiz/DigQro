@@ -15,6 +15,8 @@ LibrePOS expone una API local desde el mismo servidor Vite. Esta API esta pensad
 | --- | --- | --- |
 | `GET` | `/api/access-info` | Devuelve URLs LAN detectadas para mostrar acceso desde otros dispositivos. |
 | `POST` | `/api/login` | Valida usuario y contrasena contra el estado compartido. |
+| `GET` | `/api/session` | Comprueba la sesión individual; devuelve userId o 401. |
+| `POST` | `/api/logout` | Invalida la sesión individual actual. |
 | `GET` | `/api/state` | Devuelve version y estado compartido actual. |
 | `POST` | `/api/state` | Guarda estado compartido con control de version. |
 | `GET` | `/api/events` | Stream SSE para notificar cambios a otros clientes. |
@@ -56,6 +58,7 @@ Respuesta exitosa:
 ```json
 {
   "userId": "admin",
+  "sessionToken": "token-aleatorio-de-sesion",
   "version": 123,
   "state": {}
 }
@@ -65,6 +68,12 @@ Errores relevantes:
 
 - `404 state-not-ready`: el servidor no tiene estado inicial.
 - `401 invalid-login`: usuario o contrasena incorrectos.
+
+La respuesta de login incluye `sessionToken`. El navegador lo mantiene en `sessionStorage` y lo envía en `X-LibrePOS-Session`. Caduca a las 24 horas o al reiniciar el servidor; logout, baja o cambio de contraseña invalidan su uso. Las funciones y permisos se consultan en el usuario guardado en cada operación, por lo que una revocación no requiere cerrar sesión.
+
+Los cambios de usuarios, credenciales y permisos en `POST /api/state` requieren una sesión de administrador. Cambiar el pago de una venta existente requiere el permiso actual del actor autenticado. La comprobación de versión, permisos y escritura se serializa para evitar validar una corrección contra permisos antiguos. Una denegación devuelve 403, mensaje y estado confirmado; el cliente recupera ese estado para no mostrar como guardada una corrección rechazada. El estado inicial se crea antes del primer login.
+
+Esta protección cubre las modificaciones anteriores: no sustituye una revisión completa de autorización de los demás endpoints históricos (impresión, actualización o lectura del estado).
 
 ## `GET /api/state`
 

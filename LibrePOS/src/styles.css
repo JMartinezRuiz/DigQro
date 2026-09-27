@@ -7440,3 +7440,12 @@ button:disabled {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Payment tables: visible horizontal movement above the rows. */
+.payment-table-wrap { min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: auto; }
+.table-scroll-controls { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); background: var(--surface-2); }
+.table-scroll-controls[hidden] { display: none; }
+.table-scroll-controls button { min-height: 44px; padding: 8px; font-size: 1.2rem; }
+.table-scroll-slider { display: grid; gap: 2px; min-width: 0; font-size: .75rem; color: var(--muted); }
+.table-scroll-slider input { width: 100%; min-width: 0; min-height: 28px; padding: 0; accent-color: var(--brand); cursor: ew-resize; }
+.payment-permission-field small { color: var(--muted); line-height: 1.5; }

@@ -73,6 +73,17 @@ test("handles the basic cash, stock, kitchen and printing flows", () => {
   for (const [query, expected] of cases) assert.equal(getHelpReply(query, admin).intent, expected, query);
 });
 
+test("discount questions explain how to quote a ticket before closing the account", () => {
+  for (const query of ["agregar descuento antes de imprimir", "descuento en el ticket prepago", "cuanto paga el cliente con descuento", "quitar descuento de la cuenta"]) {
+    const reply = getHelpReply(query, admin);
+    assert.equal(reply.intent, "tickets", query);
+    assert.match(reply.text, /Total para el cliente/);
+    assert.match(reply.text, /Guardar prepago/);
+    assert.match(reply.text, /sin guardar descarta/);
+    assert.match(reply.text, /no se aplica una segunda vez/);
+  }
+});
+
 test("31 natural phrases keep catalogue edits separate from live service", () => {
   const phrases = [
     ["Quiero crear un platillo", "create-product"],

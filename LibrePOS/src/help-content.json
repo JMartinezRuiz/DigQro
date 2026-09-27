@@ -1,6 +1,6 @@
 {
   "contentVersion": "2026.09.26",
-  "interfaceVersion": "2.0.1",
+  "interfaceVersion": "2.0.2",
   "categories": [
     {
       "id": "all",
@@ -1209,14 +1209,14 @@
       ],
       "steps": [
         {
-          "title": "Abre Finalizar",
-          "detail": "Revisa el total y cualquier aviso de productos sin comandar.",
-          "impact": "Cerrar convierte la orden en una venta cobrada."
+          "title": "Prepara el descuento antes de cobrar",
+          "detail": "En la cuenta abierta, elige Descuento de la cuenta junto al total. Se guarda al seleccionar y actualiza el importe en ese momento; no necesitas pulsar Finalizar para decir al cliente cuánto debe pagar.",
+          "impact": "El total y el prepago incorporan el descuento antes del cierre."
         },
         {
-          "title": "Selecciona descuento",
-          "detail": "Si hay descuento guardado en prepago, revisa Preparado en prepago y usa Revisar prepago para modificarlo. Si aún no lo preparaste, elige Sin descuento, fidelidad 10/15/20% o descuento locatario 10% en el formulario.",
-          "impact": "El descuento reduce consumo e IVA de forma proporcional y queda registrado en Datos y ticket."
+          "title": "Revisa prepago y abre Finalizar",
+          "detail": "Abre Prepago y descuento para ver el ticket completo y Total para el cliente. También puedes cambiar Descuento del prepago, comprobar el resultado y usar Guardar prepago, Guardar e imprimir o Continuar al cobro. En Finalizar, Revisar prepago permite volver a esa vista.",
+          "impact": "El mismo descuento se reutiliza al cobrar; no se aplica dos veces."
         },
         {
           "title": "Elige método de pago",
@@ -1265,9 +1265,9 @@
       ],
       "visualSteps": [
         {
-          "label": "Finaliza",
-          "focus": "Finalizar · Total a cobrar",
-          "action": "Atiende avisos antes de cerrar."
+          "label": "Descuento antes del cobro",
+          "focus": "Descuento de la cuenta",
+          "action": "Selecciona el descuento junto al total de la cuenta abierta."
         },
         {
           "label": "Descuento",
@@ -1301,7 +1301,7 @@
         },
         {
           "symptom": "Ya cerré con el método equivocado",
-          "resolution": "Usa Corregir pago desde Caja o el detalle de la venta. No abras otra cuenta ni borres la venta: conserva total y registra motivo. Después del corte necesita administrador."
+          "resolution": "Usa Corregir pago desde Caja o el detalle de la venta. No abras otra cuenta ni borres la venta: conserva total y registra motivo. Por defecto solo administración puede corregir; puede conceder el permiso desde Usuarios → Editar → Permiso para corregir pagos."
         }
       ],
       "verification": [
@@ -1315,7 +1315,7 @@
       "id": "prepaid-postpaid",
       "category": "checkout",
       "title": "Cuándo imprimir ticket prepago y postpago",
-      "summary": "Entrega la cuenta adecuada antes o después del cobro y reimprímela cuando sea necesario.",
+      "summary": "Consulta el total con descuento y el ticket antes de imprimir o cobrar. El postpago refleja el cierre.",
       "audience": [
         "Mesero",
         "Caja",
@@ -1323,23 +1323,28 @@
       ],
       "duration": "4 min",
       "prerequisites": [
-        "Tener una impresora de tickets seleccionada.",
+        "Para imprimir, tener una impresora de tickets seleccionada. Consultar el total y guardar el descuento no requiere impresora.",
         "La orden debe contener productos."
       ],
       "steps": [
         {
-          "title": "Usa prepago antes de cobrar",
-          "detail": "Desde la cuenta abre Prepago y descuento. Selecciona el descuento, revisa el total y usa Guardar e imprimir; también puedes Guardar prepago sin imprimir o Continuar al cobro.",
-          "impact": "Guarda el descuento en la orden y lo muestra en prepago. Al cobrar se reutiliza una sola vez; la orden sigue abierta."
+          "title": "Selecciona el descuento en la cuenta",
+          "detail": "En Venta, abre la cuenta y elige Descuento de la cuenta junto al total. Se guarda al seleccionar y muestra cuánto debe pagar el cliente sin abrir Finalizar. Sin descuento retira el descuento existente. En móvil, toca Prepago en la barra inferior de Venta.",
+          "impact": "Afecta consumo e IVA; conserva abierta la cuenta."
         },
         {
-          "title": "No cierres para obtener prepago",
-          "detail": "El prepago puede imprimirse con la orden abierta.",
-          "impact": "La mesa continúa operativa hasta confirmar el pago."
+          "title": "Visualiza el prepago antes de imprimir",
+          "detail": "Pulsa Prepago y descuento desde la cuenta, Mesas, para llevar o el registro abierto en Datos. Total para el cliente aparece arriba y Así queda el ticket muestra productos, descuento, IVA y total. Cambiar Descuento del prepago actualiza ambos al instante.",
+          "impact": "Esta vista no imprime ni cobra. Un cambio de descuento aquí permanece pendiente hasta guardarlo; cerrar la ventana lo descarta."
+        },
+        {
+          "title": "Guarda el importe confirmado",
+          "detail": "Usa Guardar prepago para conservarlo sin imprimir, Guardar e imprimir para enviarlo al papel o Continuar al cobro para pasar a Finalizar con el descuento guardado. Si solo estás consultando, puedes cerrar la vista sin modificar la cuenta.",
+          "impact": "La impresión y el cobro usan el descuento de la cuenta, una sola vez."
         },
         {
           "title": "Cobra la cuenta",
-          "detail": "Registra método, descuento y propina y confirma el cierre.",
+          "detail": "Registra método y propina, revisa el descuento preparado y confirma el cierre. Si debes cambiarlo, usa Revisar prepago.",
           "impact": "Solo entonces existe el postpago definitivo."
         },
         {
@@ -1380,18 +1385,21 @@
         "propina",
         "IVA incluido",
         "aviso pendiente",
-        "cuenta"
+        "cuenta",
+        "descuento",
+        "total antes de cobrar",
+        "vista previa"
       ],
       "visualSteps": [
         {
-          "label": "Prepara la cuenta",
-          "focus": "Cuenta → Prepago y descuento",
-          "action": "Revisa el descuento y guarda o imprime antes del cobro."
+          "label": "Prepara el importe",
+          "focus": "Cuenta → Descuento de la cuenta",
+          "action": "Elige descuento antes de Finalizar y consulta el total actualizado."
         },
         {
-          "label": "Cobra",
-          "focus": "Finalizar → Pago + Propina",
-          "action": "Cierra la venta con datos definitivos."
+          "label": "Vista previa",
+          "focus": "Prepago y descuento → Total para el cliente",
+          "action": "Comprueba el ticket completo; cambia el descuento y guarda cuando sea correcto."
         },
         {
           "label": "Después del cobro",
@@ -1421,12 +1429,17 @@
         {
           "symptom": "El postpago vuelve a aparecer pendiente",
           "resolution": "Una corrección de pago invalida el comprobante anterior. Reimprime el postpago corregido; quitar el aviso no imprime ni elimina la venta."
+        },
+        {
+          "symptom": "Cerré la vista y no se guardó el descuento",
+          "resolution": "En la cuenta principal se guarda al seleccionar. Dentro de la vista previa, el cambio es un borrador: usa Guardar prepago, Guardar e imprimir o Continuar al cobro. Cerrar sin guardar conserva el descuento anterior."
         }
       ],
       "verification": [
         "El tipo de ticket corresponde al momento del servicio.",
         "El descuento se guardó antes de cobrar si debía verse en prepago.",
-        "La última impresión coincide con los datos de la cuenta."
+        "La última impresión coincide con los datos de la cuenta.",
+        "El importe visible en Total para el cliente y el TOTAL del ticket coinciden antes de imprimir."
       ],
       "reviewedAt": "2026-09-26"
     },
@@ -1472,7 +1485,7 @@
         },
         {
           "title": "Corrige un método equivocado",
-          "detail": "En Datos busca la cuenta cerrada y pulsa Corregir pago. Selecciona el pago de consumo y propina, indica efectivo recibido o terminal y tipo de tarjeta, escribe el motivo, guarda y confirma. Caja puede hacerlo en la caja abierta; administración también después del corte.",
+          "detail": "En Datos busca la cuenta cerrada y pulsa Corregir pago. Selecciona el pago de consumo y propina, indica efectivo recibido o terminal y tipo de tarjeta, escribe el motivo, guarda y confirma. Por defecto solo administración puede corregir, incluso con la caja abierta. Puede autorizar a otro usuario con función Caja desde Usuarios → Editar → Permiso para corregir pagos.",
           "impact": "Conserva el total y el efectivo contado; actualiza importes por método, esperado y diferencia. Guarda historial y deja el postpago pendiente de reimpresión."
         }
       ],
@@ -2240,7 +2253,7 @@
       "id": "users-permissions",
       "category": "control",
       "title": "Cómo crear usuarios y asignar funciones",
-      "summary": "Da a cada persona solo el acceso necesario para su trabajo.",
+      "summary": "Configura funciones y el permiso individual para corregir pagos. Por defecto, solo administración puede corregirlos.",
       "audience": [
         "Administrador"
       ],
@@ -2266,6 +2279,11 @@
           "impact": "Las funciones controlan qué secciones y operaciones puede usar."
         },
         {
+          "title": "Configura la corrección de pagos",
+          "detail": "En Nuevo usuario o Editar, busca Permiso para corregir pagos. Deja Sin permiso para mantener la restricción a administradores. Para una persona con función Caja puedes elegir Solo caja abierta o Cualquier caja (incluye cortes cerrados). Pulsa Guardar cambios al editar.",
+          "impact": "El permiso es individual. Los administradores siempre tienen acceso; una persona con función Caja no lo obtiene automáticamente."
+        },
+        {
           "title": "Prueba el acceso",
           "detail": "Inicia sesión con la cuenta y confirma que vea únicamente lo necesario.",
           "impact": "Detecta permisos excesivos o faltantes antes de operar."
@@ -2288,7 +2306,8 @@
         "cash-daily",
         "open-order",
         "command-order",
-        "data-reprint-delete"
+        "data-reprint-delete",
+        "correct-payment"
       ],
       "tags": [
         "usuario",
@@ -2317,6 +2336,11 @@
           "action": "Asigna el mínimo acceso necesario."
         },
         {
+          "label": "Permiso de pagos",
+          "focus": "Permiso para corregir pagos",
+          "action": "Sin permiso por defecto; el administrador puede autorizar caja abierta o cualquier caja."
+        },
+        {
           "label": "Prueba",
           "focus": "Cerrar sesión · Entrar",
           "action": "Confirma secciones y acciones visibles."
@@ -2328,8 +2352,8 @@
         }
       ],
       "example": {
-        "title": "Una persona con dos funciones",
-        "detail": "Una persona que atiende mesas y cobra puede tener Mesero y Caja sin Administrador. Comprueba su acceso con su usuario y conserva la atribución de acciones por persona."
+        "title": "Cobrar sin poder corregir pagos",
+        "detail": "Una persona con función Caja y Sin permiso puede cobrar, pero no cambiar el pago de una venta cerrada. Si administración le concede Solo caja abierta podrá corregir ventas del turno actual. Al volver a Sin permiso pierde ese acceso también en las sesiones que ya tenía abiertas."
       },
       "troubleshooting": [
         {
@@ -2339,12 +2363,17 @@
         {
           "symptom": "No entra después de un cambio de clave",
           "resolution": "Comprueba usuario exacto, nueva contraseña y mismo servidor. Tras restauraciones, una exportación JSON de interfaz puede no contener credenciales completas; usa la copia completa del servidor."
+        },
+        {
+          "symptom": "Tiene Caja pero no puede corregir",
+          "resolution": "Es el comportamiento predeterminado. Solo administración configura el campo Permiso para corregir pagos. Comprueba también el alcance de caja abierta o cualquier caja y que el usuario haya iniciado sesión con el servidor."
         }
       ],
       "verification": [
         "Cada persona tiene su identidad propia.",
         "Sólo tiene las funciones necesarias.",
-        "Se comprobó el acceso y se conserva un administrador activo."
+        "Se comprobó el acceso y se conserva un administrador activo.",
+        "Los usuarios existentes de Caja quedan sin permiso de corrección salvo concesión explícita."
       ],
       "reviewedAt": "2026-09-26"
     },
@@ -2699,13 +2728,13 @@
       "duration": "6 min",
       "prerequisites": [
         "Tener la venta identificada por folio, fecha e importe y el comprobante real.",
-        "Caja puede corregir ventas de la caja abierta; un administrador también puede corregir cortes cerrados.",
+        "Por defecto solo un administrador puede corregir pagos. Otro usuario necesita función Caja y un permiso explícito: Solo caja abierta o Cualquier caja (incluye cortes cerrados).",
         "Si hay importe con tarjeta, debe existir una terminal activa."
       ],
       "steps": [
         {
           "title": "Localiza la venta",
-          "detail": "En Caja, o en Datos si tienes acceso, busca la cuenta y abre Ver cuenta. Comprueba folio, productos, hora y total.",
+          "detail": "En Caja, o en Datos si tienes acceso, busca la cuenta y abre Ver cuenta. Comprueba folio, productos, hora y total. Si no ves las últimas columnas, usa Desplazar tabla: arrastra la barra o pulsa las flechas izquierda/derecha encima de las filas.",
           "impact": "Evita cambiar otra venta de importe parecido."
         },
         {
@@ -2746,7 +2775,8 @@
         "payment-terminals",
         "cash-daily",
         "prepaid-postpaid",
-        "data-reprint-delete"
+        "data-reprint-delete",
+        "users-permissions"
       ],
       "tags": [
         "corregir pago",
@@ -2786,7 +2816,7 @@
       "troubleshooting": [
         {
           "symptom": "No aparece Corregir pago",
-          "resolution": "Comprueba que la venta pertenezca a la caja abierta y que tengas función Caja. Si el corte ya cerró, solicita a un administrador."
+          "resolution": "Tener función Caja ya no concede este permiso. Solicita a administración que revise Usuarios → Editar → Permiso para corregir pagos. Sin permiso bloquea la corrección; Solo caja abierta se limita al turno actual y Cualquier caja incluye cortes cerrados."
         },
         {
           "symptom": "Cambió consumo, pero todavía pide terminal",
@@ -2795,6 +2825,14 @@
         {
           "symptom": "El corte ahora muestra otra diferencia",
           "resolution": "Es el efecto de reclasificar un pago. Revisa esperado, contado e historial; no cambies el contado para ocultar la diferencia."
+        },
+        {
+          "symptom": "Pide volver a iniciar sesión",
+          "resolution": "El permiso se verifica con el servidor. Tras reiniciarlo o al caducar la sesión, entra de nuevo con tu usuario antes de guardar. No repitas la corrección si no has comprobado primero el método de pago actual."
+        },
+        {
+          "symptom": "No veo Corregir pago al final de la fila",
+          "resolution": "En el buscador de Datos o en los cobros de Caja, usa Desplazar tabla encima de las filas. Arrastra la barra a la derecha o pulsa la flecha derecha; la flecha izquierda vuelve a las primeras columnas."
         }
       ],
       "verification": [

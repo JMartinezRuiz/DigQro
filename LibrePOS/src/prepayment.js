@@ -22,3 +22,23 @@ export function calculatePrepaymentDiscount(gross, code = "none", ivaRate = 0) {
     ivaAmount: round((originalSubtotal - originalNet) - (subtotal - net)),
   };
 }
+
+export function prepaymentForOrder(order, code = order.prepaidDiscount?.code || 'none', ivaRate = 0) {
+  const gross = (order.items || []).reduce((sum, item) => sum + Number(item.unitPrice) * Number(item.qty), 0);
+  return calculatePrepaymentDiscount(gross, code, ivaRate);
+}
+
+// Preview is read-only. Saving an open order never creates a sale or changes its items.
+export function prepareOrderDiscount(order, code, { ivaRate = 0, userId, at } = {}) {
+  if (order.status !== 'open' || !order.items?.length) throw new Error('Abre una cuenta con productos para aplicar el descuento.');
+  if (!userId || !at) throw new Error('El descuento necesita usuario y fecha.');
+  if (!PREPAYMENT_DISCOUNTS.some(option => option.code === code)) throw new Error('Selecciona un descuento válido.');
+  const discount = prepaymentForOrder(order, code, ivaRate);
+  const changed = (order.prepaidDiscount?.code || 'none') !== code
+    || (order.prepaidDiscount && order.prepaidDiscount.subtotal !== discount.subtotal);
+  return {
+    ...order,
+    ...(changed ? { prepaidReceiptPrintedAt: '', prepaidReceiptPrintedBy: '', prepaidReceiptMethod: '', prepaidReceiptError: '', prepaidReceiptFailedAt: '' } : {}),
+    prepaidDiscount: { ...discount, preparedAt: at, preparedBy: userId },
+  };
+}
