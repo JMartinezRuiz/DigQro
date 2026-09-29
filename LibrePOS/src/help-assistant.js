@@ -68,6 +68,11 @@ const ACTIONS = {
 };
 
 const REPLIES = {
+  uber: {
+    text: "Los pedidos de Uber llevan Pago Uber: no se cobran en efectivo ni tarjeta. Solo Admin configura la app, tienda y webhook en Desarrollo → Conexión Uber; el catálogo se relaciona desde cada pedido. Caja acepta, rechaza, cancela y confirma la entrega; Cocina prepara y marca listo. La aceptación automática requiere una relación exacta de productos, variantes y extras, con inventario suficiente. Preparar y Listo son estados locales. Confirmar entrega registra la venta fuera del efectivo esperado. En Recepción puedes revisar fallos de webhook; no repitas el pedido como venta manual sin comprobar el folio.",
+    articleIds: ["uber-eats", "developer-uber", "cash-daily", "command-order"],
+    suggestions: [suggestion("Cómo configurar Uber Eats"), suggestion("Cerrar caja")],
+  },
   "correct-payment": {
     text: "Para corregir una cuenta cobrada, busca la venta en Caja o en Datos si tienes acceso y pulsa Corregir pago.\n1. Comprueba folio y total.\n2. Elige por separado el pago del consumo y el de la propina.\n3. Indica efectivo realmente recibido o terminal y Crédito/Débito si alguna parte va con tarjeta.\n4. Escribe el motivo, guarda y revisa la confirmación.\nEl total no cambia. Queda historial y se ajusta caja; en un corte cerrado se conserva el contado y se recalculan esperado y diferencia. Por defecto solo administración puede corregir pagos. Puede conceder permisos por usuario en Usuarios → Editar → Permiso para corregir pagos: Sin permiso, Solo caja abierta o Cualquier caja. Otros usuarios necesitan además la función Caja. Usa Desplazar tabla y sus flechas si no ves las últimas columnas. Reimprime el postpago corregido. Esto no realiza movimientos bancarios.",
     articleIds: ["correct-payment", "cash-daily", "payment-terminals"], actions: ["cash", "data"],
@@ -274,6 +279,8 @@ function detectIntent(query, previousIntent) {
   const add = has("agregar", "poner", "meter");
   const sale = has("orden", "cuenta", "mesa", "pedido", "ticket", "linea", "comandado", "comandada", "pendiente");
   const catalog = has("catalogo", "menu", "disponible", "venta") || includes("dejar de vender");
+
+  if (has("uber", "ubereats", "webhook")) return "uber";
 
   if (!query || /^(hola|buenas|buenos dias|buenas tardes|buenas noches|ayuda|soporte|inicio|empezar|gracias|tutorial|gif)$/.test(query)) return "welcome";
 

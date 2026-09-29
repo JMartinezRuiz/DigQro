@@ -3,6 +3,29 @@ const money = (value) => Math.round((Number(value) || 0) * 100) / 100;
 const methods = new Set(["Efectivo", "Tarjeta"]);
 export const CARD_TYPES = { debit: "Débito", credit: "Crédito" };
 
+// Unknown tenders must never inflate the physical cash drawer.
+export function paymentBucket(method) {
+  const value = String(method || "Efectivo").trim().toLowerCase();
+  if (["uber", "uber eats", "uber_eats"].includes(value)) return "uber";
+  if (value.includes("tarjeta")) return "card";
+  return value === "efectivo" ? "cash" : "other";
+}
+
+export function summarizePayments(sales, { subtotal, tip, tax = () => 0, discount = () => 0 }) {
+  const totals = { cash: 0, card: 0, uber: 0, other: 0, total: 0, tips: 0, iva: 0, discounts: 0, count: 0,
+    cashSales: 0, cardSales: 0, uberSales: 0, otherSales: 0, cashTips: 0, cardTips: 0, uberTips: 0, otherTips: 0 };
+  for (const sale of sales) {
+    const amount = subtotal(sale), gratuity = tip(sale);
+    const bucket = paymentBucket(sale.paymentMethod);
+    const tipBucket = paymentBucket(sale.tip?.paymentMethod || sale.totals?.tipPaymentMethod || sale.paymentMethod);
+    totals[bucket] += amount; totals[`${bucket}Sales`] += amount;
+    totals[tipBucket] += gratuity; totals[`${tipBucket}Tips`] += gratuity;
+    totals.total += amount + gratuity; totals.tips += gratuity;
+    totals.iva += tax(sale); totals.discounts += discount(sale); totals.count++;
+  }
+  return totals;
+}
+
 export function normalizePaymentTerminals(value) {
   const source = Array.isArray(value) ? value : [
     { id: "terminal-1", name: "Terminal 1" },
@@ -34,6 +57,7 @@ export function cardDetailsLabel(payment = {}) {
 }
 
 export function correctSalePayment(sale, input, context) {
+  if (sale.source === "uber_eats" || paymentBucket(sale.paymentMethod) === "uber") throw new Error("El pago Uber se gestiona desde Uber Eats; no puede convertirse en efectivo o tarjeta.");
   const { subtotal, tipAmount, userId, at, id, terminals } = context;
   const reason = String(input.reason || "").trim();
   if (reason.length < 5 || reason.length > 240) throw new Error("Escribe un motivo de 5 a 240 caracteres.");
@@ -67,7 +91,8 @@ export function correctedCashSession(session, totals, audit) {
   const result = { ...session, adjustments: [...(session.adjustments || []), audit] };
   if (session.status !== "closed") return result;
   return {
-    ...result, cashSales: totals.cash, cardSales: totals.card, totalSales: totals.total,
+    ...result, cashSales: totals.cash, cardSales: totals.card, uberSales: totals.uber || 0, totalSales: totals.total,
+    uberTips: totals.uberTips || 0,
     cashTips: totals.cashTips, cardTips: totals.cardTips, tips: totals.tips,
     expectedCash: totals.expectedCash,
     difference: money(Number(session.countedCash || 0) - totals.expectedCash),

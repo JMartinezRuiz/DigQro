@@ -1,6 +1,6 @@
 # Guías operativas de LibrePOS
 
-Interfaz 2.0.2 · Contenido 2026.09.26
+Interfaz 2.1.0-beta.2 · Contenido 2026.09.28
 
 La misma referencia está disponible en Ayuda → Tutoriales, con capturas y GIFs sin conexión a Internet. Los ejemplos son ficticios. Consulta la versión de cada captura; los pasos escritos describen la interfaz vigente.
 
@@ -32,6 +32,8 @@ La misma referencia está disponible en Ayuda → Tutoriales, con capturas y GIF
 - [Cómo corregir el pago de una cuenta cerrada](#correct-payment)
 - [Cómo configurar terminales y registrar tarjetas](#payment-terminals)
 - [Cómo entrar desde el teléfono y resolver problemas del QR](#lan-access)
+- [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
+- [Cómo configurar Uber desde Desarrollo](#developer-uber)
 
 <a id="create-product"></a>
 
@@ -523,12 +525,13 @@ Para: Mesero, Caja, Administrador. Tiempo orientativo: 3 min.
 - Descuenta receta y extras del inventario.
 - Digital + impresa depende de la impresora de comandas.
 - Una falla de impresión no debe borrar la comanda digital.
+- Las órdenes Uber se aceptan y comandan desde Uber Eats. Pueden entrar automáticamente con catálogo e inventario validados, aunque no haya caja abierta.
 
 **Atención:** No pulses nuevamente para compensar una impresión fallida: podrías enviar productos nuevos pendientes. Revisa Cocina y la configuración de impresión.
 
 **Resultado esperado:** La comanda aparece en Cocina una sola vez y, si se eligió, también sale impresa.
 
-Relacionadas: [Cómo configurar mixtos, variantes, extras y notas](#configure-product) · [Cómo configurar y probar impresoras](#printer-setup) · [Cómo quitar productos o cancelar una cuenta](#cancel-item-order) · [Cómo registrar una merma](#inventory-waste)
+Relacionadas: [Cómo configurar mixtos, variantes, extras y notas](#configure-product) · [Cómo configurar y probar impresoras](#printer-setup) · [Cómo quitar productos o cancelar una cuenta](#cancel-item-order) · [Cómo registrar una merma](#inventory-waste) · [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
 
 <a id="cancel-item-order"></a>
 
@@ -692,12 +695,13 @@ Para: Mesero, Caja, Administrador. Tiempo orientativo: 4 min.
 - Postpago: venta cerrada con propina final.
 - Reimpresión no duplica cobro.
 - Omitir aviso no borra la venta.
+- Los pedidos Uber no generan un prepago pendiente de cobro: su pago lo gestiona Uber. La venta finalizada permite un comprobante con Pago Uber y No cobrar al cliente.
 
 **Atención:** No confundas una reimpresión con un nuevo cobro. Comprueba siempre folio, tipo de ticket y estado de la venta.
 
 **Resultado esperado:** El cliente recibe el tipo correcto de cuenta y Datos refleja si fue impresa u omitida.
 
-Relacionadas: [Cómo cobrar, aplicar descuentos y registrar propina](#checkout-discounts-tips) · [Cómo configurar y probar impresoras](#printer-setup) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo comandar: digital o digital + impresa](#command-order)
+Relacionadas: [Cómo cobrar, aplicar descuentos y registrar propina](#checkout-discounts-tips) · [Cómo configurar y probar impresoras](#printer-setup) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo comandar: digital o digital + impresa](#command-order) · [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
 
 <a id="cash-daily"></a>
 
@@ -747,12 +751,13 @@ Para: Caja, Administrador. Tiempo orientativo: 4 min.
 - Compras registradas pueden reducir efectivo esperado.
 - Propinas se separan por método.
 - El cierre conserva contado, esperado y diferencia.
+- Las ventas Pago Uber se muestran separadas de efectivo y tarjeta. No aumentan el efectivo esperado. Un pedido Uber activo no bloquea el cierre; su venta se vincula a la caja que esté abierta al entregarse, o queda sin corte si no hay caja.
 
 **Atención:** No cambies movimientos reales para ocultar una diferencia. Registra la nota y revisa la causa con Datos e Inventario.
 
 **Resultado esperado:** El corte refleja fielmente operación, efectivo contado y cualquier diferencia documentada.
 
-Relacionadas: [Cómo corregir el pago de una cuenta cerrada](#correct-payment) · [Cómo cobrar, aplicar descuentos y registrar propina](#checkout-discounts-tips) · [Cómo registrar una compra de inventario](#inventory-purchase) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete)
+Relacionadas: [Cómo corregir el pago de una cuenta cerrada](#correct-payment) · [Cómo cobrar, aplicar descuentos y registrar propina](#checkout-discounts-tips) · [Cómo registrar una compra de inventario](#inventory-purchase) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
 
 <a id="inventory-purchase"></a>
 
@@ -1078,12 +1083,13 @@ Para: Administrador. Tiempo orientativo: 6 min.
 - Omitir postpago solo elimina el aviso.
 - Borrar elimina la venta seleccionada.
 - El borrado repone inventario y conserva el avance del consecutivo.
+- Las ventas Uber conservan su identidad externa, no permiten borrado ni cambio de pago desde Datos. Cancela desde Uber Eats y revisa la liquidación con la plataforma.
 
 **Atención:** El borrado es irreversible y solo debe usarse para duplicados comprobados. Para una incidencia operativa usa Cancelar cuenta.
 
 **Resultado esperado:** La cuenta correcta se localiza y la acción elegida produce exactamente el efecto esperado sin duplicar ventas.
 
-Relacionadas: [Cómo corregir el pago de una cuenta cerrada](#correct-payment) · [Cuándo imprimir ticket prepago y postpago](#prepaid-postpaid) · [Cómo abrir y cerrar caja](#cash-daily) · [Cómo respaldar y actualizar LibrePOS](#backup-update)
+Relacionadas: [Cómo corregir el pago de una cuenta cerrada](#correct-payment) · [Cuándo imprimir ticket prepago y postpago](#prepaid-postpaid) · [Cómo abrir y cerrar caja](#cash-daily) · [Cómo respaldar y actualizar LibrePOS](#backup-update) · [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
 
 <a id="users-permissions"></a>
 
@@ -1188,12 +1194,13 @@ Para: Cocina, Mesero, Administrador. Tiempo orientativo: 4 min.
 - No cobra ni cierra la mesa.
 - No vuelve a descontar inventario al cambiar estado.
 - Mantiene folio, hora y notas de preparación.
+- Las comandas Uber se identifican por su código y Pago Uber. Preparar y Listo son locales; Caja confirma la entrega desde Uber Eats. Un cambio de pedido exige revisión antes de continuar.
 
 **Atención:** No pulses Lista para limpiar el tablero si el producto aún no está completo. La entrega posterior debe confirmarse desde Mesas.
 
 **Resultado esperado:** Cada comanda avanza de Nuevas a En preparación y Listas para entregar, y la entrega se completa desde Mesas.
 
-Relacionadas: [Cómo comandar: digital o digital + impresa](#command-order) · [Cómo configurar mixtos, variantes, extras y notas](#configure-product) · [Cómo quitar productos o cancelar una cuenta](#cancel-item-order) · [Cómo abrir una mesa o pedido para llevar](#open-order)
+Relacionadas: [Cómo comandar: digital o digital + impresa](#command-order) · [Cómo configurar mixtos, variantes, extras y notas](#configure-product) · [Cómo quitar productos o cancelar una cuenta](#cancel-item-order) · [Cómo abrir una mesa o pedido para llevar](#open-order) · [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
 
 <a id="attendance-profile"></a>
 
@@ -1296,12 +1303,13 @@ Para: Administrador. Tiempo orientativo: 5 min.
 - La actualización conserva la carpeta local de operación.
 - Reiniciar carga todos los componentes nuevos.
 - La validación confirma que el estado anterior sigue disponible.
+- El Respaldo JSON no incluye credenciales ni la bandeja privada de Uber. Para trasladar el conector, el desarrollador debe preservar también la carpeta privada uber del servidor.
 
 **Atención:** No reinstales ni borres la carpeta de datos para resolver una actualización. Conserva el mensaje de error y utiliza primero la reparación prevista.
 
 **Resultado esperado:** La versión cambia y ventas, usuarios, inventario, configuración e impresoras siguen disponibles.
 
-Relacionadas: [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo configurar y probar impresoras](#printer-setup) · [Cómo crear usuarios y asignar funciones](#users-permissions) · [Cómo activar, cambiar o iniciar una etapa de IVA](#iva-settings)
+Relacionadas: [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo configurar y probar impresoras](#printer-setup) · [Cómo crear usuarios y asignar funciones](#users-permissions) · [Cómo activar, cambiar o iniciar una etapa de IVA](#iva-settings) · [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
 
 <a id="correct-payment"></a>
 
@@ -1355,12 +1363,13 @@ Para: Caja, Administrador. Tiempo orientativo: 6 min.
 - Actualiza distribución entre efectivo y tarjeta, incluida propina.
 - Conserva historial y efectivo contado; recalcula el corte afectado.
 - No realiza cargos ni devoluciones bancarias.
+- Pago Uber se gestiona desde Uber Eats y no admite conversión a efectivo o tarjeta mediante Corregir pago.
 
 **Atención:** Comprueba el medio realmente usado. Esta acción corrige el registro contable de LibrePOS; un movimiento bancario se gestiona por separado. Evita que dos personas corrijan simultáneamente la misma cuenta.
 
 **Resultado esperado:** La misma venta muestra el método correcto, la corrección queda registrada y caja refleja la nueva distribución.
 
-Relacionadas: [Cómo configurar terminales y registrar tarjetas](#payment-terminals) · [Cómo abrir y cerrar caja](#cash-daily) · [Cuándo imprimir ticket prepago y postpago](#prepaid-postpaid) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo crear usuarios y asignar funciones](#users-permissions)
+Relacionadas: [Cómo configurar terminales y registrar tarjetas](#payment-terminals) · [Cómo abrir y cerrar caja](#cash-daily) · [Cuándo imprimir ticket prepago y postpago](#prepaid-postpaid) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete) · [Cómo crear usuarios y asignar funciones](#users-permissions) · [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats)
 
 <a id="payment-terminals"></a>
 
@@ -1470,3 +1479,115 @@ Para: Todos. Tiempo orientativo: 6 min.
 **Resultado esperado:** El teléfono abre la misma instancia y muestra los registros esperados; el enlace y el QR coinciden.
 
 Relacionadas: [Cómo crear usuarios y asignar funciones](#users-permissions) · [Cómo respaldar y actualizar LibrePOS](#backup-update) · [Cómo abrir una mesa o pedido para llevar](#open-order) · [Cómo comandar: digital o digital + impresa](#command-order)
+
+<a id="uber-eats"></a>
+
+## Cómo recibir y gestionar pedidos de Uber Eats
+
+Conecta la tienda de pruebas, relaciona el catálogo y gestiona pedidos con Pago Uber separado de efectivo y tarjeta.
+
+Para: Administrador, Caja, Cocina. Tiempo orientativo: 10 min.
+
+### Antes de empezar
+
+- App con acceso a Eats Marketplace, tienda sandbox vinculada y permisos de gestor de pedidos.
+- Webhook HTTPS publicado por el desarrollador; equipo servidor encendido y con Internet.
+- Catálogo y recetas del POS preparados; caja y cocina con su propia sesión.
+
+### Pasos
+
+1. **Prepara la conexión de pruebas.** Un Admin abre Desarrollo → Conexión Uber, selecciona Sandbox e introduce Store ID, Client ID, Client secret y URL HTTPS pública del webhook. Guarda y usa Probar conexión guardada. Publica la pasarela y registra la URL en Uber; guardarla en el POS no realiza esos pasos. Efecto: Probar conexión verifica OAuth y lectura de tienda; recibir un pedido requiere además la vinculación de la tienda y el webhook.
+
+2. **Revisa el primer pedido.** En Pedidos comprueba código, notas, variantes, cantidad, IVA y total. En Revisión y cancelación relaciona los productos y extras con el catálogo local y guarda cada relación. Efecto: Se conserva el precio de Uber; la receta del POS determina el consumo de inventario. Una nota de texto no modifica la receta.
+
+3. **Acepta y comanda.** Caja o Admin pulsa Aceptar y comandar. Si faltan relaciones, variantes o insumos, corrige el aviso antes de reintentar. Efecto: La aceptación se comunica a Uber y crea una comanda. El inventario se descuenta una vez; todavía no se registra la venta.
+
+4. **Prepara y entrega.** Cocina pulsa Preparar y después Listo para recoger. Caja comprueba la entrega física al repartidor o cliente y pulsa Confirmar entrega. Efecto: Preparar y Listo son estados locales. Confirmar entrega registra la venta Pago Uber. Un FINISHED remoto de un pedido comandado también puede finalizarla.
+
+5. **Comprueba el pago separado.** Abre Caja o Datos y busca el folio de Uber. Revisa Pago Uber hoy, el comprobante y el CSV cuando corresponda. Efecto: Pago Uber no incrementa efectivo esperado ni ventas con tarjeta. Es venta gestionada por la plataforma, no depósito bancario confirmado.
+
+6. **Activa la automatización después de probar.** Con varios pedidos validados, Admin puede habilitar Aceptar y comandar automáticamente los pedidos validados e Imprimir automáticamente en la impresora de comandas. Efecto: El servidor debe seguir encendido y conectado. Si falta relación o inventario, se requiere revisión. Desactivar el conector no pausa la tienda en Uber.
+
+### Ejemplo
+
+**Dos cafés de prueba por $80.** En la demo aislada, Crear pedido simulado genera dos cafés con la nota Sin azúcar. Al aceptar se consumen dos unidades ficticias y aparece una comanda. Tras preparar y confirmar entrega, Caja muestra $80 en Pago Uber y $0 en efectivo y tarjeta por esa venta. Si no había caja abierta, la venta aparece en el día y en Datos sin corte asociado.
+
+### Si algo no funciona
+
+- **No llega el pedido de Uber:** Revisa que la recepción esté habilitada, el POS y la pasarela estén encendidos, la URL HTTPS sea accesible y la tienda esté vinculada a la app. Recepción muestra los errores de firma, consulta o importación que alcanzaron el conector; un 401 de firma no se guarda como evento.
+- **El pedido requiere revisión:** Abre Revisión y cancelación y relaciona cada combinación de producto y modificadores con el catálogo local. Comprueba receta, unidades de extras e inventario. Los tipos no admitidos o los importes que no cuadran deben revisarse con Uber; no los cobres manualmente por defecto.
+- **La aceptación falló pero Uber la muestra aceptada:** Usa Consultar Uber y revisa Cocina antes de repetir o crear otra venta. El conector reconcilia el estado aceptado y usa el identificador externo para no consumir inventario dos veces.
+- **No se confirmó la impresión:** Comprueba la impresora de comandas y el papel. Una respuesta perdida no garantiza que no haya salido la comanda; revisa físicamente antes de pulsar Reimprimir comanda.
+
+### Comprueba antes de terminar
+
+- Confirma código, cantidades, notas, variantes y total contra Uber.
+- Comprueba una sola comanda y un solo consumo de insumos por pedido.
+- Verifica Pago Uber separado en Caja y que efectivo esperado no aumente.
+- Revisa que la venta no se haya registrado también de forma manual.
+
+### Efectos de la operación
+
+- Aceptar descuenta inventario y crea una comanda una sola vez.
+- La venta se registra al entregar y se clasifica como Pago Uber, fuera del efectivo esperado.
+- Cancelar antes de preparar repone los insumos; después de preparar conserva el consumo.
+- La liquidación, comisiones y devoluciones de Uber se concilian por separado.
+
+**Atención:** Empieza con aceptación e impresión automáticas desactivadas. No dupliques un pedido como venta manual sin revisar su folio. Usa Cancelar en Uber o Rechazar en Uber desde esta pantalla; no conviertas el pago a efectivo o tarjeta. Ante un pedido modificado, revisa la versión nueva con cocina antes de confirmar la revisión.
+
+**Resultado esperado:** El pedido conserva su código Uber, notas y total; tiene una comanda y una venta Pago Uber, sin aumentar efectivo ni tarjeta.
+
+Relacionadas: [Cómo configurar Uber desde Desarrollo](#developer-uber) · [Cómo abrir y cerrar caja](#cash-daily) · [Cómo comandar: digital o digital + impresa](#command-order) · [Cómo gestionar comandas en Cocina](#kitchen-flow) · [Cómo configurar y probar impresoras](#printer-setup) · [Cómo buscar, reimprimir o borrar una cuenta duplicada](#data-reprint-delete)
+
+<a id="developer-uber"></a>
+
+## Cómo configurar Uber desde Desarrollo
+
+Configura credenciales, webhook y pruebas de Uber en una pantalla exclusiva para Admin.
+
+Para: Administrador. Tiempo orientativo: 8 min.
+
+### Antes de empezar
+
+- Inicia sesión con una función Admin activa. Caja, Cocina y Mesero no tienen acceso a Desarrollo.
+- Para una prueba real, prepara una app Eats Marketplace, credenciales, Store ID autorizado y menú sandbox.
+- Usa una instancia aislada y una pasarela HTTPS para las pruebas; no publiques el puerto del POS.
+
+### Pasos
+
+1. **Abre Desarrollo como Admin.** En Administración abre Desarrollo → Conexión Uber. Revisa el entorno y el estado de recepción. Para pruebas conectadas, inicia npm run dev:uber y entra en el puerto 5175. Efecto: Esta pantalla y las acciones de configuración están restringidas a Admin en la interfaz y en el servidor.
+
+2. **Guarda la conexión y el webhook.** Selecciona Sandbox e introduce Store ID, Client ID, Client secret y URL HTTPS pública del webhook terminada en /api/uber/webhook. Configura IVA y preparación. Deja aceptación e impresión automáticas desactivadas y pulsa Guardar configuración. Efecto: Las credenciales y la URL se guardan en el servidor. El secreto no se devuelve al navegador; un campo vacío conserva el secreto anterior. Guardar la URL no crea el túnel ni registra el webhook en Uber.
+
+3. **Publica y comprueba la recepción.** En Webhook de pedidos, copia la URL guardada. Despliega la pasarela de pruebas en el puerto 8788 y regístrala con HTTPS en Uber. Probar conexión guardada comprueba OAuth y lectura de tienda. Habilita la recepción cuando la tienda de pruebas esté preparada y revisa Recepción después de generar un pedido sandbox. Efecto: Una conexión comprobada no confirma por sí sola los webhooks. Recepción muestra los eventos admitidos y sus errores de procesamiento; una firma inválida se rechaza antes de guardar el evento.
+
+4. **Prueba el flujo y habilita las opciones necesarias.** En Desarrollo → Pruebas, la demo aislada permite Crear pedido simulado. Abre pedidos Uber Eats para aceptarlo, prepararlo y entregarlo. En sandbox sigue el procedimiento de tu cuenta. Después de validar varios pedidos, puedes activar aceptación e impresión automáticas desde Conexión Uber. Efecto: La simulación crea datos ficticios únicamente en la demo. Las opciones automáticas requieren catálogo relacionado e impresora preparada. Desactivar la recepción no pausa la tienda en Uber.
+
+### Ejemplo
+
+**Una prueba aislada antes de conectar Uber.** Ejecuta npm run dev:demo, inicia sesión como admin y abre Desarrollo → Pruebas. Crea el pedido simulado y comprueba que aparece en Uber Eats. La demo no solicita un pedido a Uber ni valida sus credenciales.
+
+### Si algo no funciona
+
+- **No veo Desarrollo:** Comprueba que tu usuario tenga la función Admin activa. Caja, Cocina y Mesero no pueden entrar a esta pantalla.
+- **No permite guardar la URL:** Usa una dirección HTTPS terminada exactamente en /api/uber/webhook, sin credenciales, parámetros ni fragmentos.
+- **El secreto aparece vacío después de guardar:** Es el comportamiento esperado: el servidor solo informa que hay un secreto guardado. Deja el campo vacío para conservarlo o escribe uno nuevo para reemplazarlo.
+
+### Comprueba antes de terminar
+
+- Guarda, recarga Desarrollo y verifica Store ID, Client ID, URL y opciones guardadas.
+- Comprueba que el campo Client secret muestre Guardado y conserve el valor al guardar vacío.
+- Inicia sesión como Caja y comprueba que Desarrollo no aparece.
+- Para validar Uber real, verifica OAuth, llegada de un webhook y recorrido de un pedido sandbox por separado.
+
+### Efectos de la operación
+
+- Credenciales y URL del webhook disponibles solo para Admin, con el secreto conservado únicamente en el servidor.
+- Caja y Cocina mantienen sus tareas desde Uber Eats y no pueden configurar la integración.
+- Pago Uber se mantiene separado de efectivo y tarjeta durante las pruebas y la operación.
+
+**Atención:** No uses pedidos reales para probar. Guardar la URL del webhook no demuestra conectividad ni configura el portal Uber. Nunca publiques los puertos del POS; utiliza la pasarela que admite únicamente el webhook. No compartas el Client secret en capturas o mensajes.
+
+**Resultado esperado:** Admin puede guardar la conexión, copiar la URL y consultar las pruebas y los eventos desde Desarrollo. Los otros roles no ven la pantalla ni pueden modificar esa configuración.
+
+Relacionadas: [Cómo recibir y gestionar pedidos de Uber Eats](#uber-eats) · [Cómo crear usuarios y asignar funciones](#users-permissions) · [Cómo abrir y cerrar caja](#cash-daily) · [Cómo configurar y probar impresoras](#printer-setup)

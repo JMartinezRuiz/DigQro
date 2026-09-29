@@ -1,10 +1,16 @@
+import { isUberOrder, uberLabel, buildUberCommandText } from "./uber-orders.js";
+import { mergeConcurrentInventory } from "./inventory-sync.js";
+import { renderUberPanel, bindUberPanel, resetUberPanel } from "./uber-panel.js";
+import { renderDeveloperPanel, bindDeveloperPanel, resetDeveloperPanel } from "./developer-panel.js";
+import { menuCatalog, inventoryRecipes, singleOption, proteinOption } from "./catalog-data.js";
+import { normalizeRecipe, normalizeVariantRecipes, defaultSelectionsFor, firstActiveChoiceIndex, inventoryRecipeForSelections, recipeVariantForSelections, variantOptionPriority, selectedChoiceLabel, ingredientChoice, proteinIngredients, salsaIngredients, configuredRecipeForProduct } from "./product-recipes.js";
 import { PAYMENT_CORRECTION_SCOPES, normalizeUserPermissions, paymentCorrectionScope, mayCorrectSalePayment } from "./user-permissions.js";
 import { renderTableScrollControls, bindTableScrollControls } from "./table-scroll.js";
 import "./styles.css";
 import { helpDetailSearchText, renderHelpDetails } from "./help-details.js";
 import { localUserPassword } from "./user-credentials.js";
 import { inventoryCountAdjustments } from "./inventory-count.js";
-import { CARD_TYPES, normalizePaymentTerminals, paymentAllocation, resolveCardDetails, cardDetailsLabel, correctSalePayment, correctedCashSession } from "./payment-records.js";
+import { CARD_TYPES, paymentBucket, summarizePayments, normalizePaymentTerminals, paymentAllocation, resolveCardDetails, cardDetailsLabel, correctSalePayment, correctedCashSession } from "./payment-records.js";
 import { PREPAYMENT_DISCOUNTS as CHECKOUT_DISCOUNT_OPTIONS, calculatePrepaymentDiscount as calculateCheckoutDiscount, prepaymentForOrder, prepareOrderDiscount } from "./prepayment.js";
 import { renderWhatsNew } from "./whats-new.js";
 import "./payments-v2.css";
@@ -43,6 +49,8 @@ const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
 let supportMode = "assistant";
+let uberRuntime = { config: {}, events: [] };
+let uberRuntimeLoading = false;
 let disposeTableScroll = () => {};
 const RECEIPT_PRINT_WIDTH = 32;
 const DEFAULT_TICKET_MARGIN_MM = 4;
@@ -96,238 +104,6 @@ const userFunctionOptions = [
 ];
 
 const tables = Array.from({ length: 13 }, (_, index) => index + 1);
-
-const menuCatalog = [
-  {
-    id: "empanadas-fritas",
-    name: "Empanadas fritas",
-    section: "Para picar",
-    subsection: "Empanadas",
-    price: 65,
-    station: "Cocina",
-    icon: "empanada",
-    description: "Orden de 4 piezas.",
-    options: [
-      singleOption("relleno", "Relleno", ["Queso", "Pollo", "Carne"]),
-    ],
-  },
-  {
-    id: "bocoles-maiz",
-    name: "Bocoles de maiz",
-    section: "Para picar",
-    subsection: "Bocoles",
-    price: 165,
-    station: "Cocina",
-    icon: "bowl",
-    description: "4 piezas, naturales o masa con frijol.",
-    options: [
-      singleOption("masa", "Masa", ["Naturales", "Masa con frijol"]),
-      singleOption("relleno", "Relleno", [
-        "Frijol con chorizo",
-        "Huevo revuelto",
-        "Queso",
-        "Huevo con chorizo",
-        "Huevo en salsa verde",
-      ]),
-    ],
-  },
-  {
-    id: "bocoles-harina",
-    name: "Bocoles de harina",
-    section: "Para picar",
-    subsection: "Bocoles",
-    price: 165,
-    station: "Cocina",
-    icon: "bowl",
-    description: "6 piezas acompanadas de frijol, queso y salsa.",
-    options: [
-      singleOption("proteina", "Proteina", [
-        "Cecina",
-        "Huevo revuelto",
-        "Huevo revuelto con chorizo",
-        "Huevo en salsa verde",
-        "Carne enchilada",
-      ]),
-    ],
-  },
-  {
-    id: "tamales",
-    name: "Tamales",
-    section: "Al vapor",
-    subsection: "Tamales",
-    price: 45,
-    station: "Cocina",
-    icon: "steam",
-    description: "De hoja de platano estilo Veracruz.",
-    options: [
-      singleOption("sabor", "Sabor", [
-        "Picadillo",
-        "Cerdo",
-        "Camaron con calabaza",
-        "Pique",
-        "Queso",
-      ]),
-    ],
-  },
-  {
-    id: "zacahuil",
-    name: "Zacahuil",
-    section: "Al vapor",
-    subsection: "Tamales",
-    price: 95,
-    station: "Cocina",
-    icon: "steam",
-    description: "Tamal gigante de masa martajada, chiles y carne de cerdo.",
-    options: [],
-  },
-  {
-    id: "empanadas-harina",
-    name: "Empanadas de harina",
-    section: "Lo frito",
-    subsection: "Empanadas",
-    price: 22,
-    station: "Cocina",
-    icon: "empanada",
-    description: "Precio por pieza.",
-    options: [singleOption("relleno", "Relleno", ["Manjar", "Carne"])],
-  },
-  {
-    id: "molotes",
-    name: "Molotes",
-    section: "Lo frito",
-    subsection: "Molotes",
-    price: 120,
-    station: "Cocina",
-    icon: "fry",
-    description: "4 piezas con repollo, crema y queso.",
-    options: [
-      singleOption("relleno", "Relleno", ["Pollo", "Carne de cerdo"]),
-      singleOption("masa", "Masa", ["Platano", "Papa"]),
-    ],
-  },
-  {
-    id: "enchiladas",
-    name: "Enchiladas",
-    section: "Del comal",
-    subsection: "Enchiladas",
-    price: 180,
-    station: "Cocina",
-    icon: "plate",
-    description: "4 piezas con frijoles, aguacate y queso asado.",
-    options: [
-      singleOption("salsa", "Salsa", [
-        "Entomatadas",
-        "Roja",
-        "Verde",
-        "Pipian",
-        "Cacahuate",
-        "Enmoladas",
-        "Enfrijoladas",
-        "Ajonjoli",
-      ]),
-      proteinOption(),
-    ],
-  },
-  {
-    id: "enchiladas-chile-seco",
-    name: "Enchiladas de chile seco",
-    section: "Del comal",
-    subsection: "Enchiladas",
-    price: 240,
-    station: "Cocina",
-    icon: "plate",
-    description: "4 piezas con salsa a eleccion y proteina.",
-    options: [
-      singleOption("salsa", "Salsa", [
-        "Chile seco",
-        "Entomatadas",
-        "Roja",
-        "Verde",
-        "Pipian",
-        "Enmoladas",
-        "Enfrijoladas",
-      ]),
-      proteinOption(),
-    ],
-  },
-  {
-    id: "estrujadas",
-    name: "Estrujadas",
-    section: "Del comal",
-    subsection: "Estrujadas",
-    price: 170,
-    station: "Cocina",
-    icon: "plate",
-    description: "Tortilla gruesa, salsa, frijoles, queso y proteina.",
-    options: [
-      singleOption("salsa", "Salsa", ["Verde", "Roja"]),
-      proteinOption(),
-    ],
-  },
-  panProduct("roscas-sin-azucar", "Roscas sin azucar", 20, 60, 120),
-  panProduct("roscas-con-azucar", "Roscas con azucar", 20, 60, 120),
-  panProduct("pintas", "Pintas", 25, 70, 140),
-  panProduct("chichimbre", "Chichimbre", 25, 70, 140),
-  panProduct("chancludas", "Chancludas", 20, 70, 140),
-  panProduct("envidiosas", "Envidiosas", 25, 70, 140),
-  panProduct("pemoles", "Pemoles", 18, 50, 100),
-  panProduct("batidas", "Batidas", 70),
-  panProduct("doraditas", "Doraditas", 18, 50, 100),
-  {
-    id: "torrejas",
-    name: "Torrejas",
-    section: "Lo dulce",
-    subsection: "Postres",
-    price: 80,
-    station: "Cocina",
-    icon: "dessert",
-    description: "3 piezas con miel de trapiche.",
-    options: [
-      {
-        id: "extras",
-        label: "Extras",
-        type: "multi",
-        required: false,
-        choices: [{ label: "Bola de helado de vainilla", priceDelta: 40 }],
-      },
-    ],
-  },
-  {
-    id: "hojuelas",
-    name: "Hojuelas",
-    section: "Lo dulce",
-    subsection: "Postres",
-    price: 65,
-    station: "Cocina",
-    icon: "dessert",
-    description: "5 piezas crujientes con miel de trapiche.",
-    options: [],
-  },
-  {
-    id: "platanos-fritos",
-    name: "Platanos fritos",
-    section: "Lo dulce",
-    subsection: "Postres",
-    price: 50,
-    station: "Cocina",
-    icon: "dessert",
-    description: "Con crema y queso.",
-    options: [],
-  },
-  drink("cafe-olla", "Cafe de olla", "Calientes", 35, "Canela y piloncillo."),
-  drink("atole-dia", "Atole del dia", "Calientes", 40, "Base masa."),
-  drink("refresco-escuis", "Refresco Escuis", "Refrescos", 45, "Botella."),
-  drink("limonada-jengibre", "Limonada mineral jengibre", "Frias", 65, "Mineral con jengibre."),
-  {
-    ...drink("limonada-hierbas", "Limonada mineral con hierbas", "Frias", 55, "Hierba buena, albahaca o menta."),
-    options: [singleOption("hierba", "Hierba", ["Hierba buena", "Albahaca", "Menta"])],
-  },
-  drink("frutos-rojos-mango", "Frutos rojos con mango", "Frias", 55, "Bebida fria de casa."),
-  drink("pinada", "Pinada", "Frias", 55, "Bebida fria de casa."),
-  drink("rusa-topo-chico", "Rusa Topo Chico", "Minerales", 65, "Preparada con Topo Chico."),
-  drink("agua-mineral-topo", "Agua mineral Topo Chico", "Minerales", 45, "Botella."),
-  drink("agua-dia", "Agua del dia", "Aguas", 35, "Sabor disponible en cocina."),
-];
 
 const themes = [
   { id: "tatias", name: "Tatias", brand: "#df835f", strong: "#ba5c3d", soft: "#f7d6c8", teal: "#2f6f73" },
@@ -509,116 +285,6 @@ const fixedExpenses = [
   { id: "fixed-pan-registrado", name: "Gasto pan registrado", supplier: "Panaderia", category: "Pan", amount: 4212 },
 ];
 
-const inventoryRecipes = {
-  "empanadas-fritas": [
-    { name: "MASA MERCADO", qty: 0.35 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.04 },
-  ],
-  "bocoles-maiz": [
-    { name: "MASA MERCADO", qty: 0.16 },
-    { name: "CECINA PALOMILLA", qty: 0.12 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.01 },
-  ],
-  "bocoles-harina": [
-    { name: "MASA MERCADO", qty: 0.25 },
-    { name: "CECINA PALOMILLA", qty: 0.12 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.005 },
-  ],
-  tamales: [
-    { name: "MASA MERCADO", qty: 0.054 },
-    { name: "HOJA DE PLATANO", qty: 0.08 },
-    { name: "PIERNA DE CERDO", qty: 0.04 },
-  ],
-  zacahuil: [
-    { name: "MASA MARTAJADA", qty: 0.14 },
-    { name: "PIERNA DE CERDO", qty: 0.09 },
-    { name: "HOJA DE PLATANO", qty: 0.1 },
-  ],
-  "empanadas-harina": [
-    { name: "MASA HARINA", qty: 0.05 },
-    { name: "MANJAR", qty: 0.05 },
-    { name: "AZUCAR", qty: 0.000667 },
-    { name: "CANELA MOLIDA", qty: 0.000333 },
-  ],
-  molotes: [
-    { name: "MASA MERCADO", qty: 0.14 },
-    { name: "POLLO", qty: 0.1 },
-    { name: "CREMA", qty: 0.001 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-  ],
-  enchiladas: [
-    { name: "MASA MERCADO", qty: 0.16 },
-    { name: "CECINA PALOMILLA", qty: 0.12 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-    { name: "JITOMATE", qty: 0.1 },
-  ],
-  "enchiladas-chile-seco": [
-    { name: "MASA MERCADO", qty: 0.16 },
-    { name: "CHILE GUAJILLO", qty: 0.08 },
-    { name: "CECINA PALOMILLA", qty: 0.12 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-  ],
-  estrujadas: [
-    { name: "MASA MERCADO", qty: 0.2 },
-    { name: "CECINA PALOMILLA", qty: 0.12 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-  ],
-  torrejas: [
-    { name: "PAN BAGUETTE", qty: 0.6 },
-    { name: "HUEVO", qty: 0.042 },
-    { name: "CANELA MOLIDA", qty: 0.001 },
-    { name: "VAINILLA", qty: 0.001 },
-    { name: "MIEL DE TRAPICHE", qty: 0.052 },
-  ],
-  hojuelas: [
-    { name: "MASA HARINA", qty: 0.1 },
-    { name: "MIEL DE TRAPICHE", qty: 0.07 },
-  ],
-  "platanos-fritos": [
-    { name: "PLATANO DE CASTILLA", qty: 0.18 },
-    { name: "CREMA", qty: 0.07 },
-    { name: "QUESO FRESCO DE ARO", qty: 0.008 },
-  ],
-  "cafe-olla": [
-    { name: "AGUA GARRAFON", qty: 0.333 },
-    { name: "ANIS ESTRELLA", qty: 0.044 },
-    { name: "CANELA VARA", qty: 0.003 },
-    { name: "CLAVO", qty: 0.0001 },
-    { name: "CAFE EN GRANO MOLIDO", qty: 0.017 },
-    { name: "PILONCILLO", qty: 0.017 },
-  ],
-  "atole-dia": [
-    { name: "AGUA GARRAFON", qty: 0.4 },
-    { name: "MASA MERCADO", qty: 0.04 },
-    { name: "CANELA VARA", qty: 0.003 },
-    { name: "PILONCILLO", qty: 0.025 },
-  ],
-  "refresco-escuis": [
-    { name: "REFRESCO ESCUIS", qty: 1 },
-  ],
-  "limonada-jengibre": [
-    { name: "LIMONADA MINERAL JENGIBRE", qty: 1 },
-  ],
-  "limonada-hierbas": [
-    { name: "LIMONADA MINERAL CON HIERBAS", qty: 1 },
-  ],
-  "frutos-rojos-mango": [
-    { name: "FRUTOS ROJOS CON MANGO", qty: 1 },
-  ],
-  pinada: [
-    { name: "PINADA", qty: 1 },
-  ],
-  "rusa-topo-chico": [
-    { name: "RUSA TOPO CHICO", qty: 1 },
-  ],
-  "agua-mineral-topo": [
-    { name: "AGUA MINERAL TOPO CHICO", qty: 1 },
-  ],
-  "agua-dia": [
-    { name: "AGUA DEL DIA", qty: 1 },
-  ],
-};
-
 const icons = {
   sale: `<path d="M4 6h16v12H4z" /><path d="M8 10h8M8 14h5" />`,
   tables: `<path d="M4 9h16" /><path d="M6 9l-2 10M18 9l2 10" /><path d="M8 9V5h8v4" />`,
@@ -742,6 +408,8 @@ let syncEnabled = false;
 let syncVersion = 0;
 let syncClientId = loadClientId();
 let syncPushTimer;
+let syncWriting = false;
+let deferredSyncPayload = null;
 let syncLastPayload = "";
 let accessInfo = { preferredUrl: "", urls: [] };
 let printerRuntime = {
@@ -771,63 +439,9 @@ let postpaidTicketPrinting = false;
 
 const app = document.querySelector("#app");
 
-function singleOption(id, label, choices) {
-  return {
-    id,
-    label,
-    type: "single",
-    required: true,
-    choices: choices.map((choice) => (typeof choice === "string" ? { label: choice } : { ...choice })),
-  };
-}
 
-function proteinOption() {
-  return singleOption("proteina", "Proteina", [
-    "Cecina",
-    "Carne enchilada",
-    "Huevo revuelto con chorizo",
-    "Huevo en salsa verde",
-  ]);
-}
 
-function panProduct(id, name, unit, pack5, pack10) {
-  const choices = [{ label: "Pieza", price: unit }];
-  if (pack5) choices.push({ label: "Paquete 5", price: pack5 });
-  if (pack10) choices.push({ label: "Paquete 10", price: pack10 });
-  return {
-    id,
-    name,
-    section: "Lo dulce",
-    subsection: "Pan de lena",
-    price: unit,
-    station: "Caja",
-    icon: "dessert",
-    description: "Pan de la region de horno de lena con base masa madre.",
-    options: [
-      {
-        id: "presentacion",
-        label: "Presentacion",
-        type: "single",
-        required: true,
-        choices,
-      },
-    ],
-  };
-}
 
-function drink(id, name, subsection, price, description) {
-  return {
-    id,
-    name,
-    section: "Bebidas",
-    subsection,
-    price,
-    station: "Barra",
-    icon: "cup",
-    description,
-    options: [],
-  };
-}
 
 function loadState() {
   try {
@@ -1477,24 +1091,7 @@ function normalizeProductOptions(options = []) {
     .filter((option) => option.label && option.choices.length);
 }
 
-function normalizeVariantRecipes(variantRecipes = []) {
-  return (Array.isArray(variantRecipes) ? variantRecipes : [])
-    .map((variant, index) => {
-      const optionId = String(variant.optionId || "").trim();
-      const choiceLabel = cleanUserText(variant.choiceLabel || variant.label || "");
-      const recipe = normalizeRecipe(variant.recipe);
-      if (!optionId || !choiceLabel || !recipe.length) return null;
-      return {
-        id: variant.id || `variant-${index}-${slugify(`${optionId}-${choiceLabel}`)}`,
-        optionId,
-        choiceLabel,
-        recipe,
-        updatedAt: variant.updatedAt || "",
-        updatedBy: variant.updatedBy || "",
-      };
-    })
-    .filter(Boolean);
-}
+
 
 function normalizeProductHistory(history = []) {
   return (Array.isArray(history) ? history : [])
@@ -1509,27 +1106,7 @@ function normalizeProductHistory(history = []) {
     .slice(0, 50);
 }
 
-function normalizeRecipe(recipe = []) {
-  const merged = new Map();
-  (Array.isArray(recipe) ? recipe : []).forEach((entry) => {
-    const name = String(entry.name || "").trim().toUpperCase();
-    const qty = Math.max(0, Number(entry.qty) || 0);
-    if (!name || qty <= 0) return;
-    const key = normalize(name);
-    const existing = merged.get(key);
-    if (existing) {
-      existing.qty += qty;
-      return;
-    }
-    merged.set(key, {
-      itemId: String(entry.itemId || ""),
-      name,
-      unit: String(entry.unit || "PZ").trim().toUpperCase(),
-      qty,
-    });
-  });
-  return [...merged.values()];
-}
+
 
 function normalizeUserFunctions(user) {
   const valid = new Set(userFunctionOptions.map((item) => item.id));
@@ -1675,72 +1252,44 @@ function queueSyncState() {
 }
 
 async function pushSharedState() {
-  if (!syncEnabled) return;
+  if (!syncEnabled || syncWriting) return;
   const shared = sharedStateFromCurrent();
-  const serialized = JSON.stringify(shared);
-  if (serialized === syncLastPayload) return;
+  if (JSON.stringify(shared) === syncLastPayload) return;
   const baseSnapshot = parseSnapshot(syncLastPayload);
-  syncLastPayload = serialized;
+  syncWriting = true;
+  let retryPending = false;
   try {
     const response = await fetch("/api/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...sessionHeaders() },
+      method: "POST", headers: { "Content-Type": "application/json", ...sessionHeaders() },
       body: JSON.stringify({ clientId: syncClientId, baseVersion: syncVersion, state: shared }),
     });
     const payload = await response.json();
-    if (response.status === 409) {
-      await resolveSyncConflict(payload, shared, baseSnapshot);
-      return;
-    }
-    if (response.status === 403 && payload.state) {
-      applySharedState(payload.state);
+    if (response.status === 409 && payload.state) {
+      const remote = normalizeSharedState(payload.state);
+      applySharedState(mergeSharedStates(baseSnapshot, sharedStateFromCurrent(), remote));
       syncVersion = Number(payload.version) || syncVersion;
+      syncLastPayload = JSON.stringify(remote);
+      retryPending = true;
+    } else if (response.status === 403 && payload.state) {
+      applySharedState(payload.state); syncVersion = Number(payload.version) || syncVersion;
       syncLastPayload = JSON.stringify(sharedStateFromCurrent());
-      persistLocal(); render(); showToast(payload.error || "No se guardaron los cambios: permiso denegado.");
-      return;
+      showToast(payload.error || "No se guardaron los cambios: permiso denegado.");
+    } else if (response.ok && payload.state) {
+      const remote = normalizeSharedState(payload.state);
+      // Preserve edits made while this request was in flight.
+      applySharedState(mergeSharedStates(shared, sharedStateFromCurrent(), remote));
+      syncVersion = Number(payload.version) || syncVersion;
+      syncLastPayload = JSON.stringify(remote);
+      retryPending = true;
     }
-    if (!response.ok) return;
-    syncVersion = Number(payload.version) || syncVersion;
-    if (payload.state) {
-      applySharedState(payload.state);
-      syncLastPayload = JSON.stringify(sharedStateFromCurrent());
-      persistLocal();
-      render();
-    }
-  } catch {
-    // The app still works locally when the sync server is not available.
-  }
-}
-
-async function resolveSyncConflict(payload, localShared, base) {
-  if (!payload.state) return;
-  const remote = normalizeSharedState(payload.state);
-  const merged = mergeSharedStates(base, localShared, remote);
-  syncVersion = Number(payload.version) || syncVersion;
-  applySharedState(merged);
-  syncLastPayload = JSON.stringify(remote);
-  persistLocal();
-  try {
-    const retry = await fetch("/api/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...sessionHeaders() },
-      body: JSON.stringify({ clientId: syncClientId, baseVersion: syncVersion, state: sharedStateFromCurrent() }),
-    });
-    const saved = await retry.json();
-    if (!retry.ok) {
-      if (retry.status === 403 && saved.state) {
-        applySharedState(saved.state); syncVersion = Number(saved.version) || syncVersion;
-        syncLastPayload = JSON.stringify(sharedStateFromCurrent()); persistLocal(); render(); showToast(saved.error);
-      }
-      return;
-    }
-    syncVersion = Number(saved.version) || syncVersion;
-    if (saved.state) applySharedState(saved.state);
-    syncLastPayload = JSON.stringify(sharedStateFromCurrent());
     persistLocal();
-    render();
+    if (!(["uber", "developer"].includes(state.view) && document.activeElement?.closest("form"))) render();
   } catch {
-    // Keep the merged local state; the next save will try again.
+    // Retain the acknowledged baseline so a later reconnect can merge local edits.
+  } finally {
+    syncWriting = false;
+    if (deferredSyncPayload) { const payload = deferredSyncPayload; deferredSyncPayload = null; applyRemoteSyncPayload(payload); }
+    if (retryPending && JSON.stringify(sharedStateFromCurrent()) !== syncLastPayload) queueSyncState();
   }
 }
 
@@ -1782,6 +1331,8 @@ function mergeArrayById(baseValue = [], localValue = [], remoteValue = [], key =
 }
 
 function mergeEntity(base, local, remote, key) {
+  if (["orders", "sales"].includes(key) && [base, local, remote].some(isUberOrder)) return cloneValue(remote);
+  if (key === "inventory" && base && local && remote) return mergeConcurrentInventory(base, local, remote);
   if (key === "orders") {
     const merged = chooseMergedObject(base, local, remote);
     if (!merged) return null;
@@ -1878,13 +1429,22 @@ async function pollSyncState() {
 }
 
 function applyRemoteSyncPayload(payload) {
+  const editingUber = ["uber", "developer"].includes(state.view) && document.activeElement?.closest("[data-uber-config], [data-uber-mapping], [data-uber-cancel]");
   const version = Number(payload.version) || 0;
   if (!payload.state || version <= syncVersion || payload.clientId === syncClientId) return;
+  if (syncWriting) {
+    if (!deferredSyncPayload || version > deferredSyncPayload.version) deferredSyncPayload = payload;
+    return;
+  }
+  const remote = normalizeSharedState(payload.state);
+  const local = sharedStateFromCurrent();
+  const dirty = syncLastPayload && JSON.stringify(local) !== syncLastPayload;
+  applySharedState(dirty ? mergeSharedStates(parseSnapshot(syncLastPayload), local, remote) : remote);
   syncVersion = version;
-  applySharedState(payload.state);
-  syncLastPayload = JSON.stringify(sharedStateFromCurrent());
+  syncLastPayload = JSON.stringify(remote);
   persistLocal();
-  render();
+  if (dirty) queueSyncState();
+  if (!editingUber) render();
 }
 
 async function checkForUpdates() {
@@ -2181,6 +1741,7 @@ function findBatchContainingLine(order, lineId) {
 //  - ya está en cocina pero el batch sigue en estado "new" (no se ha empezado a preparar).
 // Si la cocina ya marcó "preparing" o "ready", la línea queda bloqueada.
 function lineIsEditable(order, line) {
+  if (isUberOrder(order)) return false;
   if (!order || !line) return false;
   if (line.status === "pending") return true;
   if (line.status !== "commanded") return false;
@@ -2284,17 +1845,7 @@ function subsectionsFor(section) {
   return ["Todos", ...new Set(activeMenuProducts().filter((item) => item.section === section).map((item) => item.subsection))];
 }
 
-function defaultSelectionsFor(product) {
-  const selections = {};
-  product.options.forEach((option) => {
-    if (option.type === "multi") {
-      selections[option.id] = [];
-      return;
-    }
-    selections[option.id] = firstActiveChoiceIndex(option);
-  });
-  return selections;
-}
+
 
 /* ===== Mixto (split) =================================================
    Un platillo puede prepararse "mixto" cuando tiene >=2 opciones single
@@ -2451,10 +2002,7 @@ function lineHasAvailableParts(product, line) {
   return parts.every((_, idx) => productHasAvailableSelections(product, selectionsForPart(line, idx)));
 }
 
-function firstActiveChoiceIndex(option) {
-  const index = (option.choices || []).findIndex((choice) => choice.active !== false);
-  return index >= 0 ? index : -1;
-}
+
 
 function activeChoiceEntries(option) {
   return (option.choices || [])
@@ -2504,6 +2052,10 @@ function extraUnitCostTotal(extras = []) {
 }
 
 function calculateTotals(order) {
+  if (isUberOrder(order)) return { ...order.totals, prepaidDiscount: order.discount, count: order.totals.count,
+    pending: order.uber.commandedAt ? 0 : order.totals.count, commanded: order.uber.commandedAt ? order.totals.count : 0,
+    waiting: order.uber.state === "accepted" ? order.totals.count : 0, preparing: order.uber.state === "preparing" ? order.totals.count : 0,
+    ready: order.uber.state === "ready" ? order.totals.count : 0, delivered: order.uber.state === "delivered" ? order.totals.count : 0 };
   const subtotal = roundCurrency(order.items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0));
   const prepaidDiscount = prepaymentForOrder(order, undefined, orderIvaRate(order));
   const tax = taxBreakdownForGross(prepaidDiscount.subtotal, orderIvaRate(order));
@@ -2534,12 +2086,14 @@ function calculateTotals(order) {
 }
 
 function orderLabel(order) {
+  if (isUberOrder(order)) return uberLabel(order);
   if (order.type === "table") return `Mesa ${order.tableNumber}`;
   const name = String(order.customerName || "").trim();
   return name && name !== "Mostrador" ? `Para llevar · ${name}` : "Para llevar";
 }
 
 function waiterName(id) {
+  if (id === "uber") return "Uber Eats";
   return state.users.find((user) => user.id === id)?.name || "Sin mesero";
 }
 
@@ -2631,7 +2185,8 @@ function render() {
     state.view = "config";
     state.configTab = "printing";
   }
-  if (["users", "recipes", "config"].includes(state.view) && !isAdminUser()) state.view = "profile";
+  if (state.view === "sale" && isUberOrder(getOrder(state.activeOrderId))) state.view = "uber";
+  if (["users", "recipes", "config", "developer"].includes(state.view) && !isAdminUser()) state.view = "profile";
   if (!state.view || !availableNavItems().some(([view]) => view === state.view)) state.view = "profile";
 
   app.innerHTML = `
@@ -2642,6 +2197,8 @@ function render() {
         ${state.view === "sale" ? renderSale() : ""}
         ${state.view === "tables" ? renderTables() : ""}
         ${state.view === "kitchen" ? renderKitchen() : ""}
+        ${state.view === "uber" ? renderUberPanel(state, uberRuntime, currentUser()) : ""}
+        ${state.view === "developer" ? renderDeveloperPanel(uberRuntime, currentUser()) : ""}
       ${state.view === "inventory" ? renderInventory() : ""}
       ${state.view === "recipes" ? renderRecipes() : ""}
         ${state.view === "cash" ? renderCashRegister() : ""}
@@ -2705,6 +2262,7 @@ function availableNavItems() {
   }
   if (hasUserFunction(user, "cocina")) items.push(["kitchen", "Cocina", "kitchen"]);
   if (hasCashAccess(user)) items.push(["cash", "Caja", "cash"]);
+  if (hasCashAccess(user) || hasUserFunction(user, "cocina")) items.push(["uber", "Uber Eats", "digital"]);
   if (isAdminUser(user)) {
     items.push(
       ["inventory", "Inventario", "inventory"],
@@ -2712,6 +2270,7 @@ function availableNavItems() {
       ["data", "Datos", "data"],
       ["users", "Usuarios", "users"],
       ["config", "Configuración", "settings"],
+      ["developer", "Desarrollo", "digital"],
     );
   }
   items.push(["support", "Ayuda", "help"], ["news", "Novedades", "note"]);
@@ -4408,6 +3967,7 @@ async function ensurePermissionSession() {
 }
 
 function canCorrectSalePayment(sale) {
+  if (isUberOrder(sale)) return false;
   return mayCorrectSalePayment(currentUser(), sale, state.cashSessions);
 }
 
@@ -4416,6 +3976,7 @@ function paymentCorrectionButton(sale) {
 }
 
 function salePaymentLabel(sale) {
+  if (isUberOrder(sale)) return "Pago Uber · No cobrar";
   const amounts = paymentAllocation(saleSubtotal(sale), saleTip(sale), paymentBucket(sale.paymentMethod) === "card" ? "Tarjeta" : "Efectivo", paymentBucket(saleTipPaymentMethod(sale)) === "card" ? "Tarjeta" : "Efectivo");
   return `${sale.paymentMethod || "Efectivo"}${amounts.cardDue > 0 ? ` · ${cardDetailsLabel(sale.payment)}` : ""}`;
 }
@@ -4789,7 +4350,7 @@ function renderSaleDetailModal(sale) {
         }
         ${sale.comments ? `<div class="sale-detail-note"><strong>Nota</strong><p>${escapeHtml(sale.comments)}</p></div>` : ""}
         ${
-          isAdminUser() || sale.cashierId === currentUser()?.id || sale.waiterId === currentUser()?.id
+          !isUberOrder(sale) && (isAdminUser() || sale.cashierId === currentUser()?.id || sale.waiterId === currentUser()?.id)
             ? `
               <section class="sale-detail-actions">
                 ${paymentCorrectionButton(sale)}
@@ -4948,6 +4509,7 @@ function renderKitchen() {
         </div>
         <span class="stat-pill">${commands.filter((item) => item.status === "new").length} nuevas</span>
       </div>
+      ${state.orders.some(order => isUberOrder(order) && order.uber.state === "changed") ? `<div class="uber-warning">Hay pedidos Uber modificados. Revisa los cambios con caja antes de continuar su preparación. <button class="secondary-button compact" data-nav="uber">Revisar Uber Eats</button></div>` : ""}
       <div class="kitchen-columns">
         ${["new", "preparing", "ready"].map((status) => renderKitchenColumn(status, commands)).join("")}
       </div>
@@ -4977,6 +4539,7 @@ function renderKitchenColumn(status, commands) {
 }
 
 function renderKitchenCard(command) {
+  const uberOrder = state.orders.find(order => order.id === command.orderId && isUberOrder(order));
   const reference =
     command.status === "preparing"
       ? command.startedAt || command.updatedAt || command.createdAt
@@ -5008,6 +4571,7 @@ function renderKitchenCard(command) {
         </div>
         <strong>${command.lines.reduce((sum, line) => sum + line.qty, 0)} pzas</strong>
       </div>
+      ${uberOrder ? `<p class="uber-badge">Pago Uber · No cobrar${uberOrder.uber.revisionNumber ? ` · Revisión ${uberOrder.uber.revisionNumber}` : ""}</p>${uberOrder.comments ? `<p class="uber-note">${escapeHtml(uberOrder.comments)}</p>` : ""}` : ""}
       <div class="kitchen-lines">
         ${command.lines
           .map(
@@ -5021,7 +4585,7 @@ function renderKitchenCard(command) {
                   ${isMixto && product ? renderMixtoBreakdown(product, line) : (line.optionsText ? `<span>${escapeHtml(line.optionsText)}</span>` : "")}
                   ${line.note ? `<em>${svg("note")}${escapeHtml(line.note)}</em>` : ""}
                 </div>
-                <button
+                ${uberOrder ? "" : `<button
                   class="icon-button line-cancel-button"
                   data-open-modal="cancel-line"
                   data-order-id="${command.orderId}"
@@ -5029,7 +4593,7 @@ function renderKitchenCard(command) {
                   data-line-id="${line.lineId}"
                   data-cancel-source="cocina"
                   title="Cancelar producto"
-                >${svg("cancel")}</button>
+                >${svg("cancel")}</button>`}
               </div>
             `;
             },
@@ -6540,7 +6104,7 @@ function renderCashRegister() {
       <section class="board-header">
         <div>
           <h2>Caja</h2>
-          <p>Apertura, efectivo, tarjeta y corte de turno</p>
+          <p>Apertura, efectivo, tarjeta, pago Uber y corte de turno</p>
         </div>
         <span class="stat-pill">${activeSession ? "Caja abierta" : "Caja cerrada"}</span>
       </section>
@@ -6551,6 +6115,7 @@ function renderCashRegister() {
         ${renderSummaryCard("IVA hoy", money.format(todayPayments.iva || 0))}
         ${renderSummaryCard("Efectivo hoy", money.format(todayPayments.cash))}
         ${renderSummaryCard("Tarjeta hoy", money.format(todayPayments.card))}
+        ${renderSummaryCard("Pago Uber hoy", money.format(todayPayments.uber))}
         ${renderSummaryCard("Ultimo corte", lastCut ? money.format(Number(lastCut.difference) || 0) : "Sin corte")}
       </section>
       <div class="cash-grid">
@@ -6593,6 +6158,7 @@ function renderCashRegister() {
             <div class="total-line"><span>IVA incluido</span><strong>${money.format(activeTotals.iva || 0)}</strong></div>
             <div class="total-line"><span>Ventas efectivo</span><strong>${money.format(activeTotals.cash || 0)}</strong></div>
             <div class="total-line"><span>Ventas tarjeta</span><strong>${money.format(activeTotals.card || 0)}</strong></div>
+            <div class="total-line"><span>Pago Uber (fuera del efectivo)</span><strong>${money.format(activeTotals.uber || 0)}</strong></div>
             <div class="total-line"><span>Tickets insumos</span><strong>${money.format(activeTotals.cashExpenses || 0)}</strong></div>
             <div class="total-line"><span>Propinas incluidas</span><strong>${money.format(activeTotals.tips || 0)}</strong></div>
             <div class="total-line grand"><span>Efectivo esperado</span><strong>${money.format(activeTotals.expectedCash || 0)}</strong></div>
@@ -6607,7 +6173,7 @@ function renderCashRegister() {
 }
 
 function renderCashClosePanel(session, totals) {
-  const openOrders = getOpenOrders().length;
+  const openOrders = getOpenOrders().filter(order => !isUberOrder(order)).length;
   return `
     <section class="panel">
       <div class="panel-header">
@@ -6624,6 +6190,7 @@ function renderCashClosePanel(session, totals) {
           <div><span>IVA incluido</span><strong>${money.format(totals.iva || 0)}</strong></div>
           <div><span>Efectivo esperado</span><strong>${money.format(totals.expectedCash)}</strong></div>
           <div><span>Tarjeta cobrada</span><strong>${money.format(totals.card)}</strong></div>
+          <div><span>Pago Uber</span><strong>${money.format(totals.uber || 0)}</strong></div>
           <div><span>Tickets insumos</span><strong>${money.format(totals.cashExpenses || 0)}</strong></div>
         </div>
         <label class="field">
@@ -6702,7 +6269,7 @@ function renderCashSessionHistory() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Uber</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               sessions.length
@@ -6719,13 +6286,14 @@ function renderCashSessionHistory() {
                           <td>${money.format(Number(totals.iva) || 0)}</td>
                           <td>${money.format(Number(totals.cashSales ?? totals.cash) || 0)}</td>
                           <td>${money.format(Number(totals.cardSales ?? totals.card) || 0)}</td>
+                          <td>${money.format(Number(totals.uberSales ?? totals.uber) || 0)}</td>
                           <td>${session.status === "closed" ? money.format(Number(session.countedCash) || 0) : "Pendiente"}</td>
                           <td><strong>${session.status === "closed" ? money.format(Number(session.difference) || 0) : "Pendiente"}</strong></td>
                         </tr>
                       `;
                     })
                     .join("")
-                : `<tr><td colspan="10">Aun no hay aperturas de caja.</td></tr>`
+                : `<tr><td colspan="11">Aun no hay aperturas de caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -6785,6 +6353,7 @@ function cashClosuresByDay() {
       current.iva += Number(totals.iva) || 0;
       current.cash += Number(totals.cashSales ?? totals.cash) || 0;
       current.card += Number(totals.cardSales ?? totals.card) || 0;
+      current.uber = (current.uber || 0) + (Number(totals.uberSales ?? totals.uber) || 0);
       current.counted += Number(session.countedCash) || 0;
       current.difference += Number(session.difference) || 0;
       map.set(key, current);
@@ -6892,7 +6461,7 @@ function renderCashClosuresData() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Uber</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               rows.length
@@ -6907,6 +6476,7 @@ function renderCashClosuresData() {
                           <td>${money.format(row.iva)}</td>
                           <td>${money.format(row.cash)}</td>
                           <td>${money.format(row.card)}</td>
+                          <td>${money.format(row.uber || 0)}</td>
                           <td>${money.format(row.counted)}</td>
                           <td><strong>${money.format(row.difference)}</strong></td>
                         </tr>
@@ -7810,6 +7380,7 @@ function commandReceiptLineLines(line) {
 }
 
 function buildCommandReceiptText(order, batch) {
+  if (isUberOrder(order)) return buildUberCommandText(order);
   const createdAt = batch?.createdAt || new Date().toISOString();
   const orderNumber = orderNumberLabel(order);
   const dailyNumber = orderDailyNumber(order, createdAt);
@@ -7913,7 +7484,7 @@ function buildPrepaidSaleReceiptText(sale) {
   const printedAt = new Date().toISOString();
   const uid = paymentUidForSale(sale);
   const tax = saleTaxBreakdown(sale);
-  const orderLabelText = sale.type === "table" ? `Mesa ${sale.tableNumber || ""}`.trim() : "Para llevar";
+  const orderLabelText = isUberOrder(sale) ? uberLabel(sale) : sale.type === "table" ? `Mesa ${sale.tableNumber || ""}`.trim() : "Para llevar";
   const lines = [
     ...receiptBrandLines(),
     ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
@@ -7948,8 +7519,9 @@ function buildPostpaidReceiptText(sale) {
   const changeGiven = Number(payment.changeGiven) || 0;
   const tipAmount = saleTip(sale);
   const tax = saleTaxBreakdown(sale);
-  const orderLabelText = sale.type === "table" ? `Mesa ${sale.tableNumber || ""}`.trim() : "Para llevar";
+  const orderLabelText = isUberOrder(sale) ? uberLabel(sale) : sale.type === "table" ? `Mesa ${sale.tableNumber || ""}`.trim() : "Para llevar";
   const paymentLines = [];
+  if (isUberOrder(sale)) paymentLines.push(receiptPrintColumns("Pago Uber", receiptPrintMoney(saleTotal(sale))), receiptPrintCenter("NO COBRAR AL CLIENTE"));
   if (cardDue > 0) paymentLines.push(receiptPrintColumns("Pago tarjeta", receiptPrintMoney(cardDue)), ...receiptPrintCenteredWrap(cardDetailsLabel(payment)));
   if (cashDue > 0) {
     paymentLines.push(receiptPrintColumns("Pago efectivo", receiptPrintMoney(cashReceived || cashDue)));
@@ -7959,7 +7531,7 @@ function buildPostpaidReceiptText(sale) {
   const lines = [
     ...receiptBrandLines(),
     ...receiptPrintCenteredWrap(RESTAURANT_ADDRESS),
-    receiptPrintCenter("TICKET POSTPAGO"),
+    receiptPrintCenter(isUberOrder(sale) ? "COMPROBANTE PAGO UBER" : "TICKET POSTPAGO"),
     receiptPrintRule(),
     receiptPrintColumns("Folio", sale.orderNumber || uid || "-"),
     formatCsvDateTime(closedAt),
@@ -8071,6 +7643,7 @@ async function printCommandBatch(orderId, batchId, { silent = false, force = fal
   if (!force && !commandAutoPrintEnabled()) return false;
   const order = getOrder(orderId);
   const batch = order?.commandBatches?.find((item) => item.id === batchId);
+  if (isUberOrder(order)) { await actOnUber(order.id, "print"); return true; }
   if (!order || !batch) {
     if (!silent) showToast("No se encontro la comanda para imprimir.");
     return false;
@@ -8637,6 +8210,7 @@ function prepaidReceiptMeta(source = {}, fallback = {}) {
 }
 
 function prepaidReceiptPending(record) {
+  if (record.source === "uber_eats") return false;
   return record.statusKey === "open" && record.hasItems && !record.prepaidPrinted;
 }
 
@@ -8676,9 +8250,9 @@ function orderSearchRecords() {
         recordType: isCancelled ? "Cancelada" : isClosed ? "Cerrada" : "Abierta",
         statusKey: isCancelled ? "cancelled" : isClosed ? "closed" : "open",
         id: orderNumberLabel(order, ""),
-        uid: isCancelled ? "" : isClosed ? firstFilledValue(order.paymentUid, payment.uid) : "Pendiente cobro",
+        uid: isUberOrder(order) ? `UBER-${order.uber.displayId}` : isCancelled ? "" : isClosed ? firstFilledValue(order.paymentUid, payment.uid) : "Pendiente cobro",
         saleId: "",
-        orderId: order.id,
+        orderId: order.id, source: order.source,
         hasItems: Boolean(order.items?.length),
         ...prepaidReceiptMeta(order),
         postpaidPrinted: false,
@@ -8699,7 +8273,7 @@ function orderSearchRecords() {
     const sourceOrder = orderById.get(sale.orderId);
     const discount = saleDiscount(sale);
     return {
-      recordType: "Cobrada",
+      recordType: "Cobrada", source: sale.source,
       statusKey: "paid",
       id: orderNumberLabel(sale, ""),
       uid: paymentUidForSale(sale),
@@ -8769,6 +8343,7 @@ function orderStatusFilters() {
 }
 
 function renderPrepaidTicketCell(record) {
+  if (record.source === "uber_eats") return "Pago gestionado por Uber";
   if (!record.hasItems) return "-";
   const printButton = (label) => {
     const title = `${label} ticket prepago`;
@@ -8921,7 +8496,7 @@ function renderOrderSearchData() {
                                       <button class="secondary-button compact" data-open-modal="sale-detail" data-sale-id="${escapeAttr(record.saleId)}" type="button">${svg("note")}Ver cuenta</button>
                                       ${paymentCorrectionButton(state.sales.find((sale) => sale.id === record.saleId))}
                                       ${
-                                        isAdminUser()
+                                        isAdminUser() && record.source !== "uber_eats"
                                           ? `<button class="icon-button compact subtle-danger" data-open-modal="delete-sale" data-sale-id="${escapeAttr(record.saleId)}" type="button" title="Borrar cuenta ${escapeAttr(record.id || record.uid || "")}">${svg("trash")}</button>`
                                           : ""
                                       }
@@ -9091,6 +8666,7 @@ function renderRevenueBreakdownCard(metrics) {
       <div class="summary-breakdown">
         <span><strong>${money.format(cash)}</strong>Efectivo</span>
         <span><strong>${money.format(card)}</strong>Tarjeta</span>
+        <span><strong>${money.format(metrics.uberRevenue || 0)}</strong>Uber</span>
         <span><strong>${money.format(metrics.revenue || 0)}</strong>Venta s/IVA</span>
       </div>
     </article>
@@ -9305,45 +8881,12 @@ function saleTipPaymentMethod(sale) {
   return sale.tip?.paymentMethod || sale.totals?.tipPaymentMethod || sale.paymentMethod || "Efectivo";
 }
 
-function paymentBucket(method) {
-  return normalize(method).includes("tarjeta") ? "card" : "cash";
-}
-
 function paymentTotalsForSales(sales = []) {
-  return sales.reduce(
-    (acc, sale) => {
-      const subtotal = saleSubtotal(sale);
-      const tip = saleTip(sale);
-      const iva = saleIvaAmount(sale);
-      const discount = saleDiscountAmount(sale);
-      const saleBucket = paymentBucket(sale.paymentMethod);
-      const tipBucket = paymentBucket(saleTipPaymentMethod(sale));
-      if (saleBucket === "card") {
-        acc.card += subtotal;
-        acc.cardSales += subtotal;
-      } else {
-        acc.cash += subtotal;
-        acc.cashSales += subtotal;
-      }
-      if (tipBucket === "card") {
-        acc.card += tip;
-        acc.cardTips += tip;
-      } else {
-        acc.cash += tip;
-        acc.cashTips += tip;
-      }
-      acc.total += subtotal + tip;
-      acc.tips += tip;
-      acc.iva += iva;
-      acc.discounts += discount;
-      acc.count += 1;
-      return acc;
-    },
-    { cash: 0, card: 0, total: 0, tips: 0, iva: 0, discounts: 0, cashSales: 0, cardSales: 0, cashTips: 0, cardTips: 0, count: 0 },
-  );
+  return summarizePayments(sales, { subtotal: saleSubtotal, tip: saleTip, tax: saleIvaAmount, discount: saleDiscountAmount });
 }
 
 function canAdjustSaleTip(sale, user = currentUser()) {
+  if (isUberOrder(sale)) return false;
   const session = currentCashSession();
   if (!sale || !session || sale.cashSessionId !== session.id) return false;
   return sale.cashierId === user?.id || hasCashAccess(user);
@@ -9379,6 +8922,7 @@ function cashSessionDisplayTotals(session) {
   if (session?.status !== "closed") return calculated;
   const cashSales = Number(session.cashSales ?? calculated.cashSales ?? calculated.cash) || 0;
   const cardSales = Number(session.cardSales ?? calculated.cardSales ?? calculated.card) || 0;
+  const uberSales = Number(session.uberSales ?? calculated.uber) || 0;
   const totalSales = Number(session.totalSales ?? calculated.totalSales ?? calculated.total) || 0;
   return {
     ...calculated,
@@ -9386,6 +8930,7 @@ function cashSessionDisplayTotals(session) {
     openingCash: Number(session.openingCash ?? calculated.openingCash) || 0,
     cash: cashSales,
     card: cardSales,
+    uber: uberSales, uberSales,
     total: totalSales,
     cashSales,
     cardSales,
@@ -9783,7 +9328,34 @@ function closeModal() {
   render();
 }
 
+async function requestUber(path, body) {
+  const response = await fetch(`/api/uber/${path}`, { method: body === undefined ? "GET" : "POST", cache: "no-store", headers: { "Content-Type": "application/json", ...sessionHeaders() }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "No se pudo contactar con el servidor Uber.");
+  if (result.state) applyRemoteSyncPayload(result);
+  return result;
+}
+async function refreshUber() {
+  if (uberRuntimeLoading) return;
+  uberRuntimeLoading = true;
+  try {
+    const result = await requestUber("status");
+    Object.assign(uberRuntime, result, { loaded: true });
+    const response = await fetch("/api/state", { cache: "no-store" });
+    if (response.ok) applyRemoteSyncPayload(await response.json());
+  } finally { uberRuntimeLoading = false; }
+}
+async function actOnUber(orderId, action) {
+  try { await requestUber("action", { orderId, action }); render(); }
+  catch (error) { showToast(error.message); }
+}
 function bindEvents() {
+  if (["uber", "developer"].includes(state.view)) {
+    bindUberPanel({ state, runtime: uberRuntime, request: requestUber, refresh: refreshUber, render, toast: showToast });
+    if (state.view === "developer") bindDeveloperPanel({ render, toast: showToast });
+    if (!uberRuntime.loaded && !uberRuntimeLoading) refreshUber().then(render).catch(error => showToast(error.message));
+  }
+
   disposeTableScroll = bindTableScrollControls();
   const openAssistant = () => { state.view = "support"; supportMode = "assistant"; render(); document.querySelector("#help-chat-query")?.focus({ preventScroll: true }); };
   document.querySelector("[data-open-help]")?.addEventListener("click", openAssistant);
@@ -9806,6 +9378,9 @@ function bindEvents() {
   document.querySelectorAll("[data-nav]").forEach((button) => {
     button.addEventListener("click", () => {
       state.view = button.dataset.nav;
+      if (state.view === "developer" && !isAdminUser()) state.view = "profile";
+      if (state.view === "developer") resetDeveloperPanel();
+      if (["uber", "developer"].includes(state.view)) refreshUber().then(render).catch(error => showToast(error.message));
       if (state.view === "profile") loadAccessInfo();
       state.productConfig = null;
       state.modal = null;
@@ -9830,6 +9405,7 @@ function bindEvents() {
       state.sessionUserId = null;
       state.activeOrderId = null;
       resetHelpChat();
+      resetUberPanel(); resetDeveloperPanel(); uberRuntime = { config: {}, events: [] };
       state.productConfig = null;
       state.modal = null;
       persist();
@@ -9976,7 +9552,7 @@ function bindEvents() {
   document.querySelectorAll("[data-open-order]").forEach((button) => {
     button.addEventListener("click", () => {
       state.activeOrderId = button.dataset.openOrder;
-      state.view = "sale";
+      state.view = isUberOrder(getOrder(state.activeOrderId)) ? "uber" : "sale";
       state.productConfig = null;
       state.modal = null;
       persist();
@@ -11205,6 +10781,7 @@ function normalizeCheckoutPayment(order, payment, baseTotals = calculateTotals(o
 }
 
 function chargeOrder(orderId, payment = "Efectivo", source) {
+  if (isUberOrder(getOrder(orderId))) { showToast("Pago Uber: confirma la entrega desde Uber Eats."); return; }
   const order = state.orders.find((item) => item.id === orderId && item.status === "open");
   if (!order) return;
   const baseTotals = calculateTotals(order);
@@ -11326,7 +10903,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
     id: safeId("sale"),
     uid: paymentUid,
     paymentUid,
-    orderId: order.id,
+    orderId: order.id, source: order.source,
     orderNumber,
     dailyOrderNumber: orderDailyNumber(order, closedAt),
     type: order.type,
@@ -11382,6 +10959,7 @@ function chargeOrder(orderId, payment = "Efectivo", source) {
 function saveSaleTip(event) {
   event.preventDefault();
   const sale = state.sales.find((item) => item.id === event.currentTarget.dataset.saleId);
+  if (isUberOrder(sale)) { showToast("Gestiona cancelaciones y liquidaciones desde Uber Eats."); return; }
   if (!sale) return;
   if (!canAdjustSaleTip(sale)) {
     showToast("La propina solo puede ajustarse antes del corte de caja.");
@@ -11462,6 +11040,7 @@ function recalculateCashSessionAfterSaleDeletion(session, sale) {
   Object.assign(session, {
     cashSales: totals.cash,
     cardSales: totals.card,
+    uberSales: totals.uber || 0,
     totalSales: totals.total,
     iva: totals.iva,
     discounts: totals.discounts,
@@ -11485,6 +11064,7 @@ function deleteSaleFromForm(event) {
     return;
   }
   const sale = state.sales.find((item) => item.id === event.currentTarget.dataset.saleId);
+  if (isUberOrder(sale)) { showToast("Gestiona cancelaciones y liquidaciones desde Uber Eats."); return; }
   if (!sale) {
     showToast("No se encontro la cuenta.");
     state.modal = null;
@@ -11537,6 +11117,7 @@ function cancelOrderFromForm(event) {
 }
 
 function cancelOrder(orderId, note) {
+  if (isUberOrder(getOrder(orderId))) { showToast("Cancela desde la pantalla Uber Eats."); return; }
   const order = state.orders.find((item) => item.id === orderId && item.status === "open");
   if (!order) return;
   const now = new Date().toISOString();
@@ -11564,7 +11145,7 @@ function cancelOrder(orderId, note) {
     scope: "order",
     source: order.type === "table" ? "Mesa" : "Venta",
     stage: "order",
-    orderId: order.id,
+    orderId: order.id, source: order.source,
     orderLabel: orderLabel(order),
     tableNumber: order.tableNumber,
     waiterId: order.waiterId,
@@ -11606,6 +11187,7 @@ function cancelLineFromForm(event) {
 }
 
 function cancelLine({ orderId, lineId, commandId, source = "venta", qty = 1, note = "" }) {
+  if (isUberOrder(getOrder(orderId))) { showToast("Gestiona este pedido desde Uber Eats."); return; }
   const order = getOrder(orderId);
   const line = order?.items.find((item) => item.id === lineId);
   if (!order || !line) return;
@@ -11650,7 +11232,7 @@ function cancelLine({ orderId, lineId, commandId, source = "venta", qty = 1, not
     scope: "item",
     source: sourceLabel,
     stage,
-    orderId: order.id,
+    orderId: order.id, source: order.source,
     orderLabel: orderLabel(order),
     tableNumber: order.tableNumber,
     waiterId: order.waiterId,
@@ -12374,6 +11956,7 @@ function toggleClock(userId, action) {
 }
 
 function resetData(action) {
+  if (["sales-data", "operations"].includes(action) && state.orders.some(isUberOrder)) { showToast("Conserva el historial Uber para evitar duplicados. Usa una instancia de pruebas separada."); return; }
   if (!isAdminUser()) {
     showToast("Solo admin puede reiniciar datos.");
     return;
@@ -12479,7 +12062,7 @@ function closeCashSession(event) {
     render();
     return;
   }
-  if (getOpenOrders().length) {
+  if (getOpenOrders().some(order => !isUberOrder(order))) {
     showToast("Cierra o cancela las ordenes abiertas antes del corte.");
     return;
   }
@@ -12506,6 +12089,7 @@ function closeCashSession(event) {
     openingCash: totals.openingCash,
     cashSales: totals.cash,
     cardSales: totals.card,
+    uberSales: totals.uber || 0,
     totalSales: totals.total,
     iva: totals.iva,
     discounts: totals.discounts,
@@ -13618,208 +13202,19 @@ function inventoryUsageForLine(line) {
   }));
 }
 
-function inventoryRecipeForSelections(product, selections = defaultSelectionsFor(product)) {
-  const variantRecipe = recipeVariantForSelections(product, selections);
-  if (variantRecipe?.recipe?.length) {
-    return normalizeRecipe(variantRecipe.recipe).map((item) => ({ name: item.name, qty: item.qty }));
-  }
-  if (Array.isArray(product.recipe) && product.recipe.length) {
-    return normalizeRecipe(product.recipe).map((item) => ({ name: item.name, qty: item.qty }));
-  }
-  const protein = selectedChoiceLabel(product, selections, "proteina");
-  const relleno = selectedChoiceLabel(product, selections, "relleno");
-  const sabor = selectedChoiceLabel(product, selections, "sabor");
-  const masa = selectedChoiceLabel(product, selections, "masa");
-  const salsa = selectedChoiceLabel(product, selections, "salsa");
 
-  if (product.id === "empanadas-fritas") {
-    return [
-      { name: "MASA MERCADO", qty: 0.35 },
-      ...ingredientChoice(relleno, {
-        Queso: [{ name: "QUESO FRESCO DE ARO", qty: 0.04 }],
-        Pollo: [{ name: "POLLO", qty: 0.08 }],
-        Carne: [{ name: "PIERNA DE CERDO", qty: 0.08 }],
-      }),
-    ];
-  }
 
-  if (product.id === "bocoles-maiz") {
-    return [
-      { name: "MASA MERCADO", qty: 0.16 },
-      ...(normalize(masa).includes("frijol") ? [{ name: "FRIJOL NEGRO", qty: 0.04 }] : []),
-      ...ingredientChoice(relleno, {
-        "Frijol con chorizo": [
-          { name: "FRIJOL NEGRO", qty: 0.06 },
-          { name: "CHORIZO", qty: 0.04 },
-        ],
-        "Huevo revuelto": [{ name: "HUEVO", qty: 0.08 }],
-        Queso: [{ name: "QUESO FRESCO DE ARO", qty: 0.04 }],
-        "Huevo con chorizo": [
-          { name: "HUEVO", qty: 0.06 },
-          { name: "CHORIZO", qty: 0.03 },
-        ],
-        "Huevo en salsa verde": [
-          { name: "HUEVO", qty: 0.06 },
-          { name: "CHILE SERRANO", qty: 0.015 },
-        ],
-      }),
-    ];
-  }
 
-  if (product.id === "bocoles-harina") {
-    return [
-      { name: "MASA MERCADO", qty: 0.25 },
-      { name: "QUESO FRESCO DE ARO", qty: 0.005 },
-      ...proteinIngredients(protein),
-    ];
-  }
 
-  if (product.id === "tamales") {
-    return [
-      { name: "MASA TAMALES", qty: 0.054 },
-      { name: "HOJA DE PLATANO", qty: 0.08 },
-      ...ingredientChoice(sabor, {
-        Picadillo: [{ name: "PICADILLO", qty: 0.058 }],
-        Cerdo: [
-          { name: "PIERNA DE CERDO", qty: 0.042 },
-          { name: "ADOBO", qty: 0.022 },
-        ],
-        "Camaron con calabaza": [
-          { name: "CAMARON", qty: 0.04 },
-          { name: "CALABAZA", qty: 0.03 },
-        ],
-        Pique: [{ name: "CHILE PIQUIN", qty: 0.004 }],
-        Queso: [{ name: "QUESO FRESCO DE ARO", qty: 0.035 }],
-      }),
-    ];
-  }
 
-  if (product.id === "empanadas-harina") {
-    return [
-      { name: "MASA HARINA", qty: 0.05 },
-      ...ingredientChoice(relleno, {
-        Manjar: [
-          { name: "MANJAR", qty: 0.05 },
-          { name: "AZUCAR", qty: 0.000667 },
-          { name: "CANELA MOLIDA", qty: 0.000333 },
-        ],
-        Carne: [{ name: "RELLENO PIERNA", qty: 0.02 }],
-      }),
-    ];
-  }
 
-  if (product.id === "molotes") {
-    return [
-      ...(normalize(masa).includes("platano")
-        ? [{ name: "MASA MOLOTES PLATANO", qty: 0.14 }]
-        : [{ name: "MASA MOLOTES", qty: 0.14 }]),
-      { name: "REPOLLO", qty: 0.002 },
-      { name: "CREMA", qty: 0.001 },
-      { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-      { name: "SALSA MOLOTES", qty: 0.18 },
-      ...ingredientChoice(relleno, {
-        Pollo: [{ name: "RELLENO POLLO", qty: 0.1 }],
-        "Carne de cerdo": [{ name: "RELLENO CARNE", qty: 0.1 }],
-      }),
-    ];
-  }
 
-  if (product.id === "enchiladas") {
-    return [
-      { name: "MASA MERCADO", qty: 0.16 },
-      { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-      ...salsaIngredients(salsa),
-      ...proteinIngredients(protein),
-    ];
-  }
 
-  if (product.id === "enchiladas-chile-seco") {
-    return [
-      { name: "MASA MERCADO", qty: 0.16 },
-      { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-      ...(normalize(salsa) === "chile seco" ? [{ name: "CHILE GUAJILLO", qty: 0.08 }] : salsaIngredients(salsa)),
-      ...proteinIngredients(protein),
-    ];
-  }
 
-  if (product.id === "estrujadas") {
-    return [
-      { name: "MASA MERCADO", qty: 0.2 },
-      { name: "QUESO FRESCO DE ARO", qty: 0.02 },
-      ...salsaIngredients(salsa),
-      ...proteinIngredients(protein),
-    ];
-  }
 
-  return inventoryRecipes[product.id] || [];
-}
 
-function recipeVariantForSelections(product, selections = defaultSelectionsFor(product)) {
-  const variants = normalizeVariantRecipes(product?.variantRecipes);
-  if (!variants.length) return null;
-  const matches = [];
-  for (const option of product.options || []) {
-    if (option.type !== "single") continue;
-    const choice = option.choices?.[selections?.[option.id]];
-    if (!choice?.label) continue;
-    const variant = variants.find(
-      (item) => item.optionId === option.id && normalize(item.choiceLabel) === normalize(choice.label),
-    );
-    if (variant) matches.push({ option, variant });
-  }
-  matches.sort((left, right) => variantOptionPriority(left.option) - variantOptionPriority(right.option));
-  return matches[0]?.variant || null;
-}
 
-function variantOptionPriority(option) {
-  const value = normalize(`${option?.id || ""} ${option?.label || ""}`);
-  if (value.includes("relleno")) return 1;
-  if (value.includes("sabor")) return 2;
-  if (value.includes("proteina")) return 3;
-  if (value.includes("variante")) return 4;
-  if (value.includes("salsa")) return 5;
-  if (value.includes("masa")) return 8;
-  return 6;
-}
 
-function selectedChoiceLabel(product, selections, optionId) {
-  const option = product.options.find((item) => item.id === optionId);
-  if (!option) return "";
-  return option.choices?.[selections?.[optionId]]?.label || "";
-}
-
-function ingredientChoice(label, choices) {
-  return choices[label] || [];
-}
-
-function proteinIngredients(label) {
-  return ingredientChoice(label, {
-    Cecina: [{ name: "CECINA PALOMILLA", qty: 0.12 }],
-    "Carne enchilada": [{ name: "CARNE ENCHILADA", qty: 0.12 }],
-    "Huevo revuelto": [{ name: "HUEVO", qty: 0.08 }],
-    "Huevo revuelto con chorizo": [
-      { name: "HUEVO", qty: 0.06 },
-      { name: "CHORIZO", qty: 0.04 },
-    ],
-    "Huevo en salsa verde": [
-      { name: "HUEVO", qty: 0.06 },
-      { name: "CHILE SERRANO", qty: 0.015 },
-    ],
-  });
-}
-
-function salsaIngredients(label) {
-  return ingredientChoice(label, {
-    Entomatadas: [{ name: "JITOMATE", qty: 0.1 }],
-    Roja: [{ name: "JITOMATE", qty: 0.06 }],
-    Verde: [{ name: "CHILE SERRANO", qty: 0.025 }],
-    Pipian: [{ name: "PIPIAN CRIOLLO", qty: 0.04 }],
-    Cacahuate: [{ name: "CACAHUATE", qty: 0.04 }],
-    Enfrijoladas: [{ name: "FRIJOL NEGRO", qty: 0.08 }],
-    Enmoladas: [{ name: "CHILE COLOR/ANCHO", qty: 0.025 }],
-    Ajonjoli: [{ name: "AJONJOLI", qty: 0.025 }],
-  });
-}
 
 function inventoryUsageForProduct(product, selections = defaultSelectionsFor(product), extras = []) {
   return inventoryUsageForLine({
@@ -13955,11 +13350,12 @@ function buildUserStatsForDay(day = new Date()) {
 
 function kitchenCommands() {
   return getOpenOrders()
+    .filter(order => !isUberOrder(order) || order.uber.state !== "changed")
     .flatMap((order) =>
       (order.commandBatches || []).map((batch) => ({
         ...batch,
         status: batch.status || "new",
-        orderId: order.id,
+        orderId: order.id, source: order.source,
         label: orderLabel(order),
       })),
     )
@@ -13969,6 +13365,7 @@ function kitchenCommands() {
 
 function updateCommandStatus(orderId, commandId, status, source) {
   const order = state.orders.find((item) => item.id === orderId);
+  if (isUberOrder(order)) { void actOnUber(orderId, status); return; }
   const batch = order?.commandBatches?.find((item) => item.id === commandId);
   if (!batch) return;
   batch.status = status;
@@ -13991,6 +13388,7 @@ function updateCommandStatus(orderId, commandId, status, source) {
 function deliverReadyCommands(orderId, source) {
   const order = state.orders.find((item) => item.id === orderId && item.status === "open");
   if (!order) return;
+  if (isUberOrder(order)) { void actOnUber(orderId, "delivered"); return; }
   const batches = readyBatches(order);
   if (!batches.length) {
     showToast("No hay comandas listas para entregar en esta mesa.");
@@ -14023,15 +13421,7 @@ function productRecipeCost(product) {
   return recipeCostForItems(recipe);
 }
 
-function configuredRecipeForProduct(product, selections = defaultSelectionsFor(product)) {
-  if (product?.subsection === "Pan de lena") {
-    const option = product.options.find((item) => item.id === "presentacion");
-    const choice = option?.choices?.[selections?.presentacion || 0]?.label || "Pieza";
-    const units = choice.includes("10") ? 10 : choice.includes("5") ? 5 : 1;
-    return [{ name: product.name.toUpperCase(), qty: units }];
-  }
-  return inventoryRecipeForSelections(product, selections);
-}
+
 
 function productCostSnapshot(product, selections = defaultSelectionsFor(product), extras = [], parts = null) {
   const inventory = currentInventory();
@@ -14131,6 +13521,7 @@ function buildBusinessMetrics(day = null) {
     collected: paymentTotals.total,
     cashRevenue: paymentTotals.cash,
     cardRevenue: paymentTotals.card,
+    uberRevenue: paymentTotals.uber,
     tips,
     foodCost,
     grossProfit,
@@ -14160,6 +13551,7 @@ function exportData(kind) {
           "mesero",
           "cajero",
           "metodo_pago",
+          "origen", "uber_order_id", "pago_uber", "liquidacion_uber",
           "metodo_propina",
           "consumo_antes_descuento",
           "descuento_codigo",
@@ -14185,6 +13577,7 @@ function exportData(kind) {
           waiterName(sale.waiterId),
           waiterName(sale.cashierId),
           sale.paymentMethod || "Efectivo",
+          sale.source || "pos", sale.uber?.orderId || "", Number(sale.payment?.uberDue) || 0, sale.uber?.settlement || "",
           saleTipPaymentMethod(sale),
           saleSubtotalBeforeDiscount(sale),
           saleDiscount(sale).code,
@@ -14207,7 +13600,7 @@ function exportData(kind) {
     caja: () => ({
       filename: `librepos-caja-${stamp}.csv`,
       rows: [
-        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "total_ventas", "descuentos", "iva", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
+        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "ventas_uber", "total_ventas", "descuentos", "iva", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
         ...normalizeCashSessions(state.cashSessions).map((session) => {
           const totals = cashSessionDisplayTotals(session);
           return [
@@ -14218,6 +13611,7 @@ function exportData(kind) {
             Number(totals.openingCash) || 0,
             Number(totals.cashSales ?? totals.cash) || 0,
             Number(totals.cardSales ?? totals.card) || 0,
+            Number(totals.uberSales ?? totals.uber) || 0,
             Number(totals.totalSales ?? totals.total) || 0,
             Number(totals.discounts) || 0,
             Number(totals.iva) || 0,

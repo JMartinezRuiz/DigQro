@@ -292,3 +292,23 @@ Errores relevantes:
 - `cashSessions`: arreglo.
 
 Si agregas una nueva llave compartida en el frontend, tambien debes actualizar la validacion del servidor.
+
+## Integración Uber Eats (2.1.0-beta.1)
+
+Las rutas `/api/uber/*` salvo el webhook requieren la cookie local y una sesión real en `X-LibrePOS-Session`. No aceptan `userId` como identidad. El servidor comprueba las funciones vigentes del usuario en cada petición.
+
+| Ruta | Método | Permisos y comportamiento |
+| --- | --- | --- |
+| `/api/uber/webhook` | POST | Público sólo a través de la pasarela. Firma `X-Uber-Signature` HMAC SHA-256 del cuerpo original con el client secret. Guarda el evento antes de devolver `200` vacío. No necesita cookie. |
+| `/api/uber/status` | GET | Admin/Caja/Cocina. Configuración sin secreto y últimos eventos. Credenciales/relaciones sólo visibles para Admin. |
+| `/api/uber/config` | POST | Admin. Entorno, tienda, credenciales, modo de IVA, preparación, relaciones y automatización. Secreto vacío conserva el guardado. |
+| `/api/uber/connection` | POST | Admin. Prueba OAuth y lectura del estado de tienda con las credenciales guardadas. |
+| `/api/uber/store` | POST | Admin. `{status: "ONLINE"\|"PAUSED", minutes: 30}`; necesita scope de escritura de estado. |
+| `/api/uber/action` | POST | `{action, orderId, ...}`. Caja/Admin: `accept`, `deny`, `cancel`, `refresh`, `preparing`, `ready`, `delivered`, `print`, `review-change`, `reconcile-finished`. Cocina sólo `preparing`, `ready`, `print`. `retry-event` usa `eventId`, requiere Caja/Admin. |
+| `/api/uber/demo` | POST | Sólo Admin en demo aislada. Crea un pedido, producto e insumo ficticios. No llama a Uber. |
+
+Acciones de pedidos devuelven `{ok, version, state}` después de persistir. `deny`/`cancel` exigen `reason` y `details`. Errores llevan `error`; un timeout puede requerir consultar el estado remoto antes de reintentar. La configuración privada no forma parte de `/api/state`; esa ruta rechaza altas, cambios financieros o borrados de registros Uber hechos por clientes.
+
+El estado de cocina y el de Uber son distintos. `ready` y `delivered` son acciones locales; `FINISHED` remoto también puede registrar la entrega de una comanda aceptada. La pasarela de `npm run uber:webhook` reenvía únicamente POST `/api/uber/webhook`, sin cookies, al servidor local. Consulta [Uber Eats](UBER_EATS.md) para el contrato, límites y pruebas.
+
+La pantalla Desarrollo es exclusiva para Admin. `POST /api/uber/config` admite `publicWebhookUrl`, una URL HTTPS terminada en `/api/uber/webhook` sin parámetros, fragmentos ni credenciales. Es una referencia de configuración; no se consulta ni modifica el destino fijo del cliente Uber. Se devuelve en el estado de Admin y se omite para los demás roles, junto con Client ID y Store ID. Dejar `clientSecret` vacío conserva el secreto guardado.

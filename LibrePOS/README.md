@@ -2,7 +2,13 @@
 
 LibrePOS es un punto de venta local para restaurante. Incluye venta por mesas y para llevar, comandas digitales, cocina, caja, inventario, catalogo, usuarios, fichaje, exportacion de datos y sincronizacion por red WiFi.
 
-## Versión 2.0.2
+## Versión 2.1.0-beta.2 · Uber Eats
+
+Integración de pruebas para recibir pedidos, aceptarlos y comandarlos con recetas del POS. Pago Uber se separa de efectivo y tarjeta en Caja, Datos y exportaciones. La conexión viene desactivada; requiere app Eats Marketplace, tienda vinculada y webhook HTTPS.
+
+Consulta [las notas de la versión 2.1.0-beta.2](docs/VERSION_2.1.0-beta.2.md) y [configuración, alcance y pruebas de Uber Eats](docs/UBER_EATS.md). Usa `npm run dev:demo` para simular pedidos o `npm run dev:uber` para una instancia aislada que conecte a Uber sandbox. **Ayuda actualizada**, con guía operativa y capturas reales de la demo.
+
+## Versión anterior: 2.0.2
 
 La versión 2.0.2 permite elegir el descuento en la cuenta abierta y ver el ticket prepago con el total antes de imprimir o cobrar. Solo administración puede corregir pagos por defecto y puede conceder permisos desde Usuarios. Las tablas de pagos incluyen una barra horizontal visible. La ayuda y los tutoriales explican estos cambios.
 
@@ -18,7 +24,7 @@ Consulta [las notas de la versión 2.0.2](docs/VERSION_2.0.2.md) y [la revisión
 
 ## Documentacion
 
-- [Manual detallado de las 26 guías](docs/GUIAS_OPERATIVAS.md): pasos, ejemplos, errores frecuentes y verificaciones, también disponibles en Ayuda.
+- [Manual detallado de las guías](docs/GUIAS_OPERATIVAS.md): pasos, ejemplos, errores frecuentes y verificaciones, también disponibles en Ayuda.
 - [Guia de usuario](docs/USUARIO.md): flujo diario para meseros, cocina, caja y administradores.
 - [Administracion y mantenimiento](docs/ADMINISTRACION.md): instalacion, datos locales, respaldos, restauracion, actualizaciones y seguridad.
 - [Desarrollo](docs/DESARROLLO.md): estructura del proyecto, comandos, arquitectura y checklist de release.
@@ -108,3 +114,5 @@ La version visible en la pantalla sale de `package.json` y se muestra como `vX.Y
 ## Seguridad local
 
 LibrePOS esta pensado para uso local en una red WiFi de confianza. No lo expongas a internet publico. Protege el equipo servidor, cambia la contrasena inicial de `admin` y guarda los respaldos fuera del equipo donde corre el POS.
+
+La conexión de Uber se configura en **Administración → Desarrollo → Conexión Uber**, visible únicamente para Admin. Allí también están la URL del webhook, Pruebas y Recepción.

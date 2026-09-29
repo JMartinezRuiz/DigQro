@@ -1,6 +1,6 @@
 {
   "name": "librepos",
-  "version": "2.0.2",
+  "version": "2.1.0-beta.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,9 @@
     "update": "node scripts/update.js",
     "test": "node --test test/*.test.js",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "dev:uber": "node scripts/preview-uber.js",
+    "uber:webhook": "node scripts/uber-webhook-gateway.js"
   },
   "devDependencies": {
     "vite": "^7.2.7"

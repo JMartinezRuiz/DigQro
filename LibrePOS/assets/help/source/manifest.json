@@ -1300,6 +1300,180 @@
           65
         ]
       }
+    ],
+    "uber-eats": [
+      {
+        "image": "developer-connection-beta2.png",
+        "caption": "Configura Uber en Desarrollo, solo para Admin",
+        "focus": [
+          20,
+          80,
+          1240,
+          800
+        ],
+        "captureVersion": "2.1.0-beta.2",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "uber-received-beta.png",
+        "caption": "Revisa el folio, las notas y el pago Uber",
+        "focus": [
+          246,
+          200,
+          1010,
+          650
+        ],
+        "captureVersion": "2.1.0-beta.1",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "uber-mapping-beta.png",
+        "caption": "Relaciona el producto con su receta del POS",
+        "focus": [
+          252,
+          250,
+          998,
+          630
+        ],
+        "captureVersion": "2.1.0-beta.1",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "uber-kitchen-beta.png",
+        "caption": "Cocina recibe una comanda con la etiqueta Uber",
+        "focus": [
+          245,
+          100,
+          720,
+          520
+        ],
+        "captureVersion": "2.1.0-beta.1",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "uber-ready-beta.png",
+        "caption": "Confirma la entrega; no vuelvas a cobrar",
+        "focus": [
+          250,
+          210,
+          1000,
+          620
+        ],
+        "captureVersion": "2.1.0-beta.1",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "uber-cash-beta.png",
+        "caption": "Comprueba Pago Uber separado de efectivo y tarjeta",
+        "focus": [
+          242,
+          98,
+          1030,
+          320
+        ],
+        "captureVersion": "2.1.0-beta.1",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      }
+    ],
+    "developer-uber": [
+      {
+        "image": "developer-connection-beta2.png",
+        "caption": "Abre Desarrollo con una sesión de Admin",
+        "focus": [
+          20,
+          80,
+          1240,
+          800
+        ],
+        "captureVersion": "2.1.0-beta.2",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "developer-webhook-beta2.png",
+        "caption": "Copia la URL guardada para registrarla en Uber",
+        "focus": [
+          884,
+          365,
+          361,
+          515
+        ],
+        "captureVersion": "2.1.0-beta.2",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "developer-tests-beta2.png",
+        "caption": "Prueba el recorrido en una demo aislada",
+        "focus": [
+          245,
+          100,
+          1010,
+          740
+        ],
+        "captureVersion": "2.1.0-beta.2",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      },
+      {
+        "image": "developer-events-beta2.png",
+        "caption": "Revisa la recepción de eventos",
+        "focus": [
+          245,
+          100,
+          1010,
+          650
+        ],
+        "captureVersion": "2.1.0-beta.2",
+        "capturedAt": "2026-09-28",
+        "viewport": {
+          "width": 1280,
+          "height": 900
+        },
+        "durationMs": 7000
+      }
     ]
   }
 }

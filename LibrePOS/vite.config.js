@@ -11,10 +11,14 @@ export default defineConfig({
     {
       name: "librepos-lan-sync",
       configureServer(server) {
-        server.middlewares.use(createSyncMiddleware());
+        const middleware = createSyncMiddleware();
+        server.middlewares.use(middleware);
+        server.httpServer?.once('close', middleware.close);
       },
       configurePreviewServer(server) {
-        server.middlewares.use(createSyncMiddleware());
+        const middleware = createSyncMiddleware();
+        server.middlewares.use(middleware);
+        server.httpServer?.once('close', middleware.close);
       },
     },
   ],

@@ -226,3 +226,11 @@ test("correcciones, terminales y conexión se distinguen de un cobro nuevo", () 
   assert.deepEqual(getHelpReply("corregir un pago", { ...admin, functions: ["mesero"] }).actions, []);
   assert.deepEqual(getHelpReply("corregir un pago", { ...admin, functions: ["caja"] }).actions.map(a => a.view), ["cash"]);
 });
+
+test('Uber guidance distinguishes platform payment from normal cash checkout', () => {
+  const reply = getHelpReply('como cobrar un pedido Uber Eats');
+  assert.equal(reply.intent, 'uber');
+  assert.match(reply.text, /no se cobran en efectivo ni tarjeta/);
+  assert.ok(reply.articleIds.includes('uber-eats'));
+  assert.equal(reply.actions.length, 0);
+});

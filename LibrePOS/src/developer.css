@@ -1,0 +1,26 @@
+.developer-eyebrow { color: var(--muted, #52666b); font-size: 11px; font-weight: 750; letter-spacing: .1em; }
+.developer-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr); align-items: start; gap: 20px; }
+.developer-grid > *, .developer-panel .field { min-width: 0; }
+.developer-grid .uber-config { max-width: none; }
+.developer-status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 22px; }
+.developer-status > div { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border, #ddd); border-radius: 12px; background: var(--surface, #fff); }
+.developer-status span { color: var(--muted, #52666b); font-size: 12px; }
+.developer-status strong { font-size: 14px; }
+.developer-webhook h2 { margin-top: 10px; }
+.developer-webhook .field { margin: 18px 0 12px; }
+.developer-contract { margin: 22px 0; }
+.developer-contract > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border, #ddd); }
+.developer-contract dt { color: var(--muted, #52666b); font-size: 13px; }
+.developer-contract dd { margin: 0; font-size: 13px; }
+.developer-command { display: block; padding: 14px; border-radius: 8px; background: var(--surface-alt, #f3f3ef); font-size: 12px; line-height: 1.7; }
+.developer-panel ol { padding-left: 20px; line-height: 1.7; }
+.developer-panel li { padding: 5px 0; }
+.developer-panel .uber-config { overflow-wrap: anywhere; }
+.developer-panel .uber-fields { gap: 15px; }
+.developer-panel .table-wrap { max-width: 100%; }
+@media (max-width: 1150px) { .developer-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 650px) { .developer-status { grid-template-columns: 1fr; gap: 8px; }.developer-status > div { padding: 12px 16px; grid-template-columns: 1fr 1fr; } }
+
+.developer-wide-field { grid-column: 1 / -1; }
+.developer-webhook textarea { width: 100%; resize: vertical; min-height: 78px; font-size: 13px; line-height: 1.6; }
+.developer-panel form + .uber-actions { margin-top: 18px; }

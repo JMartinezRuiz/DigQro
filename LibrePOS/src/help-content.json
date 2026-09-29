@@ -1,6 +1,6 @@
 {
-  "contentVersion": "2026.09.26",
-  "interfaceVersion": "2.0.2",
+  "contentVersion": "2026.09.28",
+  "interfaceVersion": "2.1.0-beta.2",
   "categories": [
     {
       "id": "all",
@@ -1013,7 +1013,8 @@
         "Crea un lote de comanda con fecha y usuario.",
         "Descuenta receta y extras del inventario.",
         "Digital + impresa depende de la impresora de comandas.",
-        "Una falla de impresión no debe borrar la comanda digital."
+        "Una falla de impresión no debe borrar la comanda digital.",
+        "Las órdenes Uber se aceptan y comandan desde Uber Eats. Pueden entrar automáticamente con catálogo e inventario validados, aunque no haya caja abierta."
       ],
       "caution": "No pulses nuevamente para compensar una impresión fallida: podrías enviar productos nuevos pendientes. Revisa Cocina y la configuración de impresión.",
       "expected": "La comanda aparece en Cocina una sola vez y, si se eligió, también sale impresa.",
@@ -1021,7 +1022,8 @@
         "configure-product",
         "printer-setup",
         "cancel-item-order",
-        "inventory-waste"
+        "inventory-waste",
+        "uber-eats"
       ],
       "tags": [
         "comandar",
@@ -1077,7 +1079,7 @@
         "No se duplicó la comanda al fallar la impresión.",
         "El movimiento de inventario corresponde al envío."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-09-28"
     },
     {
       "id": "cancel-item-order",
@@ -1368,7 +1370,8 @@
         "Prepago: orden abierta y sin propina futura.",
         "Postpago: venta cerrada con propina final.",
         "Reimpresión no duplica cobro.",
-        "Omitir aviso no borra la venta."
+        "Omitir aviso no borra la venta.",
+        "Los pedidos Uber no generan un prepago pendiente de cobro: su pago lo gestiona Uber. La venta finalizada permite un comprobante con Pago Uber y No cobrar al cliente."
       ],
       "caution": "No confundas una reimpresión con un nuevo cobro. Comprueba siempre folio, tipo de ticket y estado de la venta.",
       "expected": "El cliente recibe el tipo correcto de cuenta y Datos refleja si fue impresa u omitida.",
@@ -1376,7 +1379,8 @@
         "checkout-discounts-tips",
         "printer-setup",
         "data-reprint-delete",
-        "command-order"
+        "command-order",
+        "uber-eats"
       ],
       "tags": [
         "ticket prepago",
@@ -1441,7 +1445,7 @@
         "La última impresión coincide con los datos de la cuenta.",
         "El importe visible en Total para el cliente y el TOTAL del ticket coinciden antes de imprimir."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-09-28"
     },
     {
       "id": "cash-daily",
@@ -1493,7 +1497,8 @@
         "La caja abierta habilita operación.",
         "Compras registradas pueden reducir efectivo esperado.",
         "Propinas se separan por método.",
-        "El cierre conserva contado, esperado y diferencia."
+        "El cierre conserva contado, esperado y diferencia.",
+        "Las ventas Pago Uber se muestran separadas de efectivo y tarjeta. No aumentan el efectivo esperado. Un pedido Uber activo no bloquea el cierre; su venta se vincula a la caja que esté abierta al entregarse, o queda sin corte si no hay caja."
       ],
       "caution": "No cambies movimientos reales para ocultar una diferencia. Registra la nota y revisa la causa con Datos e Inventario.",
       "expected": "El corte refleja fielmente operación, efectivo contado y cualquier diferencia documentada.",
@@ -1501,7 +1506,8 @@
         "correct-payment",
         "checkout-discounts-tips",
         "inventory-purchase",
-        "data-reprint-delete"
+        "data-reprint-delete",
+        "uber-eats"
       ],
       "tags": [
         "abrir caja",
@@ -1557,7 +1563,7 @@
         "Compras y gastos no se registraron dos veces.",
         "El contado refleja el dinero físico, aunque haya diferencia."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-09-28"
     },
     {
       "id": "inventory-purchase",
@@ -2182,7 +2188,8 @@
         "Búsqueda y reimpresión no cambian datos.",
         "Omitir postpago solo elimina el aviso.",
         "Borrar elimina la venta seleccionada.",
-        "El borrado repone inventario y conserva el avance del consecutivo."
+        "El borrado repone inventario y conserva el avance del consecutivo.",
+        "Las ventas Uber conservan su identidad externa, no permiten borrado ni cambio de pago desde Datos. Cancela desde Uber Eats y revisa la liquidación con la plataforma."
       ],
       "caution": "El borrado es irreversible y solo debe usarse para duplicados comprobados. Para una incidencia operativa usa Cancelar cuenta.",
       "expected": "La cuenta correcta se localiza y la acción elegida produce exactamente el efecto esperado sin duplicar ventas.",
@@ -2190,7 +2197,8 @@
         "correct-payment",
         "prepaid-postpaid",
         "cash-daily",
-        "backup-update"
+        "backup-update",
+        "uber-eats"
       ],
       "tags": [
         "Datos",
@@ -2247,7 +2255,7 @@
         "Se eligió reimpresión, corrección o borrado según el caso.",
         "Después se revisaron caja e inventario si la acción los afecta."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-09-28"
     },
     {
       "id": "users-permissions",
@@ -2423,7 +2431,8 @@
         "Actualiza el estado visible de cada línea.",
         "No cobra ni cierra la mesa.",
         "No vuelve a descontar inventario al cambiar estado.",
-        "Mantiene folio, hora y notas de preparación."
+        "Mantiene folio, hora y notas de preparación.",
+        "Las comandas Uber se identifican por su código y Pago Uber. Preparar y Listo son locales; Caja confirma la entrega desde Uber Eats. Un cambio de pedido exige revisión antes de continuar."
       ],
       "caution": "No pulses Lista para limpiar el tablero si el producto aún no está completo. La entrega posterior debe confirmarse desde Mesas.",
       "expected": "Cada comanda avanza de Nuevas a En preparación y Listas para entregar, y la entrega se completa desde Mesas.",
@@ -2431,7 +2440,8 @@
         "command-order",
         "configure-product",
         "cancel-item-order",
-        "open-order"
+        "open-order",
+        "uber-eats"
       ],
       "tags": [
         "cocina",
@@ -2488,7 +2498,7 @@
         "El lote sólo se marcó listo al completarlo.",
         "La entrega se confirmó desde la mesa."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-09-28"
     },
     {
       "id": "attendance-profile",
@@ -2649,7 +2659,8 @@
         "El respaldo no modifica datos.",
         "La actualización conserva la carpeta local de operación.",
         "Reiniciar carga todos los componentes nuevos.",
-        "La validación confirma que el estado anterior sigue disponible."
+        "La validación confirma que el estado anterior sigue disponible.",
+        "El Respaldo JSON no incluye credenciales ni la bandeja privada de Uber. Para trasladar el conector, el desarrollador debe preservar también la carpeta privada uber del servidor."
       ],
       "caution": "No reinstales ni borres la carpeta de datos para resolver una actualización. Conserva el mensaje de error y utiliza primero la reparación prevista.",
       "expected": "La versión cambia y ventas, usuarios, inventario, configuración e impresoras siguen disponibles.",
@@ -2657,7 +2668,8 @@
         "data-reprint-delete",
         "printer-setup",
         "users-permissions",
-        "iva-settings"
+        "iva-settings",
+        "uber-eats"
       ],
       "tags": [
         "respaldo",
@@ -2714,7 +2726,7 @@
         "El servidor reinició y muestra la nueva versión.",
         "Login, ventas, caja, inventario e impresoras fueron revisados."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-09-28"
     },
     {
       "id": "correct-payment",
@@ -2767,7 +2779,8 @@
         "Conserva productos, total, descuento e IVA.",
         "Actualiza distribución entre efectivo y tarjeta, incluida propina.",
         "Conserva historial y efectivo contado; recalcula el corte afectado.",
-        "No realiza cargos ni devoluciones bancarias."
+        "No realiza cargos ni devoluciones bancarias.",
+        "Pago Uber se gestiona desde Uber Eats y no admite conversión a efectivo o tarjeta mediante Corregir pago."
       ],
       "caution": "Comprueba el medio realmente usado. Esta acción corrige el registro contable de LibrePOS; un movimiento bancario se gestiona por separado. Evita que dos personas corrijan simultáneamente la misma cuenta.",
       "expected": "La misma venta muestra el método correcto, la corrección queda registrada y caja refleja la nueva distribución.",
@@ -2776,7 +2789,8 @@
         "cash-daily",
         "prepaid-postpaid",
         "data-reprint-delete",
-        "users-permissions"
+        "users-permissions",
+        "uber-eats"
       ],
       "tags": [
         "corregir pago",
@@ -2840,7 +2854,7 @@
         "Consumo y propina reflejan lo que ocurrió.",
         "Historial, corte y postpago fueron revisados."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-09-28"
     },
     {
       "id": "payment-terminals",
@@ -3065,6 +3079,246 @@
         "Ambos dispositivos muestran la misma cuenta."
       ],
       "reviewedAt": "2026-09-26"
+    },
+    {
+      "id": "uber-eats",
+      "category": "checkout",
+      "title": "Cómo recibir y gestionar pedidos de Uber Eats",
+      "summary": "Conecta la tienda de pruebas, relaciona el catálogo y gestiona pedidos con Pago Uber separado de efectivo y tarjeta.",
+      "audience": [
+        "Administrador",
+        "Caja",
+        "Cocina"
+      ],
+      "duration": "10 min",
+      "reviewedAt": "2026-09-28",
+      "prerequisites": [
+        "App con acceso a Eats Marketplace, tienda sandbox vinculada y permisos de gestor de pedidos.",
+        "Webhook HTTPS publicado por el desarrollador; equipo servidor encendido y con Internet.",
+        "Catálogo y recetas del POS preparados; caja y cocina con su propia sesión."
+      ],
+      "steps": [
+        {
+          "title": "Prepara la conexión de pruebas",
+          "detail": "Un Admin abre Desarrollo → Conexión Uber, selecciona Sandbox e introduce Store ID, Client ID, Client secret y URL HTTPS pública del webhook. Guarda y usa Probar conexión guardada. Publica la pasarela y registra la URL en Uber; guardarla en el POS no realiza esos pasos.",
+          "impact": "Probar conexión verifica OAuth y lectura de tienda; recibir un pedido requiere además la vinculación de la tienda y el webhook."
+        },
+        {
+          "title": "Revisa el primer pedido",
+          "detail": "En Pedidos comprueba código, notas, variantes, cantidad, IVA y total. En Revisión y cancelación relaciona los productos y extras con el catálogo local y guarda cada relación.",
+          "impact": "Se conserva el precio de Uber; la receta del POS determina el consumo de inventario. Una nota de texto no modifica la receta."
+        },
+        {
+          "title": "Acepta y comanda",
+          "detail": "Caja o Admin pulsa Aceptar y comandar. Si faltan relaciones, variantes o insumos, corrige el aviso antes de reintentar.",
+          "impact": "La aceptación se comunica a Uber y crea una comanda. El inventario se descuenta una vez; todavía no se registra la venta."
+        },
+        {
+          "title": "Prepara y entrega",
+          "detail": "Cocina pulsa Preparar y después Listo para recoger. Caja comprueba la entrega física al repartidor o cliente y pulsa Confirmar entrega.",
+          "impact": "Preparar y Listo son estados locales. Confirmar entrega registra la venta Pago Uber. Un FINISHED remoto de un pedido comandado también puede finalizarla."
+        },
+        {
+          "title": "Comprueba el pago separado",
+          "detail": "Abre Caja o Datos y busca el folio de Uber. Revisa Pago Uber hoy, el comprobante y el CSV cuando corresponda.",
+          "impact": "Pago Uber no incrementa efectivo esperado ni ventas con tarjeta. Es venta gestionada por la plataforma, no depósito bancario confirmado."
+        },
+        {
+          "title": "Activa la automatización después de probar",
+          "detail": "Con varios pedidos validados, Admin puede habilitar Aceptar y comandar automáticamente los pedidos validados e Imprimir automáticamente en la impresora de comandas.",
+          "impact": "El servidor debe seguir encendido y conectado. Si falta relación o inventario, se requiere revisión. Desactivar el conector no pausa la tienda en Uber."
+        }
+      ],
+      "impacts": [
+        "Aceptar descuenta inventario y crea una comanda una sola vez.",
+        "La venta se registra al entregar y se clasifica como Pago Uber, fuera del efectivo esperado.",
+        "Cancelar antes de preparar repone los insumos; después de preparar conserva el consumo.",
+        "La liquidación, comisiones y devoluciones de Uber se concilian por separado."
+      ],
+      "caution": "Empieza con aceptación e impresión automáticas desactivadas. No dupliques un pedido como venta manual sin revisar su folio. Usa Cancelar en Uber o Rechazar en Uber desde esta pantalla; no conviertas el pago a efectivo o tarjeta. Ante un pedido modificado, revisa la versión nueva con cocina antes de confirmar la revisión.",
+      "expected": "El pedido conserva su código Uber, notas y total; tiene una comanda y una venta Pago Uber, sin aumentar efectivo ni tarjeta.",
+      "related": [
+        "developer-uber",
+        "cash-daily",
+        "command-order",
+        "kitchen-flow",
+        "printer-setup",
+        "data-reprint-delete"
+      ],
+      "tags": [
+        "uber",
+        "uber eats",
+        "pago uber",
+        "webhook",
+        "sandbox",
+        "delivery",
+        "repartidor",
+        "pedido automático",
+        "no cobrar"
+      ],
+      "visualSteps": [
+        {
+          "label": "Prepara la conexión de pruebas",
+          "focus": "Prepara la conexión de pruebas",
+          "action": "Un Admin abre Desarrollo → Conexión Uber, selecciona Sandbox e introduce Store ID, Client ID, Client secret y URL HTTPS pública del webhook. Guarda y usa Probar conexión guardada. Publica la pasarela y registra la URL en Uber; guardarla en el POS no realiza esos pasos."
+        },
+        {
+          "label": "Revisa el primer pedido",
+          "focus": "Revisa el primer pedido",
+          "action": "En Pedidos comprueba código, notas, variantes, cantidad, IVA y total. En Revisión y cancelación relaciona los productos y extras con el catálogo local y guarda cada relación."
+        },
+        {
+          "label": "Acepta y comanda",
+          "focus": "Acepta y comanda",
+          "action": "Caja o Admin pulsa Aceptar y comandar. Si faltan relaciones, variantes o insumos, corrige el aviso antes de reintentar."
+        },
+        {
+          "label": "Prepara y entrega",
+          "focus": "Prepara y entrega",
+          "action": "Cocina pulsa Preparar y después Listo para recoger. Caja comprueba la entrega física al repartidor o cliente y pulsa Confirmar entrega."
+        },
+        {
+          "label": "Comprueba el pago separado",
+          "focus": "Comprueba el pago separado",
+          "action": "Abre Caja o Datos y busca el folio de Uber. Revisa Pago Uber hoy, el comprobante y el CSV cuando corresponda."
+        }
+      ],
+      "example": {
+        "title": "Dos cafés de prueba por $80",
+        "detail": "En la demo aislada, Crear pedido simulado genera dos cafés con la nota Sin azúcar. Al aceptar se consumen dos unidades ficticias y aparece una comanda. Tras preparar y confirmar entrega, Caja muestra $80 en Pago Uber y $0 en efectivo y tarjeta por esa venta. Si no había caja abierta, la venta aparece en el día y en Datos sin corte asociado."
+      },
+      "troubleshooting": [
+        {
+          "symptom": "No llega el pedido de Uber",
+          "resolution": "Revisa que la recepción esté habilitada, el POS y la pasarela estén encendidos, la URL HTTPS sea accesible y la tienda esté vinculada a la app. Recepción muestra los errores de firma, consulta o importación que alcanzaron el conector; un 401 de firma no se guarda como evento."
+        },
+        {
+          "symptom": "El pedido requiere revisión",
+          "resolution": "Abre Revisión y cancelación y relaciona cada combinación de producto y modificadores con el catálogo local. Comprueba receta, unidades de extras e inventario. Los tipos no admitidos o los importes que no cuadran deben revisarse con Uber; no los cobres manualmente por defecto."
+        },
+        {
+          "symptom": "La aceptación falló pero Uber la muestra aceptada",
+          "resolution": "Usa Consultar Uber y revisa Cocina antes de repetir o crear otra venta. El conector reconcilia el estado aceptado y usa el identificador externo para no consumir inventario dos veces."
+        },
+        {
+          "symptom": "No se confirmó la impresión",
+          "resolution": "Comprueba la impresora de comandas y el papel. Una respuesta perdida no garantiza que no haya salido la comanda; revisa físicamente antes de pulsar Reimprimir comanda."
+        }
+      ],
+      "verification": [
+        "Confirma código, cantidades, notas, variantes y total contra Uber.",
+        "Comprueba una sola comanda y un solo consumo de insumos por pedido.",
+        "Verifica Pago Uber separado en Caja y que efectivo esperado no aumente.",
+        "Revisa que la venta no se haya registrado también de forma manual."
+      ]
+    },
+    {
+      "id": "developer-uber",
+      "category": "control",
+      "title": "Cómo configurar Uber desde Desarrollo",
+      "summary": "Configura credenciales, webhook y pruebas de Uber en una pantalla exclusiva para Admin.",
+      "audience": [
+        "Administrador"
+      ],
+      "duration": "8 min",
+      "reviewedAt": "2026-09-28",
+      "prerequisites": [
+        "Inicia sesión con una función Admin activa. Caja, Cocina y Mesero no tienen acceso a Desarrollo.",
+        "Para una prueba real, prepara una app Eats Marketplace, credenciales, Store ID autorizado y menú sandbox.",
+        "Usa una instancia aislada y una pasarela HTTPS para las pruebas; no publiques el puerto del POS."
+      ],
+      "steps": [
+        {
+          "title": "Abre Desarrollo como Admin",
+          "detail": "En Administración abre Desarrollo → Conexión Uber. Revisa el entorno y el estado de recepción. Para pruebas conectadas, inicia npm run dev:uber y entra en el puerto 5175.",
+          "impact": "Esta pantalla y las acciones de configuración están restringidas a Admin en la interfaz y en el servidor."
+        },
+        {
+          "title": "Guarda la conexión y el webhook",
+          "detail": "Selecciona Sandbox e introduce Store ID, Client ID, Client secret y URL HTTPS pública del webhook terminada en /api/uber/webhook. Configura IVA y preparación. Deja aceptación e impresión automáticas desactivadas y pulsa Guardar configuración.",
+          "impact": "Las credenciales y la URL se guardan en el servidor. El secreto no se devuelve al navegador; un campo vacío conserva el secreto anterior. Guardar la URL no crea el túnel ni registra el webhook en Uber."
+        },
+        {
+          "title": "Publica y comprueba la recepción",
+          "detail": "En Webhook de pedidos, copia la URL guardada. Despliega la pasarela de pruebas en el puerto 8788 y regístrala con HTTPS en Uber. Probar conexión guardada comprueba OAuth y lectura de tienda. Habilita la recepción cuando la tienda de pruebas esté preparada y revisa Recepción después de generar un pedido sandbox.",
+          "impact": "Una conexión comprobada no confirma por sí sola los webhooks. Recepción muestra los eventos admitidos y sus errores de procesamiento; una firma inválida se rechaza antes de guardar el evento."
+        },
+        {
+          "title": "Prueba el flujo y habilita las opciones necesarias",
+          "detail": "En Desarrollo → Pruebas, la demo aislada permite Crear pedido simulado. Abre pedidos Uber Eats para aceptarlo, prepararlo y entregarlo. En sandbox sigue el procedimiento de tu cuenta. Después de validar varios pedidos, puedes activar aceptación e impresión automáticas desde Conexión Uber.",
+          "impact": "La simulación crea datos ficticios únicamente en la demo. Las opciones automáticas requieren catálogo relacionado e impresora preparada. Desactivar la recepción no pausa la tienda en Uber."
+        }
+      ],
+      "impacts": [
+        "Credenciales y URL del webhook disponibles solo para Admin, con el secreto conservado únicamente en el servidor.",
+        "Caja y Cocina mantienen sus tareas desde Uber Eats y no pueden configurar la integración.",
+        "Pago Uber se mantiene separado de efectivo y tarjeta durante las pruebas y la operación."
+      ],
+      "caution": "No uses pedidos reales para probar. Guardar la URL del webhook no demuestra conectividad ni configura el portal Uber. Nunca publiques los puertos del POS; utiliza la pasarela que admite únicamente el webhook. No compartas el Client secret en capturas o mensajes.",
+      "expected": "Admin puede guardar la conexión, copiar la URL y consultar las pruebas y los eventos desde Desarrollo. Los otros roles no ven la pantalla ni pueden modificar esa configuración.",
+      "related": [
+        "uber-eats",
+        "users-permissions",
+        "cash-daily",
+        "printer-setup"
+      ],
+      "tags": [
+        "desarrollo",
+        "dev",
+        "admin",
+        "uber",
+        "webhook",
+        "client secret",
+        "sandbox",
+        "configuración",
+        "pruebas"
+      ],
+      "example": {
+        "title": "Una prueba aislada antes de conectar Uber",
+        "detail": "Ejecuta npm run dev:demo, inicia sesión como admin y abre Desarrollo → Pruebas. Crea el pedido simulado y comprueba que aparece en Uber Eats. La demo no solicita un pedido a Uber ni valida sus credenciales."
+      },
+      "troubleshooting": [
+        {
+          "symptom": "No veo Desarrollo",
+          "resolution": "Comprueba que tu usuario tenga la función Admin activa. Caja, Cocina y Mesero no pueden entrar a esta pantalla."
+        },
+        {
+          "symptom": "No permite guardar la URL",
+          "resolution": "Usa una dirección HTTPS terminada exactamente en /api/uber/webhook, sin credenciales, parámetros ni fragmentos."
+        },
+        {
+          "symptom": "El secreto aparece vacío después de guardar",
+          "resolution": "Es el comportamiento esperado: el servidor solo informa que hay un secreto guardado. Deja el campo vacío para conservarlo o escribe uno nuevo para reemplazarlo."
+        }
+      ],
+      "verification": [
+        "Guarda, recarga Desarrollo y verifica Store ID, Client ID, URL y opciones guardadas.",
+        "Comprueba que el campo Client secret muestre Guardado y conserve el valor al guardar vacío.",
+        "Inicia sesión como Caja y comprueba que Desarrollo no aparece.",
+        "Para validar Uber real, verifica OAuth, llegada de un webhook y recorrido de un pedido sandbox por separado."
+      ],
+      "visualSteps": [
+        {
+          "label": "Abre Desarrollo como Admin",
+          "focus": "Abre Desarrollo como Admin",
+          "action": "En Administración abre Desarrollo → Conexión Uber. Revisa el entorno y el estado de recepción. Para pruebas conectadas, inicia npm run dev:uber y entra en el puerto 5175."
+        },
+        {
+          "label": "Guarda la conexión y el webhook",
+          "focus": "Guarda la conexión y el webhook",
+          "action": "Selecciona Sandbox e introduce Store ID, Client ID, Client secret y URL HTTPS pública del webhook terminada en /api/uber/webhook. Configura IVA y preparación. Deja aceptación e impresión automáticas desactivadas y pulsa Guardar configuración."
+        },
+        {
+          "label": "Publica y comprueba la recepción",
+          "focus": "Publica y comprueba la recepción",
+          "action": "En Webhook de pedidos, copia la URL guardada. Despliega la pasarela de pruebas en el puerto 8788 y regístrala con HTTPS en Uber. Probar conexión guardada comprueba OAuth y lectura de tienda. Habilita la recepción cuando la tienda de pruebas esté preparada y revisa Recepción después de generar un pedido sandbox."
+        },
+        {
+          "label": "Prueba el flujo y habilita las opciones necesarias",
+          "focus": "Prueba el flujo y habilita las opciones necesarias",
+          "action": "En Desarrollo → Pruebas, la demo aislada permite Crear pedido simulado. Abre pedidos Uber Eats para aceptarlo, prepararlo y entregarlo. En sandbox sigue el procedimiento de tu cuenta. Después de validar varios pedidos, puedes activar aceptación e impresión automáticas desde Conexión Uber."
+        }
+      ]
     }
   ]
 }

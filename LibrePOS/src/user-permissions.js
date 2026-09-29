@@ -25,6 +25,7 @@ export function paymentCorrectionScope(user) {
 }
 export function mayCorrectSalePayment(user, sale, sessions = []) {
   if (!user || user.active === false || !sale) return false;
+  if (sale.source === 'uber_eats' || sale.paymentMethod === 'Uber') return false;
   if (isPermissionsAdmin(user)) return true;
   if (!userFunctions(user).includes('caja')) return false;
   const scope = paymentCorrectionScope(user);

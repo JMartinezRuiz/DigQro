@@ -1,4 +1,8 @@
 import { protectedStateChangeError } from "./payment-permission-guard.js";
+import { UberService, atomicJson } from "./integrations/uber-service.js";
+import { uberStateChangeError, uberActionAllowed } from "./integrations/uber-guard.js";
+import { demoUberOrder } from "./integrations/uber-demo.js";
+import { isPermissionsAdmin, userFunctions } from "./src/user-permissions.js";
 import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
 import https from "node:https";
@@ -89,18 +93,51 @@ async function ensureAccessToken() {
 }
 
 async function writeStateFile() {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(STATE_FILE, JSON.stringify({ version: sharedVersion, state: sharedState }, null, 2));
+  await atomicJson(STATE_FILE, { version: sharedVersion, state: sharedState });
 }
 
 async function saveSharedState(state, clientId = "") {
   await mkdir(DATA_DIR, { recursive: true });
   const normalized = normalizeStateForStorage(state, sharedState);
+  const version = Math.max(Date.now(), sharedVersion + 1);
+  await atomicJson(STATE_FILE, { version, state: normalized.state });
   sharedState = normalized.state;
-  sharedVersion = Math.max(Date.now(), sharedVersion + 1);
-  await writeStateFile();
+  sharedVersion = version;
   broadcast({ type: "state", version: sharedVersion, state: publicState(sharedState), clientId });
   return { version: sharedVersion, state: publicState(sharedState) };
+}
+
+function mutateIntegrationState(work) {
+  const pending = stateWriteQueue.then(async () => {
+    await loadSharedState();
+    if (!sharedState) throw new Error('Inicia LibrePOS y configura sus datos antes de recibir pedidos.');
+    const draft = structuredClone(sharedState);
+    await work(draft);
+    if (JSON.stringify(draft) !== JSON.stringify(sharedState)) await saveSharedState(draft, 'uber-server');
+  });
+  stateWriteQueue = pending.catch(() => {});
+  return pending;
+}
+
+const uberService = new UberService({
+  dataDir: DATA_DIR,
+  getState: async () => { await loadSharedState(); return structuredClone(sharedState); },
+  mutateState: mutateIntegrationState,
+  demo: process.env.VITE_LIBREPOS_DEMO === 'true',
+  productionAllowed: process.env.UBER_ALLOW_PRODUCTION === 'true',
+  print: (printer, text, settings) => printSaleReceiptTicket(printer, text, {
+    marginMm: settings.ticketMarginMm, marginLeftMm: settings.ticketMarginLeftMm, marginRightMm: settings.ticketMarginRightMm,
+  }),
+});
+
+async function readUberRawBody(req) {
+  const chunks = []; let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 1024 * 1024) throw new Error('Webhook demasiado grande.');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 function broadcast(payload) {
@@ -2116,8 +2153,18 @@ async function applyGithubRepositoryUpdate(status) {
 }
 
 export function createSyncMiddleware() {
-  return async function syncMiddleware(req, res, next) {
+  uberService.start();
+  const middleware = async function syncMiddleware(req, res, next) {
     const url = new URL(req.url || "/", "http://localhost");
+    if (url.pathname === '/api/uber/webhook') {
+      if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+      try {
+        const result = await uberService.receive(await readUberRawBody(req), req.headers['x-uber-signature']);
+        if (result.status === 200) { res.statusCode = 200; res.end(); }
+        else sendJson(res, result.status, { error: result.error });
+      } catch { sendJson(res, 503, { error: 'No se pudo guardar el webhook. Uber debe reintentar.' }); }
+      return;
+    }
     if (!url.pathname.startsWith("/api/")) {
       await setAccessCookie(res);
       next();
@@ -2140,6 +2187,46 @@ export function createSyncMiddleware() {
 
     try {
       if (!(await requireAccess(req, res))) return;
+
+      if (url.pathname.startsWith('/api/uber/')) {
+        await loadSharedState();
+        const user = loggedInUser(req);
+        if (!user) { sendJson(res, 401, { error: 'Inicia sesión para gestionar Uber Eats.' }); return; }
+        const roles = userFunctions(user);
+        if (!roles.some(role => ['admin', 'caja', 'cocina'].includes(role))) { sendJson(res, 403, { error: 'Uber requiere funciones de caja, cocina o administración.' }); return; }
+        try {
+          if (url.pathname === '/api/uber/status' && req.method === 'GET') {
+            const status = await uberService.status();
+            if (!isPermissionsAdmin(user)) status.config = { enabled: status.config.enabled, environment: status.config.environment, autoAccept: status.config.autoAccept, autoPrint: status.config.autoPrint };
+            sendJson(res, 200, status); return;
+          }
+          if (req.method !== 'POST') { sendJson(res, 405, { error: 'Método no permitido.' }); return; }
+          const payload = JSON.parse(await readBody(req) || '{}');
+          if (url.pathname === '/api/uber/action') {
+            if (!uberActionAllowed(user, payload.action, userFunctions)) { sendJson(res, 403, { error: 'Solo caja o administración pueden aceptar, entregar o cancelar pedidos Uber.' }); return; }
+            await uberService.action(payload, user.id);
+            sendJson(res, 200, { ok: true, version: sharedVersion, state: publicState(sharedState) }); return;
+          }
+          if (!isPermissionsAdmin(user)) { sendJson(res, 403, { error: 'Solo administración puede configurar la integración.' }); return; }
+          if (url.pathname === '/api/uber/config') { sendJson(res, 200, await uberService.serialize(() => uberService.configure(payload))); return; }
+          if (url.pathname === '/api/uber/connection') { sendJson(res, 200, await uberService.serialize(() => uberService.connection())); return; }
+          if (url.pathname === '/api/uber/store') { sendJson(res, 200, await uberService.serialize(() => uberService.storeStatus(payload.status, Number(payload.minutes || 30)))); return; }
+          if (url.pathname === '/api/uber/demo' && uberService.demo) {
+            await uberService.serialize(async () => {
+              await uberService.init();
+              await mutateIntegrationState(draft => {
+                if (!draft.menuProducts.some(p => p.id === 'demo-cafe-pos')) draft.menuProducts.push({ id: 'demo-cafe-pos', name: 'Café de prueba', section: 'Bebidas', subsection: 'Pruebas', station: 'Barra', price: 40, active: true, options: [], recipe: [{ itemId: 'demo-cafe-stock', name: 'CAFÉ DE PRUEBA', qty: 1 }], variantRecipes: {} });
+                if (!draft.inventory.some(i => i.id === 'demo-cafe-stock')) draft.inventory.push({ id: 'demo-cafe-stock', name: 'CAFÉ DE PRUEBA', category: 'PRUEBAS', unit: 'PZ', qty: 100, unitCost: 10, totalCost: 1000 });
+              });
+              uberService.config.mappings['demo-cafe-uber|'] = { productId: 'demo-cafe-pos', selections: {}, extraIds: [] };
+              await uberService.simulate(demoUberOrder(`demo-${randomBytes(5).toString('hex')}`));
+            });
+            sendJson(res, 200, { ok: true, version: sharedVersion, state: publicState(sharedState) }); return;
+          }
+          sendJson(res, 404, { error: 'Ruta Uber no disponible.' });
+        } catch (error) { sendJson(res, 400, { error: error.message }); }
+        return;
+      }
 
       if (url.pathname === "/api/access-info" && req.method === "GET") {
         sendJson(res, 200, lanAccessUrls(req));
@@ -2384,7 +2471,7 @@ export function createSyncMiddleware() {
             sendJson(res, 409, { error: "version-mismatch", version: sharedVersion, state: publicState(sharedState) });
             return;
           }
-          const permissionError = protectedStateChangeError(sharedState, payload.state, loggedInUser(req));
+          const permissionError = uberStateChangeError(sharedState, payload.state) || protectedStateChangeError(sharedState, payload.state, loggedInUser(req));
           if (permissionError) {
             sendJson(res, 403, { error: permissionError, version: sharedVersion, state: publicState(sharedState) });
             return;
@@ -2427,4 +2514,6 @@ export function createSyncMiddleware() {
       sendJson(res, 500, { error: error?.message || "sync-error" });
     }
   };
+  middleware.close = () => uberService.stop();
+  return middleware;
 }
