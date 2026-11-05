@@ -60,7 +60,7 @@ test('server enforces grants with authenticated identity, rejects forged roles a
   assert.ok(adminLogin.sessionToken);
   const save = async (mutate,token) => { const next=structuredClone(snapshot.state); mutate(next); return post('/api/state',{baseVersion:snapshot.version,state:next},token); };
   const correct = (id,author) => state => { const sale=state.sales.find(s=>s.id===id); sale.paymentMethod=sale.paymentMethod==='Tarjeta'?'Efectivo':'Tarjeta'; sale.paymentCorrections=[...(sale.paymentCorrections||[]),{createdBy:author,reason:'Prueba permiso'}]; };
-  assert.equal((await save(correct('s1','admin'))).status,403,'claiming admin without login is insufficient');
+  assert.equal((await save(correct('s1','admin'))).status,401,'claiming admin without login is insufficient');
   assert.equal((await save(correct('s1','cashier'),cajaLogin.sessionToken)).status,403);
   assert.equal((await save(s=>{s.users[1].permissions={correctPayments:'all'};},cajaLogin.sessionToken)).status,403);
   assert.equal((await save(s=>{s.users[1].functions=['admin'];},cajaLogin.sessionToken)).status,403);
@@ -82,5 +82,5 @@ test('server enforces grants with authenticated identity, rejects forged roles a
   assert.deepEqual(concurrent.map(result=>result.status).sort(),[200,409],'only one state write may use a given base version');
   snapshot=concurrent.find(result=>result.status===200);
   await post('/api/logout',{},adminLogin.sessionToken);
-  assert.equal((await save(correct('s2','admin'),adminLogin.sessionToken)).status,403);
+  assert.equal((await save(correct('s2','admin'),adminLogin.sessionToken)).status,401);
 });

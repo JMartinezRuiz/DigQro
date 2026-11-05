@@ -9,6 +9,7 @@ import https from "node:https";
 import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { lanAccessUrls } from "./lan-access.js";
+import { isPrivateRequest } from "./private-paths.js";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -58,10 +59,13 @@ let sharedState = null;
 let sharedVersion = 0;
 let accessToken = "";
 let updateInProgress = false;
-const clients = new Set();
+const clients = new Map();
 const loginSessions = new Map();
+const loginFailures = new Map();
 let stateWriteQueue = Promise.resolve();
 const LOGIN_LIFETIME_MS = 24 * 60 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCK_MS = 60 * 1000;
 const execFile = promisify(execFileCallback);
 
 async function loadSharedState() {
@@ -142,11 +146,17 @@ async function readUberRawBody(req) {
 
 function broadcast(payload) {
   const data = `event: ${payload.type}\ndata: ${JSON.stringify(payload)}\n\n`;
-  clients.forEach((client) => {
+  clients.forEach(({ sessionToken, stopStream }, client) => {
+    // A stream opened with a session that has since ended must not receive more data.
+    if (!sessionUser(sessionToken)) {
+      stopStream();
+      client.end();
+      return;
+    }
     try {
       client.write(data);
     } catch {
-      clients.delete(client);
+      stopStream();
     }
   });
 }
@@ -310,8 +320,7 @@ async function requireAccess(req, res) {
   return true;
 }
 
-function loggedInUser(req) {
-  const token = req.headers["x-librepos-session"];
+function sessionUser(token) {
   const session = loginSessions.get(token);
   if (!session) return null;
   const user = sharedState?.users.find(item => item.id === session.userId && item.active !== false);
@@ -319,7 +328,31 @@ function loggedInUser(req) {
     loginSessions.delete(token);
     return null;
   }
+  // Activity keeps the session alive, so a kitchen screen is not logged out in the middle of service.
+  session.expiresAt = Date.now() + LOGIN_LIFETIME_MS;
   return user;
+}
+
+function loggedInUser(req) {
+  return sessionUser(req.headers["x-librepos-session"]);
+}
+
+function loginAttemptKey(req, username) {
+  return `${req.socket?.remoteAddress || ""}|${username}`;
+}
+
+function loginLocked(key) {
+  const entry = loginFailures.get(key);
+  return Boolean(entry && entry.count >= LOGIN_MAX_FAILURES && Date.now() < entry.lockedUntil);
+}
+
+function recordLoginFailure(key) {
+  const now = Date.now();
+  for (const [other, entry] of loginFailures) if (entry.lockedUntil <= now) loginFailures.delete(other);
+  const entry = loginFailures.get(key) || { count: 0, lockedUntil: 0 };
+  entry.count += 1;
+  entry.lockedUntil = now + LOGIN_LOCK_MS;
+  loginFailures.set(key, entry);
 }
 
 function githubApiUrl(pathname) {
@@ -2155,6 +2188,11 @@ async function applyGithubRepositoryUpdate(status) {
 export function createSyncMiddleware() {
   uberService.start();
   const middleware = async function syncMiddleware(req, res, next) {
+    if (isPrivateRequest(req.url)) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
     const url = new URL(req.url || "/", "http://localhost");
     if (url.pathname === '/api/uber/webhook') {
       if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
@@ -2393,11 +2431,26 @@ export function createSyncMiddleware() {
       }
 
       if (url.pathname === "/api/update/status" && req.method === "GET") {
+        await loadSharedState();
+        if (!loggedInUser(req)) {
+          sendJson(res, 401, { error: "login-required" });
+          return;
+        }
         sendJson(res, 200, await getUpdateStatus());
         return;
       }
 
       if (url.pathname === "/api/update/apply" && req.method === "POST") {
+        await loadSharedState();
+        const user = loggedInUser(req);
+        if (!user) {
+          sendJson(res, 401, { error: "login-required" });
+          return;
+        }
+        if (!serverUserIsAdmin(user)) {
+          sendJson(res, 403, { error: "admin-required" });
+          return;
+        }
         if (updateInProgress) {
           sendJson(res, 409, { error: "update-in-progress" });
           return;
@@ -2428,11 +2481,18 @@ export function createSyncMiddleware() {
         const payload = rawBody ? JSON.parse(rawBody) : {};
         const username = cleanUsername(payload.username);
         const password = String(payload.password || "");
+        const attemptKey = loginAttemptKey(req, username);
+        if (loginLocked(attemptKey)) {
+          sendJson(res, 429, { error: "too-many-attempts" });
+          return;
+        }
         const user = (sharedState?.users || []).find((item) => item.active !== false && sameUsername(item.username, username));
         if (!verifyPassword(user, password)) {
+          recordLoginFailure(attemptKey);
           sendJson(res, 401, { error: "invalid-login" });
           return;
         }
+        loginFailures.delete(attemptKey);
         if (user.password) {
           const normalized = normalizeStateForStorage(sharedState);
           sharedState = normalized.state;
@@ -2448,6 +2508,11 @@ export function createSyncMiddleware() {
 
       if (url.pathname === "/api/state" && req.method === "GET") {
         await loadSharedState();
+        // An empty server answers without a session: the first device has to create the initial state.
+        if (sharedState && !loggedInUser(req)) {
+          sendJson(res, 401, { error: "login-required" });
+          return;
+        }
         sendJson(res, 200, { version: sharedVersion, state: publicState(sharedState) });
         return;
       }
@@ -2462,6 +2527,12 @@ export function createSyncMiddleware() {
           return;
         }
         const save = stateWriteQueue.then(async () => {
+          // Checked inside the queue: every response below carries the saved state.
+          const actor = loggedInUser(req);
+          if (sharedState && !actor) {
+            sendJson(res, 401, { error: "login-required" });
+            return;
+          }
           const baseVersion = Number(payload.baseVersion);
           if (!Number.isFinite(baseVersion)) {
             sendJson(res, 400, { error: "missing-base-version", version: sharedVersion, state: publicState(sharedState) });
@@ -2471,7 +2542,7 @@ export function createSyncMiddleware() {
             sendJson(res, 409, { error: "version-mismatch", version: sharedVersion, state: publicState(sharedState) });
             return;
           }
-          const permissionError = uberStateChangeError(sharedState, payload.state) || protectedStateChangeError(sharedState, payload.state, loggedInUser(req));
+          const permissionError = uberStateChangeError(sharedState, payload.state) || protectedStateChangeError(sharedState, payload.state, actor);
           if (permissionError) {
             sendJson(res, 403, { error: permissionError, version: sharedVersion, state: publicState(sharedState) });
             return;
@@ -2486,6 +2557,12 @@ export function createSyncMiddleware() {
 
       if (url.pathname === "/api/events" && req.method === "GET") {
         await loadSharedState();
+        // EventSource cannot send headers, so the stream names its session in the query string.
+        const sessionToken = url.searchParams.get("session") || "";
+        if (!sessionUser(sessionToken)) {
+          sendJson(res, 401, { error: "login-required" });
+          return;
+        }
         res.writeHead(200, {
           "Content-Type": "text/event-stream; charset=utf-8",
           "Cache-Control": "no-cache, no-transform",
@@ -2493,19 +2570,19 @@ export function createSyncMiddleware() {
           "X-Accel-Buffering": "no",
         });
         res.write(`event: hello\ndata: ${JSON.stringify({ version: sharedVersion, state: publicState(sharedState) })}\n\n`);
+        const stopStream = () => {
+          clearInterval(heartbeat);
+          clients.delete(res);
+        };
         const heartbeat = setInterval(() => {
           try {
             res.write(`event: ping\ndata: ${Date.now()}\n\n`);
           } catch {
-            clearInterval(heartbeat);
-            clients.delete(res);
+            stopStream();
           }
         }, 20000);
-        clients.add(res);
-        req.on("close", () => {
-          clearInterval(heartbeat);
-          clients.delete(res);
-        });
+        clients.set(res, { sessionToken, stopStream });
+        req.on("close", stopStream);
         return;
       }
 

@@ -40,6 +40,7 @@ Detalle:
 |-- package-lock.json
 |-- vite.config.js
 |-- sync-store.js
+|-- private-paths.js
 |-- src/
 |   |-- main.js
 |   |-- help-content.json
@@ -82,7 +83,7 @@ Detalle:
 - Server-Sent Events para avisar cambios entre clientes.
 - Consulta y aplicacion de updates desde GitHub.
 
-`vite.config.js` registra el middleware `createSyncMiddleware()` tanto en desarrollo como en preview.
+`vite.config.js` registra el middleware `createSyncMiddleware()` tanto en desarrollo como en preview. `npm start` usa el servidor de Vite, cuya raíz contiene `.librepos/`: por eso `private-paths.js` rechaza esas URL antes de que lleguen a Vite y `server.fs.deny` añade una segunda barrera.
 
 `src/help-details.js` presenta ejemplos, diagnósticos desplegables y comprobaciones de cada guía; esos campos también alimentan la búsqueda. `lan-access.js` obtiene direcciones desde el socket real, prioriza interfaces físicas y no anuncia acceso LAN si escucha sólo en loopback.
 
@@ -114,11 +115,14 @@ El resto del estado de pantalla es local del navegador, por ejemplo vista actual
 
 Cuando la API local esta disponible:
 
-1. El cliente carga `/api/state`.
-2. Si el servidor no tiene estado, el cliente sube su estado local.
-3. Cada cambio compartido se envia con `POST /api/state`.
-4. El servidor incrementa version y notifica por `/api/events`.
-5. Otros clientes aplican el nuevo estado y lo guardan en su `localStorage`.
+1. El cliente pide `/api/state`.
+2. Si el servidor no tiene estado, el cliente sube su estado local. Es la única escritura sin sesión.
+3. Si ya tiene estado, responde `401` y el cliente espera en la pantalla de acceso. `POST /api/login` devuelve el estado y a partir de ahí se abre `/api/events`.
+4. Cada cambio compartido se envia con `POST /api/state`.
+5. El servidor incrementa version y notifica por `/api/events`.
+6. Otros clientes aplican el nuevo estado y lo guardan en su `localStorage`.
+
+Si la sesión termina (reinicio del servidor, 24 horas sin actividad, baja o cambio de contraseña), el cliente vuelve a la pantalla de acceso y conserva lo capturado. Al entrar, lo combina con el estado del servidor y lo envía.
 
 Si el servidor no esta disponible, el navegador sigue funcionando con `localStorage`, pero no sincroniza con otros dispositivos.
 

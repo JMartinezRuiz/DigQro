@@ -135,9 +135,9 @@ Despues de actualizar, cierra y vuelve a abrir LibrePOS.
 
 ## Seguridad
 
-- Usa LibrePOS solo en una red WiFi de confianza.
+- Usa LibrePOS solo en una red WiFi de confianza. Si ofreces WiFi a tus clientes, conecta LibrePOS a una red separada: la conexión con el servidor no va cifrada.
 - No publiques el puerto `5173` a internet.
-- Cambia la contrasena inicial de `admin`.
+- Cambia la contrasena inicial de `admin`. Los datos solo llegan a quien inició sesión, así que esa contraseña es lo que los protege.
 - Usa usuarios individuales y permisos minimos.
 - Guarda respaldos fuera del equipo servidor.
 - Protege fisicamente el equipo servidor; quien accede a `.librepos/` puede acceder a datos operativos.

@@ -408,6 +408,9 @@ let syncEnabled = false;
 let syncVersion = 0;
 let syncClientId = loadClientId();
 let syncPushTimer;
+let syncEventSource = null;
+let syncPollTimer = null;
+let loginRateLimited = false;
 let syncWriting = false;
 let deferredSyncPayload = null;
 let syncLastPayload = "";
@@ -1264,6 +1267,10 @@ async function pushSharedState() {
       body: JSON.stringify({ clientId: syncClientId, baseVersion: syncVersion, state: shared }),
     });
     const payload = await response.json();
+    if (response.status === 401) {
+      handleSessionLost();
+      return;
+    }
     if (response.status === 409 && payload.state) {
       const remote = normalizeSharedState(payload.state);
       applySharedState(mergeSharedStates(baseSnapshot, sharedStateFromCurrent(), remote));
@@ -1371,7 +1378,17 @@ function isSameJson(left, right) {
 
 async function initNetworkSync() {
   try {
-    const response = await fetch("/api/state", { cache: "no-store" });
+    const response = await fetch("/api/state", { cache: "no-store", headers: sessionHeaders() });
+    if (response.status === 401) {
+      // El servidor ya tiene datos y solo los entrega con sesión.
+      sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      if (state.sessionUserId) {
+        clearLocalSession();
+        persistLocal();
+        render();
+      }
+      return;
+    }
     if (!response.ok) return;
     const payload = await response.json();
     syncEnabled = true;
@@ -1392,35 +1409,73 @@ async function initNetworkSync() {
       persistLocal();
       render();
       if (normalizedPayload !== remotePayload) queueSyncState();
+      startSyncEvents();
     } else {
+      // Servidor vacío: este equipo crea el estado inicial; los avisos empiezan al iniciar sesión.
       pushSharedState();
     }
-    startSyncEvents();
   } catch {
     // Running without the LAN sync server leaves localStorage behavior unchanged.
   }
 }
 
+function stopSyncEvents() {
+  syncEventSource?.close();
+  syncEventSource = null;
+  clearInterval(syncPollTimer);
+  syncPollTimer = null;
+}
+
 function startSyncEvents() {
+  stopSyncEvents();
   if (!("EventSource" in window)) {
-    window.setInterval(pollSyncState, 2500);
+    syncPollTimer = window.setInterval(pollSyncState, 2500);
     return;
   }
-  const source = new EventSource(`/api/events?clientId=${encodeURIComponent(syncClientId)}`);
+  const session = encodeURIComponent(sessionStorage.getItem(SESSION_TOKEN_KEY) || "");
+  const source = new EventSource(`/api/events?clientId=${encodeURIComponent(syncClientId)}&session=${session}`);
+  syncEventSource = source;
   source.addEventListener("state", (event) => {
     const payload = JSON.parse(event.data);
     applyRemoteSyncPayload(payload);
   });
   source.onerror = () => {
     source.close();
-    window.setInterval(pollSyncState, 2500);
+    syncEventSource = null;
+    syncPollTimer = window.setInterval(pollSyncState, 2500);
   };
+}
+
+function clearLocalSession() {
+  state.sessionUserId = null;
+  state.activeOrderId = null;
+  resetHelpChat();
+  resetUberPanel(); resetDeveloperPanel(); uberRuntime = { config: {}, events: [] };
+  state.productConfig = null;
+  state.modal = null;
+}
+
+// La sesión terminó en el servidor: reinicio, 24 horas sin actividad, baja o cambio de contraseña.
+// Lo capturado sigue en este navegador y se combina al volver a entrar.
+function handleSessionLost() {
+  sessionStorage.removeItem(SESSION_TOKEN_KEY);
+  stopSyncEvents();
+  syncEnabled = false;
+  if (!state.sessionUserId) return;
+  clearLocalSession();
+  state.authError = "Tu sesión terminó. Vuelve a iniciar sesión.";
+  persistLocal();
+  render();
 }
 
 async function pollSyncState() {
   if (!syncEnabled) return;
   try {
-    const response = await fetch("/api/state", { cache: "no-store" });
+    const response = await fetch("/api/state", { cache: "no-store", headers: sessionHeaders() });
+    if (response.status === 401) {
+      handleSessionLost();
+      return;
+    }
     if (!response.ok) return;
     applyRemoteSyncPayload(await response.json());
   } catch {
@@ -1448,8 +1503,9 @@ function applyRemoteSyncPayload(payload) {
 }
 
 async function checkForUpdates() {
+  if (!sessionStorage.getItem(SESSION_TOKEN_KEY)) return;
   try {
-    const response = await fetch("/api/update/status", { cache: "no-store" });
+    const response = await fetch("/api/update/status", { cache: "no-store", headers: sessionHeaders() });
     if (!response.ok) return;
     const info = await response.json();
     const previous = state.updateInfo || {};
@@ -1471,7 +1527,7 @@ async function applyUpdate() {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 360000);
   try {
-    const response = await fetch("/api/update/apply", { method: "POST", signal: controller.signal });
+    const response = await fetch("/api/update/apply", { method: "POST", headers: sessionHeaders(), signal: controller.signal });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "update-failed");
     state.updateInfo = {
@@ -1493,6 +1549,8 @@ async function applyUpdate() {
       showToast("La actualizacion tardo demasiado. Cierra y abre LibrePOS antes de reintentar.");
     } else if (message.includes("update-in-progress")) {
       showToast("Ya hay una actualizacion en curso.");
+    } else if (message.includes("login-required") || message.includes("admin-required")) {
+      showToast("Inicia sesión como administrador para actualizar.");
     } else if (message.includes("github") || message.includes("download")) {
       showToast("No se pudo conectar a GitHub. Revisa la conexion.");
     } else {
@@ -9281,7 +9339,7 @@ function bindLogin() {
     const password = String(form.get("password") || "");
     const user = await authenticateUser(username, password);
     if (!user) {
-      state.authError = "Usuario o contrasena incorrectos.";
+      state.authError = loginRateLimited ? "Demasiados intentos. Espera un minuto y vuelve a intentarlo." : "Usuario o contrasena incorrectos.";
       persist();
       render();
       return;
@@ -9296,6 +9354,7 @@ function bindLogin() {
 
 async function authenticateUser(username, password) {
   const loginUsername = cleanUserText(username);
+  loginRateLimited = false;
   try {
     const response = await fetch("/api/login", {
       method: "POST",
@@ -9308,13 +9367,23 @@ async function authenticateUser(username, password) {
       syncEnabled = true;
       syncVersion = Number(payload.version) || syncVersion;
       if (payload.state) {
-        applySharedState(payload.state);
-        syncLastPayload = JSON.stringify(sharedStateFromCurrent());
+        const local = sharedStateFromCurrent();
+        if (syncLastPayload && JSON.stringify(local) !== syncLastPayload) {
+          // Hay cambios de cuando la sesión ya había terminado: se combinan y se envían.
+          const remote = normalizeSharedState(payload.state);
+          applySharedState(mergeSharedStates(parseSnapshot(syncLastPayload), local, remote));
+          syncLastPayload = JSON.stringify(remote);
+        } else {
+          applySharedState(payload.state);
+          syncLastPayload = JSON.stringify(sharedStateFromCurrent());
+        }
         persistLocal();
       }
+      startSyncEvents();
       return state.users.find((item) => item.active && item.id === payload.userId) || null;
     }
-    if (response.status === 401) return null;
+    if (response.status === 429) loginRateLimited = true;
+    if (response.status === 401 || response.status === 429) return null;
   } catch {
     // Fall back to local login when the sync server is not running.
   }
@@ -9341,7 +9410,7 @@ async function refreshUber() {
   try {
     const result = await requestUber("status");
     Object.assign(uberRuntime, result, { loaded: true });
-    const response = await fetch("/api/state", { cache: "no-store" });
+    const response = await fetch("/api/state", { cache: "no-store", headers: sessionHeaders() });
     if (response.ok) applyRemoteSyncPayload(await response.json());
   } finally { uberRuntimeLoading = false; }
 }
@@ -9400,14 +9469,14 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-logout]").forEach((button) => {
     button.addEventListener("click", () => {
-      fetch("/api/logout", { method: "POST", headers: sessionHeaders() }).catch(() => {});
+      // Lo último capturado sale con esta sesión, antes de cerrarla.
+      clearTimeout(syncPushTimer);
+      const headers = sessionHeaders();
+      pushSharedState().finally(() => fetch("/api/logout", { method: "POST", headers }).catch(() => {}));
       sessionStorage.removeItem(SESSION_TOKEN_KEY);
-      state.sessionUserId = null;
-      state.activeOrderId = null;
-      resetHelpChat();
-      resetUberPanel(); resetDeveloperPanel(); uberRuntime = { config: {}, events: [] };
-      state.productConfig = null;
-      state.modal = null;
+      stopSyncEvents();
+      syncEnabled = false;
+      clearLocalSession();
       persist();
       render();
     });

@@ -2,6 +2,10 @@
 
 LibrePOS es un punto de venta local para restaurante. Incluye venta por mesas y para llevar, comandas digitales, cocina, caja, inventario, catalogo, usuarios, fichaje, exportacion de datos y sincronizacion por red WiFi.
 
+## Versión 2.1.0-beta.3 · Protección de datos
+
+Corrige la exposición de datos en la red local. La carpeta `.librepos/` ya no se puede abrir desde el navegador, y ventas, usuarios e inventario solo llegan a quien inició sesión. Después de actualizar, reinicia el servidor y vuelve a entrar en cada dispositivo. Consulta [las notas de la versión](docs/VERSION_2.1.0-beta.3.md).
+
 ## Versión 2.1.0-beta.2 · Uber Eats
 
 Integración de pruebas para recibir pedidos, aceptarlos y comandarlos con recetas del POS. Pago Uber se separa de efectivo y tarjeta en Caja, Datos y exportaciones. La conexión viene desactivada; requiere app Eats Marketplace, tienda vinculada y webhook HTTPS.
@@ -113,6 +117,8 @@ La version visible en la pantalla sale de `package.json` y se muestra como `vX.Y
 
 ## Seguridad local
 
-LibrePOS esta pensado para uso local en una red WiFi de confianza. No lo expongas a internet publico. Protege el equipo servidor, cambia la contrasena inicial de `admin` y guarda los respaldos fuera del equipo donde corre el POS.
+LibrePOS esta pensado para uso local en una red WiFi de confianza. No lo expongas a internet publico. Protege el equipo servidor, cambia la contrasena inicial de `admin` y guarda los respaldos fuera del equipo donde corre el POS. Si ofreces WiFi a tus clientes, conecta LibrePOS a una red separada: la conexión con el servidor no va cifrada.
+
+Los datos solo se entregan con una sesión iniciada, y cinco contraseñas incorrectas seguidas bloquean ese usuario un minuto en ese dispositivo.
 
 La conexión de Uber se configura en **Administración → Desarrollo → Conexión Uber**, visible únicamente para Admin. Allí también están la URL del webhook, Pruebas y Recepción.

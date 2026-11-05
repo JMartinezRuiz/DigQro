@@ -1,6 +1,6 @@
 {
-  "contentVersion": "2026.09.28",
-  "interfaceVersion": "2.1.0-beta.2",
+  "contentVersion": "2026.11.05",
+  "interfaceVersion": "2.1.0-beta.3",
   "categories": [
     {
       "id": "all",
@@ -2306,9 +2306,10 @@
         "Atribuye acciones a una persona.",
         "Limita acceso por función.",
         "Desactivar conserva históricos.",
-        "Administrador permite operaciones sensibles."
+        "Administrador permite operaciones sensibles.",
+        "Sin sesión, ningún dispositivo recibe ni modifica ventas, usuarios o inventario."
       ],
-      "caution": "No compartas admin ni asignes Administrador para resolver una falta de acceso puntual. Otorga el mínimo permiso necesario.",
+      "caution": "No compartas admin ni asignes Administrador para resolver una falta de acceso puntual. Otorga el mínimo permiso necesario. Cambia la contraseña inicial de admin: la sesión es lo que protege los datos del restaurante.",
       "expected": "La persona accede con su propia cuenta y solo puede realizar las tareas autorizadas.",
       "related": [
         "cash-daily",
@@ -2325,7 +2326,11 @@
         "mesero",
         "cocina",
         "caja",
-        "admin"
+        "admin",
+        "sesión",
+        "iniciar sesión",
+        "demasiados intentos",
+        "bloqueado"
       ],
       "visualSteps": [
         {
@@ -2375,6 +2380,14 @@
         {
           "symptom": "Tiene Caja pero no puede corregir",
           "resolution": "Es el comportamiento predeterminado. Solo administración configura el campo Permiso para corregir pagos. Comprueba también el alcance de caja abierta o cualquier caja y que el usuario haya iniciado sesión con el servidor."
+        },
+        {
+          "symptom": "Me pide iniciar sesión otra vez",
+          "resolution": "La sesión termina al reiniciar el servidor, tras 24 horas sin actividad, al cambiar la contraseña o al desactivar al usuario. Entra de nuevo: lo capturado en ese navegador se combina y se envía. No borres los datos del navegador."
+        },
+        {
+          "symptom": "Dice Demasiados intentos",
+          "resolution": "Tras cinco contraseñas incorrectas, ese usuario queda bloqueado un minuto en ese dispositivo. Espera y vuelve a escribirla. Si no la recuerdas, un administrador puede restablecerla en Usuarios."
         }
       ],
       "verification": [
@@ -2383,7 +2396,7 @@
         "Se comprobó el acceso y se conserva un administrador activo.",
         "Los usuarios existentes de Caja quedan sin permiso de corrección salvo concesión explícita."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-11-05"
     },
     {
       "id": "kitchen-flow",
@@ -2660,7 +2673,8 @@
         "La actualización conserva la carpeta local de operación.",
         "Reiniciar carga todos los componentes nuevos.",
         "La validación confirma que el estado anterior sigue disponible.",
-        "El Respaldo JSON no incluye credenciales ni la bandeja privada de Uber. Para trasladar el conector, el desarrollador debe preservar también la carpeta privada uber del servidor."
+        "El Respaldo JSON no incluye credenciales ni la bandeja privada de Uber. Para trasladar el conector, el desarrollador debe preservar también la carpeta privada uber del servidor.",
+        "Solo una sesión de administración puede aplicar la actualización. Después de actualizar a 2.1.0-beta.3, cada dispositivo debe iniciar sesión de nuevo."
       ],
       "caution": "No reinstales ni borres la carpeta de datos para resolver una actualización. Conserva el mensaje de error y utiliza primero la reparación prevista.",
       "expected": "La versión cambia y ventas, usuarios, inventario, configuración e impresoras siguen disponibles.",
@@ -2726,7 +2740,7 @@
         "El servidor reinició y muestra la nueva versión.",
         "Login, ventas, caja, inventario e impresoras fueron revisados."
       ],
-      "reviewedAt": "2026-09-28"
+      "reviewedAt": "2026-11-05"
     },
     {
       "id": "correct-payment",
@@ -3011,7 +3025,9 @@
         "No requiere publicar LibrePOS en Internet.",
         "Actualizar direcciones no cambia ventas ni permisos.",
         "Un servidor limitado a localhost no anuncia un QR de red.",
-        "La demo y la operación real usan datos distintos."
+        "La demo y la operación real usan datos distintos.",
+        "Hasta iniciar sesión, el teléfono no recibe ventas ni otros datos del restaurante.",
+        "Si ofreces WiFi a tus clientes, conecta LibrePOS a una red separada."
       ],
       "caution": "No borres los datos del navegador ante una desconexión: podrían contener cambios pendientes. No desactives todo el firewall; revisa el permiso de LibrePOS/Node y el puerto de la red local con quien administra el equipo.",
       "expected": "El teléfono abre la misma instancia y muestra los registros esperados; el enlace y el QR coinciden.",
@@ -3078,7 +3094,7 @@
         "El teléfono abre la aplicación desde su red.",
         "Ambos dispositivos muestran la misma cuenta."
       ],
-      "reviewedAt": "2026-09-26"
+      "reviewedAt": "2026-11-05"
     },
     {
       "id": "uber-eats",

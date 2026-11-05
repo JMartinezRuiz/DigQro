@@ -7,6 +7,8 @@ LibrePOS expone una API local desde el mismo servidor Vite. Esta API esta pensad
 - El middleware establece la cookie `librepos_sync` al servir la app.
 - Las rutas `/api/*` requieren esa cookie.
 - Las solicitudes con `Origin` solo se aceptan si el host coincide con el servidor.
+- La cookie se entrega a quien abre la app, así que no identifica a nadie. Leer o guardar el estado, recibir avisos y consultar o aplicar actualizaciones exige además una sesión iniciada con `POST /api/login`.
+- El middleware responde `404` a cualquier URL que apunte a la carpeta de datos, en cualquier codificación (`private-paths.js`), antes de que llegue a Vite. `server.fs.deny` en `vite.config.js` es la segunda barrera.
 - La API no debe exponerse a internet.
 
 ## Endpoints
@@ -14,16 +16,16 @@ LibrePOS expone una API local desde el mismo servidor Vite. Esta API esta pensad
 | Metodo | Ruta | Uso |
 | --- | --- | --- |
 | `GET` | `/api/access-info` | Devuelve URLs LAN detectadas para mostrar acceso desde otros dispositivos. |
-| `POST` | `/api/login` | Valida usuario y contrasena contra el estado compartido. |
+| `POST` | `/api/login` | Valida usuario y contrasena contra el estado compartido. Tras cinco fallos seguidos bloquea ese usuario un minuto desde ese equipo. |
 | `GET` | `/api/session` | Comprueba la sesión individual; devuelve userId o 401. |
 | `POST` | `/api/logout` | Invalida la sesión individual actual. |
-| `GET` | `/api/state` | Devuelve version y estado compartido actual. |
-| `POST` | `/api/state` | Guarda estado compartido con control de version. |
-| `GET` | `/api/events` | Stream SSE para notificar cambios a otros clientes. |
+| `GET` | `/api/state` | Devuelve version y estado compartido actual. Requiere sesión, salvo en un servidor sin estado. |
+| `POST` | `/api/state` | Guarda estado compartido con control de version. Requiere sesión, salvo para crear el estado inicial. |
+| `GET` | `/api/events` | Stream SSE para notificar cambios a otros clientes. Requiere sesión en `?session=`. |
 | `GET` | `/api/printers` | Lista impresoras instaladas en el equipo servidor. Requiere usuario admin. |
 | `POST` | `/api/printers/test` | Envia un ticket de prueba a una impresora seleccionada. Requiere usuario admin. |
-| `GET` | `/api/update/status` | Consulta si hay actualizacion disponible en GitHub. |
-| `POST` | `/api/update/apply` | Descarga y aplica actualizacion desde GitHub. |
+| `GET` | `/api/update/status` | Consulta si hay actualizacion disponible en GitHub. Requiere sesión. |
+| `POST` | `/api/update/apply` | Descarga y aplica actualizacion desde GitHub. Requiere sesión de administración. |
 
 ## `GET /api/access-info`
 
@@ -68,12 +70,13 @@ Errores relevantes:
 
 - `404 state-not-ready`: el servidor no tiene estado inicial.
 - `401 invalid-login`: usuario o contrasena incorrectos.
+- `429 too-many-attempts`: cinco fallos seguidos de ese usuario desde ese equipo; se libera un minuto después del último.
 
-La respuesta de login incluye `sessionToken`. El navegador lo mantiene en `sessionStorage` y lo envía en `X-LibrePOS-Session`. Caduca a las 24 horas o al reiniciar el servidor; logout, baja o cambio de contraseña invalidan su uso. Las funciones y permisos se consultan en el usuario guardado en cada operación, por lo que una revocación no requiere cerrar sesión.
+La respuesta de login incluye `sessionToken`. El navegador lo mantiene en `sessionStorage` y lo envía en `X-LibrePOS-Session`. Caduca tras 24 horas sin actividad o al reiniciar el servidor; logout, baja o cambio de contraseña invalidan su uso. Las funciones y permisos se consultan en el usuario guardado en cada operación, por lo que una revocación no requiere cerrar sesión.
 
 Los cambios de usuarios, credenciales y permisos en `POST /api/state` requieren una sesión de administrador. Cambiar el pago de una venta existente requiere el permiso actual del actor autenticado. La comprobación de versión, permisos y escritura se serializa para evitar validar una corrección contra permisos antiguos. Una denegación devuelve 403, mensaje y estado confirmado; el cliente recupera ese estado para no mostrar como guardada una corrección rechazada. El estado inicial se crea antes del primer login.
 
-Esta protección cubre las modificaciones anteriores: no sustituye una revisión completa de autorización de los demás endpoints históricos (impresión, actualización o lectura del estado).
+Las rutas de impresión aún identifican al usuario por el `userId` que reciben; no entregan datos del restaurante, pero no sustituyen a una sesión.
 
 ## `GET /api/state`
 
@@ -87,6 +90,8 @@ Respuesta:
 ```
 
 `state` es el estado publico. Los hashes y sales de contrasenas no se devuelven al navegador.
+
+Sin una sesión válida en `X-LibrePOS-Session` responde `401 login-required` y no incluye datos. La excepción es un servidor sin estado, que responde `{ "version": 0, "state": null }` para que el primer dispositivo cree el estado inicial.
 
 ## `POST /api/state`
 
@@ -140,13 +145,14 @@ Errores relevantes:
 - `400 invalid-cashSessions`
 - `400 invalid-settings`
 - `400 missing-base-version`
+- `401 login-required`: el servidor ya tiene estado y la solicitud no trae sesión válida. No incluye datos.
 - `409 version-mismatch`
 
 Cuando hay `409`, la respuesta incluye `version` y `state` actuales para que el cliente intente fusionar y reintentar.
 
 ## `GET /api/events`
 
-Abre un stream `text/event-stream`.
+Abre un stream `text/event-stream`. `EventSource` no puede enviar cabeceras, así que la sesión viaja en `?session=`; sin ella responde `401 login-required`. Cada envío vuelve a comprobar la sesión: si terminó, el servidor cierra el stream sin mandar el cambio.
 
 Eventos:
 
@@ -154,7 +160,7 @@ Eventos:
 - `state`: nuevo estado compartido guardado por otro cliente.
 - `ping`: latido cada 20 segundos.
 
-El cliente usa polling a `/api/state` si `EventSource` no esta disponible o si el stream falla.
+El cliente usa polling a `/api/state` si `EventSource` no esta disponible o si el stream falla. Un `401` en cualquiera de las dos vías lo lleva a la pantalla de acceso; lo capturado sigue en el navegador y se combina al volver a entrar.
 
 ## `GET /api/printers`
 

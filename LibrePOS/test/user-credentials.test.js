@@ -36,9 +36,9 @@ test("resynchronizing public users preserves the changed admin password on the s
   const origin = `http://127.0.0.1:${server.address().port}`;
   const bootstrap = await fetch(origin);
   const cookie = bootstrap.headers.get("set-cookie").split(";")[0];
-  const request = (endpoint, payload) => fetch(`${origin}${endpoint}`, {
+  const request = (endpoint, payload, session = "") => fetch(`${origin}${endpoint}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", cookie },
+    headers: { "Content-Type": "application/json", cookie, "X-LibrePOS-Session": session },
     body: JSON.stringify(payload),
   });
   const state = {
@@ -57,7 +57,9 @@ test("resynchronizing public users preserves the changed admin password on the s
     ...user,
     password: localUserPassword(user),
   }));
-  const repeatResponse = await request("/api/state", { baseVersion: publicPayload.version, state: publicPayload.state });
+  const firstLogin = await request("/api/login", { username: "admin", password: "changed-test-password" });
+  const { sessionToken } = await firstLogin.json();
+  const repeatResponse = await request("/api/state", { baseVersion: publicPayload.version, state: publicPayload.state }, sessionToken);
   assert.equal(repeatResponse.status, 200);
   const accepted = await request("/api/login", { username: "admin", password: "changed-test-password" });
   assert.equal(accepted.status, 200, "the public-state round trip must not replace the saved credential");
