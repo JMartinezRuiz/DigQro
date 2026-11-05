@@ -1,54 +1,53 @@
 # Digitalización Querétaro
 
-Landing estática de una sola página para GitHub Pages.
+Web estática de una sola página, publicada con GitHub Pages desde la carpeta `docs/` en https://digitalizacionqueretaro.com.
 
-## LibrePOS
+## Web
 
-El proyecto POS para restaurante esta en la carpeta `LibrePOS/`.
-
-- Instalacion point-and-click para macOS: `LibrePOS/Instalar LibrePOS.command`
-- Arranque point-and-click para macOS: `LibrePOS/Abrir LibrePOS.command`
-- Instalacion point-and-click para Windows: `LibrePOS/Instalar LibrePOS.bat`
-- Arranque point-and-click para Windows: `LibrePOS/Abrir LibrePOS.bat`
-
-Los datos locales del POS se guardan en `LibrePOS/.librepos/` y no se publican en Git.
-
-## Archivos para publicar
+Todo lo que se publica está en `docs/`. No necesita compilación ni dependencias.
 
 ```text
-index.html
-styles.css
-script.js
-robots.txt
-sitemap.xml
-assets/
-  favicon.svg
-  og-image.png
-  og-image.svg
-.nojekyll
+docs/
+  index.html
+  404.html
+  styles.css
+  app.js
+  robots.txt
+  sitemap.xml
+  CNAME
+  .nojekyll
+  assets/
+    favicon.svg
+    og-image.png
+    fonts/
 ```
 
-GitHub Pages puede servir estos archivos directamente desde la raíz del repositorio. El archivo `.nojekyll` está vacío a propósito para desactivar el procesamiento de Jekyll.
+`.nojekyll` está vacío a propósito para desactivar el procesamiento de Jekyll. `404.html` usa rutas absolutas porque GitHub Pages lo sirve en cualquier ruta que no exista.
 
-## Probar en local
-
-Puedes abrir `index.html` directamente en el navegador o levantar un servidor estático:
+Para probarla en local:
 
 ```bash
-python3 -m http.server 8080
+python3 -m http.server 8080 --directory docs
 ```
 
 Después abre `http://localhost:8080`.
 
-## Contacto configurado
+### Contacto configurado
 
-- WhatsApp: `+52 442 600 0092`
-- Teléfono: `+52 442 600 0092`
+- WhatsApp y teléfono: `+52 442 600 0092`
 - Correo: `contacto@digitalizacionqueretaro.com`
-- Formspree: `https://formspree.io/f/mykldbwa`
 
-## Seguridad
+### Seguridad
 
-La versión estática no usa claves, tokens, cookies, almacenamiento local ni librerías externas. El formulario envía los datos a Formspree mediante `POST` y el CTA principal abre WhatsApp con un mensaje codificado.
+La web no usa formularios, cookies, almacenamiento local, analítica ni recursos externos. Las fuentes (licencia SIL OFL) se sirven desde `docs/assets/fonts/`; `newsreader-display-latin.woff2` es Newsreader con los ejes fijados en `opsz=48` y `wght=500` para reducir su peso. La política CSP del HTML limita scripts, estilos, imágenes y fuentes al propio sitio.
 
-Se dejó una política CSP en el HTML para limitar ejecución de scripts y carga de recursos al propio sitio, permitiendo únicamente Formspree como destino externo del formulario.
+## LibrePOS
+
+El proyecto POS para restaurante está en la carpeta `LibrePOS/` y no se publica en la web. Su actualizador descarga de esa carpeta en este repositorio, así que no debe moverse ni cambiar de nombre sin actualizar `LibrePOS/sync-store.js` y `LibrePOS/scripts/repair-update.ps1`.
+
+- Instalación point-and-click para macOS: `LibrePOS/Instalar LibrePOS.command`
+- Arranque point-and-click para macOS: `LibrePOS/Abrir LibrePOS.command`
+- Instalación point-and-click para Windows: `LibrePOS/Instalar LibrePOS.bat`
+- Arranque point-and-click para Windows: `LibrePOS/Abrir LibrePOS.bat`
+
+Los datos locales del POS se guardan en `LibrePOS/.librepos/` y no se publican en Git.
