@@ -6,6 +6,8 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5173,
     strictPort: true,
+    // Replaces Vite's list, so it repeats its defaults. private-paths.js blocks the same folder earlier.
+    fs: { deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.librepos/**"] },
   },
   plugins: [
     {

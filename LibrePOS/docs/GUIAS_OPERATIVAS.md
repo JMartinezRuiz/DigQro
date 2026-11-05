@@ -1,6 +1,6 @@
 # Guías operativas de LibrePOS
 
-Interfaz 2.1.0-beta.2 · Contenido 2026.09.28
+Interfaz 2.1.0-beta.3 · Contenido 2026.11.05
 
 La misma referencia está disponible en Ayuda → Tutoriales, con capturas y GIFs sin conexión a Internet. Los ejemplos son ficticios. Consulta la versión de cada captura; los pasos escritos describen la interfaz vigente.
 
@@ -1127,6 +1127,8 @@ Para: Administrador. Tiempo orientativo: 4 min.
 - **No aparece una sección:** Revisa las funciones asignadas y que el usuario esté activo. No compartas admin para resolver una falta de permiso; solicita el acceso adecuado.
 - **No entra después de un cambio de clave:** Comprueba usuario exacto, nueva contraseña y mismo servidor. Tras restauraciones, una exportación JSON de interfaz puede no contener credenciales completas; usa la copia completa del servidor.
 - **Tiene Caja pero no puede corregir:** Es el comportamiento predeterminado. Solo administración configura el campo Permiso para corregir pagos. Comprueba también el alcance de caja abierta o cualquier caja y que el usuario haya iniciado sesión con el servidor.
+- **Me pide iniciar sesión otra vez:** La sesión termina al reiniciar el servidor, tras 24 horas sin actividad, al cambiar la contraseña o al desactivar al usuario. Entra de nuevo: lo capturado en ese navegador se combina y se envía. No borres los datos del navegador.
+- **Dice Demasiados intentos:** Tras cinco contraseñas incorrectas, ese usuario queda bloqueado un minuto en ese dispositivo. Espera y vuelve a escribirla. Si no la recuerdas, un administrador puede restablecerla en Usuarios.
 
 ### Comprueba antes de terminar
 
@@ -1141,8 +1143,9 @@ Para: Administrador. Tiempo orientativo: 4 min.
 - Limita acceso por función.
 - Desactivar conserva históricos.
 - Administrador permite operaciones sensibles.
+- Sin sesión, ningún dispositivo recibe ni modifica ventas, usuarios o inventario.
 
-**Atención:** No compartas admin ni asignes Administrador para resolver una falta de acceso puntual. Otorga el mínimo permiso necesario.
+**Atención:** No compartas admin ni asignes Administrador para resolver una falta de acceso puntual. Otorga el mínimo permiso necesario. Cambia la contraseña inicial de admin: la sesión es lo que protege los datos del restaurante.
 
 **Resultado esperado:** La persona accede con su propia cuenta y solo puede realizar las tareas autorizadas.
 
@@ -1304,6 +1307,7 @@ Para: Administrador. Tiempo orientativo: 5 min.
 - Reiniciar carga todos los componentes nuevos.
 - La validación confirma que el estado anterior sigue disponible.
 - El Respaldo JSON no incluye credenciales ni la bandeja privada de Uber. Para trasladar el conector, el desarrollador debe preservar también la carpeta privada uber del servidor.
+- Solo una sesión de administración puede aplicar la actualización. Después de actualizar a 2.1.0-beta.3, cada dispositivo debe iniciar sesión de nuevo.
 
 **Atención:** No reinstales ni borres la carpeta de datos para resolver una actualización. Conserva el mensaje de error y utiliza primero la reparación prevista.
 
@@ -1473,6 +1477,8 @@ Para: Todos. Tiempo orientativo: 6 min.
 - Actualizar direcciones no cambia ventas ni permisos.
 - Un servidor limitado a localhost no anuncia un QR de red.
 - La demo y la operación real usan datos distintos.
+- Hasta iniciar sesión, el teléfono no recibe ventas ni otros datos del restaurante.
+- Si ofreces WiFi a tus clientes, conecta LibrePOS a una red separada.
 
 **Atención:** No borres los datos del navegador ante una desconexión: podrían contener cambios pendientes. No desactives todo el firewall; revisa el permiso de LibrePOS/Node y el puerto de la red local con quien administra el equipo.
 

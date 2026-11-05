@@ -69,6 +69,8 @@ Estos problemas son anteriores al rediseño. Se documentan con sus desencadenant
 | Media | **Renombrar insumos puede desenganchar recetas existentes.** El editor permite cambiar el nombre, pero varias rutas de cálculo eliminan `itemId` y resuelven por nombre; los insumos base ausentes por nombre se vuelven a incorporar al normalizar. | `src/main.js` → `saveIngredient`, `inventoryRecipeForSelections`, `estimateProductStock`, `normalizeInventory`. | Resolver recetas mediante identificadores estables, conservarlos durante todo el cálculo y definir una migración explícita para el catálogo base y sus renombres. |
 | Media | **La actualización reemplaza archivos antes de comprobar que la instalación terminó correctamente.** Conserva `.librepos`, pero elimina archivos locales ausentes del paquete remoto, reemplaza el resto, marca la versión y después ejecuta la instalación; un fallo puede dejar una mezcla incompleta y modificaciones locales perdidas. | `sync-store.js` → `applyGithubRepositoryUpdate`, `removeStaleProjectFiles`, `writeDownloadedProjectFiles`, `installDependencies`. | Preparar y verificar el paquete en otra carpeta, respaldar la instalación anterior y permitir volver a ella si falla la actualización. |
 
+> Actualización de 2.1.0-beta.3: leer y guardar el estado, recibir avisos y actualizar ya exigen una sesión en el servidor, y la carpeta de datos dejó de servirse. Las rutas de impresión siguen confiando en el `userId` recibido. Consulta [las notas de la versión](VERSION_2.1.0-beta.3.md).
+
 ## Validación y límites de la entrega
 
 ### Comprobación visual local de esta entrega
