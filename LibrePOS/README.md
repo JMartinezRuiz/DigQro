@@ -2,6 +2,10 @@
 
 LibrePOS es un punto de venta local para restaurante. Incluye venta por mesas y para llevar, comandas digitales, cocina, caja, inventario, catalogo, usuarios, fichaje, exportacion de datos y sincronizacion por red WiFi.
 
+## Versión 2.1.0-beta.4 · Entrega de propinas
+
+En **Caja → Corte de caja**, reparte las propinas pendientes del día entre el personal y registra su entrega en efectivo o por tarjeta. El corte muestra la salida y ajusta el saldo correspondiente. Consulta [las notas de la versión](docs/VERSION_2.1.0-beta.4.md).
+
 ## Versión 2.1.0-beta.3 · Protección de datos
 
 Corrige la exposición de datos en la red local. La carpeta `.librepos/` ya no se puede abrir desde el navegador, y ventas, usuarios e inventario solo llegan a quien inició sesión. Después de actualizar, reinicia el servidor y vuelve a entrar en cada dispositivo. Consulta [las notas de la versión](docs/VERSION_2.1.0-beta.3.md).

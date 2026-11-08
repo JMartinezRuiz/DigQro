@@ -5089,6 +5089,48 @@ button:disabled {
   gap: 10px;
 }
 
+.tip-delivery {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--teal-soft);
+  border-radius: var(--radius-sm);
+}
+
+.tip-delivery legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+
+.tip-delivery [hidden],
+[data-close-counted-row][hidden] {
+  display: none;
+}
+
+.tip-delivery-shares {
+  max-height: 11rem;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tip-delivery-shares li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.tip-delivery-warning {
+  padding: 10px 12px;
+  border: 1px solid var(--danger-soft);
+  border-radius: var(--radius-sm);
+  background: var(--danger-tint);
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .cash-close-button {
   display: inline-flex;
   align-items: center;

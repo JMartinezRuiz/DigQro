@@ -60,6 +60,7 @@ test("distinguishes product creation and recipe ingredients from live ordering",
 test("handles the basic cash, stock, kitchen and printing flows", () => {
   const cases = [
     ["abrir caja", "cash"], ["cerrar caja", "cash"], ["no puedo cerrar caja", "cash"],
+    ["entrega de propinas", "cash"], ["cómo dividir la propina", "cash"],
     ["abrir una mesa", "open-order"], ["cobrar la cuenta", "checkout"],
     ["registrar una compra", "inventory-purchase"], ["registrar merma", "inventory-waste"],
     ["hacer inventario completo", "inventory-count"], ["inventario", "inventory"],

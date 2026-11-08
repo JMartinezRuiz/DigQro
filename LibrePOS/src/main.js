@@ -11,6 +11,7 @@ import { helpDetailSearchText, renderHelpDetails } from "./help-details.js";
 import { localUserPassword } from "./user-credentials.js";
 import { inventoryCountAdjustments } from "./inventory-count.js";
 import { CARD_TYPES, paymentBucket, summarizePayments, normalizePaymentTerminals, paymentAllocation, resolveCardDetails, cardDetailsLabel, correctSalePayment, correctedCashSession } from "./payment-records.js";
+import { MAX_TIP_RECIPIENTS, applyTipDelivery, pendingTipAmount, splitTipAmount } from "./tip-delivery.js";
 import { PREPAYMENT_DISCOUNTS as CHECKOUT_DISCOUNT_OPTIONS, calculatePrepaymentDiscount as calculateCheckoutDiscount, prepaymentForOrder, prepareOrderDiscount } from "./prepayment.js";
 import { renderWhatsNew } from "./whats-new.js";
 import "./payments-v2.css";
@@ -49,6 +50,7 @@ const PRINTER_STORAGE_KEY = "librepos:printer-name";
 const BRAND_IMAGE = "/assets/brand.jpg";
 const APP_VERSION = packageData.version || "0.1.0";
 let supportMode = "assistant";
+let cashCloseDraft = null;
 let uberRuntime = { config: {}, events: [] };
 let uberRuntimeLoading = false;
 let disposeTableScroll = () => {};
@@ -1340,6 +1342,7 @@ function mergeArrayById(baseValue = [], localValue = [], remoteValue = [], key =
 function mergeEntity(base, local, remote, key) {
   if (["orders", "sales"].includes(key) && [base, local, remote].some(isUberOrder)) return cloneValue(remote);
   if (key === "inventory" && base && local && remote) return mergeConcurrentInventory(base, local, remote);
+  if (key === "cashSessions" && base?.status !== "closed" && remote?.status === "closed") return cloneValue(remote);
   if (key === "orders") {
     const merged = chooseMergedObject(base, local, remote);
     if (!merged) return null;
@@ -6219,7 +6222,7 @@ function renderCashRegister() {
             <div class="total-line"><span>Pago Uber (fuera del efectivo)</span><strong>${money.format(activeTotals.uber || 0)}</strong></div>
             <div class="total-line"><span>Tickets insumos</span><strong>${money.format(activeTotals.cashExpenses || 0)}</strong></div>
             <div class="total-line"><span>Propinas incluidas</span><strong>${money.format(activeTotals.tips || 0)}</strong></div>
-            <div class="total-line grand"><span>Efectivo esperado</span><strong>${money.format(activeTotals.expectedCash || 0)}</strong></div>
+            <div class="total-line grand"><span>Efectivo esperado antes del reparto</span><strong>${money.format(activeTotals.expectedCash || 0)}</strong></div>
           </div>
         </section>
       </div>
@@ -6232,6 +6235,8 @@ function renderCashRegister() {
 
 function renderCashClosePanel(session, totals) {
   const openOrders = getOpenOrders().filter(order => !isUberOrder(order)).length;
+  const pendingTips = pendingTipsForCashClose(session, totals);
+  const draft = cashCloseDraft?.id === session.id ? cashCloseDraft : {};
   return `
     <section class="panel">
       <div class="panel-header">
@@ -6240,29 +6245,115 @@ function renderCashClosePanel(session, totals) {
           <p class="panel-kicker">Cuenta el efectivo fisico y cierra el turno</p>
         </div>
       </div>
-      <form class="panel-body field-grid" data-cash-close-form data-session-id="${session.id}">
+      <form class="panel-body field-grid" data-cash-close-form data-session-id="${session.id}" data-open-orders="${openOrders}">
         ${openOrders ? `<div class="checkout-warning">${svg("alert")}Hay ${openOrders} orden${openOrders === 1 ? "" : "es"} abierta${openOrders === 1 ? "" : "s"}. Cierra o cancela antes del corte.</div>` : ""}
         <div class="cash-cut-preview">
           <div><span>Total cobrado</span><strong>${money.format(totals.total)}</strong></div>
           <div><span>Descuentos</span><strong>${money.format(totals.discounts || 0)}</strong></div>
           <div><span>IVA incluido</span><strong>${money.format(totals.iva || 0)}</strong></div>
-          <div><span>Efectivo esperado</span><strong>${money.format(totals.expectedCash)}</strong></div>
-          <div><span>Tarjeta cobrada</span><strong>${money.format(totals.card)}</strong></div>
+          <div><span>Efectivo esperado al cierre</span><strong data-close-expected-cash>${money.format(totals.expectedCash)}</strong></div>
+          <div><span>Tarjeta neta al cierre</span><strong data-close-net-card>${money.format(totals.card)}</strong></div>
           <div><span>Pago Uber</span><strong>${money.format(totals.uber || 0)}</strong></div>
           <div><span>Tickets insumos</span><strong>${money.format(totals.cashExpenses || 0)}</strong></div>
         </div>
+        <fieldset class="tip-delivery field-grid">
+          <legend>Entrega de propinas</legend>
+          <div class="total-line"><span>Pendiente del día</span><strong>${money.format(pendingTips)}</strong></div>
+          ${pendingTips > 0 ? `
+            <div class="field-row">
+              <label class="field">
+                <span>Forma de entrega</span>
+                <select name="tipMethod">
+                  <option value="cash" ${draft.method === "cash" ? "selected" : ""}>Efectivo</option>
+                  <option value="card" ${draft.method === "card" ? "selected" : ""}>Tarjeta</option>
+                  <option value="pending" ${draft.method === "pending" ? "selected" : ""}>Dejar pendiente</option>
+                </select>
+              </label>
+              <label class="field" data-tip-people>
+                <span>Dividir entre (personas)</span>
+                <input name="tipPeople" type="number" min="1" max="${MAX_TIP_RECIPIENTS}" step="1" value="${escapeAttr(draft.people ?? 1)}" required />
+              </label>
+            </div>
+            <div data-tip-preview aria-live="polite"></div>
+            <div class="tip-delivery-warning" data-tip-warning aria-live="polite" hidden></div>
+          ` : `<p class="muted-text">No hay propinas en efectivo o tarjeta pendientes de entregar.</p>`}
+        </fieldset>
         <label class="field">
-          <span>Efectivo contado</span>
-          <input name="countedCash" type="number" min="0" step="0.01" value="${totals.expectedCash.toFixed(2)}" required />
+          <span>Efectivo contado antes de la entrega</span>
+          <input name="countedCash" type="number" min="0" step="0.01" value="${escapeAttr(draft.counted ?? "")}" placeholder="0.00" required />
         </label>
+        <div class="total-line" data-close-counted-row hidden><span>Efectivo contado para el corte</span><strong data-close-counted></strong></div>
         <label class="field">
           <span>Nota opcional</span>
-          <input name="note" placeholder="Faltante, sobrante o terminal bancaria" />
+          <input name="note" value="${escapeAttr(draft.note || "")}" placeholder="Faltante, sobrante o terminal bancaria" />
         </label>
         <button class="cash-close-button" type="submit" ${openOrders ? "disabled" : ""}>${svg("check")}Cerrar caja y finalizar turno</button>
       </form>
     </section>
   `;
+}
+
+function tipDeliveryMethodLabel(method) {
+  return method === "cash" ? "Efectivo" : "Tarjeta";
+}
+
+function readCashCloseDraft(form) {
+  return {
+    id: form.dataset.sessionId,
+    method: form.elements.namedItem("tipMethod")?.value || "cash",
+    people: form.elements.namedItem("tipPeople")?.value ?? "1",
+    counted: form.elements.namedItem("countedCash").value,
+    note: form.elements.namedItem("note").value,
+  };
+}
+
+function cashClosePreview(session, draft, day = new Date()) {
+  const before = cashSessionTotals(session);
+  const pending = pendingTipsForCashClose(session, before, day);
+  const amount = ["cash", "card"].includes(draft.method) ? pending : 0;
+  const delivery = amount > 0 ? { method: draft.method, amount, people: Number(draft.people) } : null;
+  const shares = delivery ? splitTipAmount(amount, delivery.people) : [];
+  const totals = applyTipDelivery(before, delivery);
+  const countedBefore = draft.counted === "" ? null : Number(draft.counted);
+  const availableCash = Math.max(0, countedBefore ?? before.expectedCash);
+  const cashShortfall = Math.max(0, roundCurrency(totals.tipDeliveryCash - availableCash));
+  const countedCash = countedBefore === null ? null : roundCurrency(countedBefore - totals.tipDeliveryCash);
+  return { delivery, shares, totals, cashShortfall, countedCash };
+}
+
+function bindCashCloseForm() {
+  const form = document.querySelector("[data-cash-close-form]");
+  if (!form) return;
+  const session = currentCashSession();
+  if (session?.id !== form.dataset.sessionId) return;
+  const refresh = () => {
+    cashCloseDraft = readCashCloseDraft(form);
+    const { delivery, shares, totals, cashShortfall, countedCash } = cashClosePreview(session, cashCloseDraft);
+    form.querySelector("[data-close-expected-cash]").textContent = money.format(totals.expectedCash);
+    form.querySelector("[data-close-net-card]").textContent = money.format(totals.netCard);
+    form.querySelector("[data-close-counted-row]").hidden = countedCash === null || cashShortfall > 0;
+    form.querySelector("[data-close-counted]").textContent = countedCash === null ? "" : money.format(countedCash);
+    const preview = form.querySelector("[data-tip-preview]");
+    if (preview) {
+      const peopleInput = form.elements.namedItem("tipPeople");
+      peopleInput.disabled = !delivery;
+      form.querySelector("[data-tip-people]").hidden = !delivery;
+      preview.innerHTML = delivery ? `
+        <div class="total-line"><span>Total a entregar · ${tipDeliveryMethodLabel(delivery.method)}</span><strong>${money.format(delivery.amount)}</strong></div>
+        ${shares.length > 1 ? `<ol class="tip-delivery-shares" aria-label="Importe por persona">${shares.map((share, index) => `<li><span>Persona ${index + 1}</span><strong>${money.format(share)}</strong></li>`).join("")}</ol>` : ""}
+        ${delivery.method === "card" ? `<p class="muted-text">Realiza el pago fuera de LibrePOS y registra la entrega al cerrar.</p>` : ""}
+      ` : `<p class="muted-text">No se registrará una salida de propinas en este corte.</p>`;
+      const warning = form.querySelector("[data-tip-warning]");
+      warning.hidden = cashShortfall === 0;
+      warning.textContent = cashShortfall > 0
+        ? `Efectivo insuficiente: faltan ${money.format(cashShortfall)} para la entrega. Elige Tarjeta o Dejar pendiente.`
+        : "";
+    }
+    form.querySelector(".cash-close-button").disabled = Number(form.dataset.openOrders) > 0 || cashShortfall > 0;
+  };
+  form.addEventListener("input", refresh);
+  form.addEventListener("submit", closeCashSession);
+  refresh();
 }
 
 function renderCashSessionSales(session) {
@@ -6327,7 +6418,7 @@ function renderCashSessionHistory() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Uber</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Apertura</th><th>Cierre</th><th>Usuario</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta cobrada</th><th>Uber</th><th>Entrega de propinas</th><th>Tarjeta neta</th><th>Efectivo esperado</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               sessions.length
@@ -6345,13 +6436,16 @@ function renderCashSessionHistory() {
                           <td>${money.format(Number(totals.cashSales ?? totals.cash) || 0)}</td>
                           <td>${money.format(Number(totals.cardSales ?? totals.card) || 0)}</td>
                           <td>${money.format(Number(totals.uberSales ?? totals.uber) || 0)}</td>
+                          <td>${session.tipDelivery ? `<strong>${money.format(session.tipDelivery.amount)}</strong><small>${tipDeliveryMethodLabel(session.tipDelivery.method)} · ${Number(session.tipDelivery.people)} persona(s)</small>` : "—"}</td>
+                          <td>${session.status === "closed" ? money.format(totals.netCard) : "Pendiente"}</td>
+                          <td>${session.status === "closed" ? money.format(totals.expectedCash) : "Pendiente"}</td>
                           <td>${session.status === "closed" ? money.format(Number(session.countedCash) || 0) : "Pendiente"}</td>
                           <td><strong>${session.status === "closed" ? money.format(Number(session.difference) || 0) : "Pendiente"}</strong></td>
                         </tr>
                       `;
                     })
                     .join("")
-                : `<tr><td colspan="11">Aun no hay aperturas de caja.</td></tr>`
+                : `<tr><td colspan="14">Aun no hay aperturas de caja.</td></tr>`
             }
           </tbody>
         </table>
@@ -6402,6 +6496,9 @@ function cashClosuresByDay() {
         iva: 0,
         cash: 0,
         card: 0,
+        tipDeliveryCash: 0,
+        tipDeliveryCard: 0,
+        netCard: 0,
         counted: 0,
         difference: 0,
       };
@@ -6411,6 +6508,9 @@ function cashClosuresByDay() {
       current.iva += Number(totals.iva) || 0;
       current.cash += Number(totals.cashSales ?? totals.cash) || 0;
       current.card += Number(totals.cardSales ?? totals.card) || 0;
+      current.tipDeliveryCash += totals.tipDeliveryCash;
+      current.tipDeliveryCard += totals.tipDeliveryCard;
+      current.netCard += totals.netCard;
       current.uber = (current.uber || 0) + (Number(totals.uberSales ?? totals.uber) || 0);
       current.counted += Number(session.countedCash) || 0;
       current.difference += Number(session.difference) || 0;
@@ -6519,7 +6619,7 @@ function renderCashClosuresData() {
       </div>
       <div class="panel-body table-wrap">
         <table class="data-table">
-          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta</th><th>Uber</th><th>Contado</th><th>Diferencia</th></tr></thead>
+          <thead><tr><th>Dia</th><th>Cortes</th><th>Total</th><th>Descuentos</th><th>IVA</th><th>Efectivo</th><th>Tarjeta cobrada</th><th>Uber</th><th>Propinas entregadas</th><th>Tarjeta neta</th><th>Contado</th><th>Diferencia</th></tr></thead>
           <tbody>
             ${
               rows.length
@@ -6535,13 +6635,15 @@ function renderCashClosuresData() {
                           <td>${money.format(row.cash)}</td>
                           <td>${money.format(row.card)}</td>
                           <td>${money.format(row.uber || 0)}</td>
+                          <td><small>Efectivo: ${money.format(row.tipDeliveryCash)}</small><small>Tarjeta: ${money.format(row.tipDeliveryCard)}</small></td>
+                          <td>${money.format(row.netCard)}</td>
                           <td>${money.format(row.counted)}</td>
                           <td><strong>${money.format(row.difference)}</strong></td>
                         </tr>
                       `,
                     )
                     .join("")
-                : `<tr><td colspan="9">Aun no hay cortes de caja cerrados.</td></tr>`
+                : `<tr><td colspan="12">Aun no hay cortes de caja cerrados.</td></tr>`
             }
           </tbody>
         </table>
@@ -8967,12 +9069,12 @@ function cashSessionTotals(session) {
   const openingCash = Number(session?.openingCash) || 0;
   const payments = paymentTotalsForSales(salesForCashSession(session));
   const cashExpenses = cashExpensesForSession(session);
-  return {
+  return applyTipDelivery({
     ...payments,
     openingCash,
     cashExpenses,
     expectedCash: openingCash + payments.cash - cashExpenses,
-  };
+  }, session?.tipDelivery);
 }
 
 function cashSessionDisplayTotals(session) {
@@ -8988,6 +9090,7 @@ function cashSessionDisplayTotals(session) {
     openingCash: Number(session.openingCash ?? calculated.openingCash) || 0,
     cash: cashSales,
     card: cardSales,
+    netCard: roundCurrency(cardSales - calculated.tipDeliveryCard),
     uber: uberSales, uberSales,
     total: totalSales,
     cashSales,
@@ -9001,6 +9104,12 @@ function cashSessionDisplayTotals(session) {
     tips: Number(session.tips ?? calculated.tips) || 0,
     expectedCash: Number(session.expectedCash ?? calculated.expectedCash) || 0,
   };
+}
+
+function pendingTipsForCashClose(session, totals, day = new Date()) {
+  const earlier = normalizeCashSessions(state.cashSessions).filter((other) =>
+    other.id !== session.id && other.status === "closed" && isSameLocalDay(other.closedAt, day));
+  return pendingTipAmount([totals, ...earlier.map(cashSessionDisplayTotals)], earlier.map((other) => other.tipDelivery));
 }
 
 function cashExpensesForSession(session) {
@@ -9986,7 +10095,7 @@ function bindEvents() {
     document.querySelector("[data-remove-system-printer]")?.addEventListener("click", removeSelectedSystemPrinter);
   }
   document.querySelector("[data-cash-open-form]")?.addEventListener("submit", openCashSession);
-  document.querySelector("[data-cash-close-form]")?.addEventListener("submit", closeCashSession);
+  bindCashCloseForm();
   document.querySelectorAll("[data-inventory-quick]").forEach((button) => {
     button.addEventListener("click", () => {
       const [itemId, direction] = button.dataset.inventoryQuick.split(":");
@@ -12135,10 +12244,22 @@ function closeCashSession(event) {
     showToast("Cierra o cancela las ordenes abiertas antes del corte.");
     return;
   }
-  const form = new FormData(event.currentTarget);
-  const countedCash = Math.max(0, Number(form.get("countedCash")) || 0);
-  const totals = cashSessionTotals(session);
-  const difference = Math.round((countedCash - totals.expectedCash) * 100) / 100;
+  const draft = readCashCloseDraft(event.currentTarget);
+  const closedAt = new Date();
+  const { delivery, shares, totals, cashShortfall, countedCash } = cashClosePreview(session, draft, closedAt);
+  if (!Number.isFinite(countedCash) || Number(draft.counted) < 0) {
+    showToast("Captura el efectivo contado antes de la entrega.");
+    return;
+  }
+  if (cashShortfall > 0) {
+    showToast("Efectivo insuficiente para entregar las propinas.");
+    return;
+  }
+  if (delivery && !shares.length) {
+    showToast(`Indica entre 1 y ${MAX_TIP_RECIPIENTS} personas para el reparto.`);
+    return;
+  }
+  const difference = roundCurrency(countedCash - totals.expectedCash);
   // Confirmación explícita: cerrar caja finaliza el turno (irreversible para esta sesión).
   const diffText =
     Math.abs(difference) < 0.005
@@ -12146,14 +12267,18 @@ function closeCashSession(event) {
       : difference > 0
         ? `con un sobrante de ${money.format(difference)}`
         : `con un faltante de ${money.format(Math.abs(difference))}`;
-  if (!window.confirm(`Cerrar caja: efectivo contado ${money.format(countedCash)} (${diffText}).\n\n¿Confirmas el corte?`)) {
+  const deliveryText = delivery
+    ? `\n\nConfirma que ya entregaste ${money.format(delivery.amount)} en ${tipDeliveryMethodLabel(delivery.method).toLowerCase()} a ${delivery.people} persona(s).`
+    : "";
+  if (!window.confirm(`Cerrar caja: efectivo contado ${money.format(countedCash)} (${diffText}).${deliveryText}\n\n¿Confirmas el corte?`)) {
     return;
   }
-  const now = new Date().toISOString();
+  const now = closedAt.toISOString();
+  const closedBy = currentUser()?.id;
   Object.assign(session, {
     status: "closed",
     closedAt: now,
-    closedBy: currentUser()?.id,
+    closedBy,
     countedCash,
     openingCash: totals.openingCash,
     cashSales: totals.cash,
@@ -12168,10 +12293,12 @@ function closeCashSession(event) {
     cashTips: totals.cashTips,
     cardTips: totals.cardTips,
     tips: totals.tips,
+    tipDelivery: delivery ? { ...delivery, createdAt: now, createdBy: closedBy } : null,
     expectedCash: totals.expectedCash,
     difference,
-    closeNote: String(form.get("note") || "").trim(),
+    closeNote: draft.note.trim(),
   });
+  cashCloseDraft = null;
   persist();
   showToast(`Caja cerrada. Diferencia ${money.format(difference)}.`);
   render();
@@ -13669,7 +13796,7 @@ function exportData(kind) {
     caja: () => ({
       filename: `librepos-caja-${stamp}.csv`,
       rows: [
-        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "ventas_uber", "total_ventas", "descuentos", "iva", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota"],
+        ["apertura", "cierre", "abierta_por", "cerrada_por", "fondo_inicial", "ventas_efectivo", "ventas_tarjeta", "ventas_uber", "total_ventas", "descuentos", "iva", "tickets_insumos", "efectivo_esperado", "efectivo_contado", "diferencia", "nota", "propinas_entregadas_efectivo", "propinas_entregadas_tarjeta", "tarjeta_neta", "personas_reparto"],
         ...normalizeCashSessions(state.cashSessions).map((session) => {
           const totals = cashSessionDisplayTotals(session);
           return [
@@ -13689,6 +13816,10 @@ function exportData(kind) {
             Number(session.countedCash) || 0,
             Number(session.difference) || 0,
             session.closeNote || session.note || "",
+            totals.tipDeliveryCash,
+            totals.tipDeliveryCard,
+            totals.netCard,
+            session.tipDelivery?.people ?? "",
           ];
         }),
       ],

@@ -1,6 +1,6 @@
 # Guías operativas de LibrePOS
 
-Interfaz 2.1.0-beta.3 · Contenido 2026.11.05
+Interfaz 2.1.0-beta.4 · Contenido 2026.11.05
 
 La misma referencia está disponible en Ayuda → Tutoriales, con capturas y GIFs sin conexión a Internet. Los ejemplos son ficticios. Consulta la versión de cada captura; los pasos escritos describen la interfaz vigente.
 
@@ -707,7 +707,7 @@ Relacionadas: [Cómo cobrar, aplicar descuentos y registrar propina](#checkout-d
 
 ## Cómo abrir y cerrar caja
 
-Controla fondo inicial, cobros, gastos, efectivo esperado y diferencia del turno.
+Controla fondo inicial, cobros, gastos, entrega de propinas y diferencia del turno.
 
 Para: Caja, Administrador. Tiempo orientativo: 4 min.
 
@@ -720,36 +720,40 @@ Para: Caja, Administrador. Tiempo orientativo: 4 min.
 
 1. **Abre caja.** En Apertura de caja captura el Fondo inicial real, añade una nota si aplica y pulsa Abrir caja. Efecto: Habilita nuevas mesas, pedidos y cobros.
 
-2. **Opera normalmente.** Registra ventas con su método correcto y gastos en el flujo correspondiente. Efecto: Efectivo, tarjeta, propinas y gastos alimentan el esperado.
+2. **Opera normalmente.** Registra ventas con su método correcto y gastos en el flujo correspondiente. Efecto: Los cobros y las propinas en efectivo aumentan el esperado; las compras vinculadas a la caja lo reducen.
 
 3. **Revisa antes del corte.** Confirma ventas, descuentos, IVA, compras y gastos, y cierra o cancela todas las órdenes abiertas. Efecto: Cerrar caja y finalizar turno permanece deshabilitado mientras existan órdenes abiertas.
 
-4. **Cuenta efectivo.** Captura el efectivo físico sin ajustar el número para forzar una diferencia cero. Efecto: LibrePOS compara contado contra esperado.
+4. **Cuenta efectivo.** Captura Efectivo contado antes de la entrega con el dinero que hay en el cajón antes de repartir propinas. Efecto: Si eliges Efectivo, el corte resta la entrega del efectivo contado y del esperado.
 
-5. **Documenta y cierra.** Si existe diferencia, escribe una nota clara y confirma el cierre. Efecto: Después del corte algunas correcciones de propina quedan bloqueadas.
+5. **Reparte las propinas.** En Entrega de propinas, revisa el pendiente del día, elige Efectivo o Tarjeta y usa Dividir entre (personas) para ver el importe por persona. Si el cajón no alcanza, elige Tarjeta o Dejar pendiente. El pago por tarjeta se hace fuera de LibrePOS. Efecto: Efectivo reduce el saldo del cajón. Tarjeta reduce solo Tarjeta neta al cierre. Dejar pendiente conserva el importe para otro corte del mismo día.
 
-6. **Corrige un método equivocado.** En Datos busca la cuenta cerrada y pulsa Corregir pago. Selecciona el pago de consumo y propina, indica efectivo recibido o terminal y tipo de tarjeta, escribe el motivo, guarda y confirma. Por defecto solo administración puede corregir, incluso con la caja abierta. Puede autorizar a otro usuario con función Caja desde Usuarios → Editar → Permiso para corregir pagos. Efecto: Conserva el total y el efectivo contado; actualiza importes por método, esperado y diferencia. Guarda historial y deja el postpago pendiente de reimpresión.
+6. **Documenta y cierra.** Realiza la entrega elegida. Si existe una diferencia, escribe una nota clara y pulsa Cerrar caja y finalizar turno. Confirma la operación. Efecto: El historial y Cortes CSV conservan la entrega y su método.
+
+7. **Corrige un método equivocado.** En Datos busca la cuenta cerrada y pulsa Corregir pago. Selecciona el pago de consumo y propina, indica efectivo recibido o terminal y tipo de tarjeta, escribe el motivo, guarda y confirma. Por defecto solo administración puede corregir, incluso con la caja abierta. Puede autorizar a otro usuario con función Caja desde Usuarios → Editar → Permiso para corregir pagos. Efecto: Conserva el total y el efectivo contado; actualiza importes por método, esperado y diferencia. Guarda historial y deja el postpago pendiente de reimpresión.
 
 ### Ejemplo
 
-**Calcular esperado y diferencia.** Con fondo $500, entradas en efectivo $1,000 —incluidas propinas en efectivo— y gastos de caja $200, se esperan $1,300. Si cuentas $1,280, la diferencia es -$20. Las ventas con tarjeta no entran al efectivo esperado.
+**Calcular esperado y diferencia.** Si esperas $1,300 y cuentas $1,280 antes del reparto, entregar $100 en efectivo deja $1,200 esperados y $1,180 contados. La diferencia sigue siendo un faltante de $20. Si entregas por tarjeta, el corte resta $100 solo de la tarjeta neta.
 
 ### Si algo no funciona
 
 - **No permite cerrar caja:** Revisa todas las órdenes abiertas, incluidas Para llevar. Cobra o cancela cada una según lo ocurrido; no cierres cuentas ficticiamente sólo para habilitar el corte.
+- **El efectivo no alcanza para entregar las propinas:** Comprueba que capturaste el efectivo antes del reparto. Si no alcanza, elige Tarjeta y realiza el pago fuera de LibrePOS, o elige Dejar pendiente para cerrar sin registrar la entrega.
 - **El esperado cambió después del cierre:** Revisa el historial de correcciones de pago. Administración puede reclasificar efectivo/tarjeta; el efectivo contado se conserva y la diferencia se recalcula.
 
 ### Comprueba antes de terminar
 
 - No quedan órdenes abiertas.
 - Compras y gastos no se registraron dos veces.
-- El contado refleja el dinero físico, aunque haya diferencia.
+- El contado del corte refleja el dinero que queda físicamente en el cajón.
+- La entrega aparece en el historial por el método elegido.
 
 ### Efectos de la operación
 
 - La caja abierta habilita operación.
 - Compras registradas pueden reducir efectivo esperado.
-- Propinas se separan por método.
+- Las propinas cobradas en efectivo o tarjeta se suman para el reparto y las entregas previas del mismo día se descuentan del pendiente.
 - El cierre conserva contado, esperado y diferencia.
 - Las ventas Pago Uber se muestran separadas de efectivo y tarjeta. No aumentan el efectivo esperado. Un pedido Uber activo no bloquea el cierre; su venta se vincula a la caja que esté abierta al entregarse, o queda sin corte si no hay caja.
 

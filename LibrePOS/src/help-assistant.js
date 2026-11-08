@@ -208,7 +208,7 @@ const REPLIES = {
     suggestions: [suggestion("Ticket prepago y postpago"), suggestion("Cerrar caja"), suggestion("Cancelar la cuenta completa", "Cancelar una orden completa")],
   },
   cash: {
-    text: "Con función de Caja o Administrador, entra a Caja. Para abrir, captura el fondo inicial real en Apertura de caja. Para cerrar, revisa ventas y gastos, resuelve las órdenes abiertas, cuenta el efectivo físico y registra la cantidad contada y cualquier diferencia antes de confirmar el corte. El cierre de caja no está disponible mientras haya órdenes abiertas.",
+    text: "Con función de Caja o Administrador, entra a Caja. Para abrir, captura el fondo inicial real en Apertura de caja. Para cerrar, revisa ventas y gastos y resuelve las órdenes abiertas. Cuenta el efectivo antes de entregar las propinas. En Entrega de propinas puedes dividir el total pendiente entre varias personas. Efectivo descuenta la entrega del cajón; si no alcanza, elige Tarjeta o Dejar pendiente. Si usas Tarjeta, haz el pago fuera de LibrePOS. Entrega el importe y confirma el corte.",
     articleIds: ["cash-daily"], actions: ["cash"],
     suggestions: [suggestion("Abrir una mesa"), suggestion("Cobrar la cuenta"), suggestion("Registrar una compra")],
   },
@@ -327,6 +327,7 @@ function detectIntent(query, previousIntent) {
   if (has("impresora", "impresion", "imprimir", "bluetooth", "papel", "margen", "margenes", "formato") && !has("reimprimir", "prepago", "postpago")) return "printing";
   if (has("reimprimir", "prepago", "postpago")) return "tickets";
   if (has("merma", "caducidad", "derrame")) return "inventory-waste";
+  if (has("propina", "propinas") && has("entrega", "entregar", "repartir", "reparto", "dividir")) return "cash";
   if (has("conteo", "contar", "descuadre") || includes("inventario completo", "inventario fisico")) return "inventory-count";
   if (has("compra", "comprar", "proveedor") || includes("subir ticket", "entrada inventario", "entrada de inventario")) return "inventory-purchase";
   if (has("inventario", "existencia", "existencias", "stock")) return "inventory";

@@ -1,6 +1,6 @@
 {
   "contentVersion": "2026.11.05",
-  "interfaceVersion": "2.1.0-beta.3",
+  "interfaceVersion": "2.1.0-beta.4",
   "categories": [
     {
       "id": "all",
@@ -1451,7 +1451,7 @@
       "id": "cash-daily",
       "category": "checkout",
       "title": "Cómo abrir y cerrar caja",
-      "summary": "Controla fondo inicial, cobros, gastos, efectivo esperado y diferencia del turno.",
+      "summary": "Controla fondo inicial, cobros, gastos, entrega de propinas y diferencia del turno.",
       "audience": [
         "Caja",
         "Administrador"
@@ -1470,7 +1470,7 @@
         {
           "title": "Opera normalmente",
           "detail": "Registra ventas con su método correcto y gastos en el flujo correspondiente.",
-          "impact": "Efectivo, tarjeta, propinas y gastos alimentan el esperado."
+          "impact": "Los cobros y las propinas en efectivo aumentan el esperado; las compras vinculadas a la caja lo reducen."
         },
         {
           "title": "Revisa antes del corte",
@@ -1479,13 +1479,18 @@
         },
         {
           "title": "Cuenta efectivo",
-          "detail": "Captura el efectivo físico sin ajustar el número para forzar una diferencia cero.",
-          "impact": "LibrePOS compara contado contra esperado."
+          "detail": "Captura Efectivo contado antes de la entrega con el dinero que hay en el cajón antes de repartir propinas.",
+          "impact": "Si eliges Efectivo, el corte resta la entrega del efectivo contado y del esperado."
+        },
+        {
+          "title": "Reparte las propinas",
+          "detail": "En Entrega de propinas, revisa el pendiente del día, elige Efectivo o Tarjeta y usa Dividir entre (personas) para ver el importe por persona. Si el cajón no alcanza, elige Tarjeta o Dejar pendiente. El pago por tarjeta se hace fuera de LibrePOS.",
+          "impact": "Efectivo reduce el saldo del cajón. Tarjeta reduce solo Tarjeta neta al cierre. Dejar pendiente conserva el importe para otro corte del mismo día."
         },
         {
           "title": "Documenta y cierra",
-          "detail": "Si existe diferencia, escribe una nota clara y confirma el cierre.",
-          "impact": "Después del corte algunas correcciones de propina quedan bloqueadas."
+          "detail": "Realiza la entrega elegida. Si existe una diferencia, escribe una nota clara y pulsa Cerrar caja y finalizar turno. Confirma la operación.",
+          "impact": "El historial y Cortes CSV conservan la entrega y su método."
         },
         {
           "title": "Corrige un método equivocado",
@@ -1496,7 +1501,7 @@
       "impacts": [
         "La caja abierta habilita operación.",
         "Compras registradas pueden reducir efectivo esperado.",
-        "Propinas se separan por método.",
+        "Las propinas cobradas en efectivo o tarjeta se suman para el reparto y las entregas previas del mismo día se descuentan del pendiente.",
         "El cierre conserva contado, esperado y diferencia.",
         "Las ventas Pago Uber se muestran separadas de efectivo y tarjeta. No aumentan el efectivo esperado. Un pedido Uber activo no bloquea el cierre; su venta se vincula a la caja que esté abierta al entregarse, o queda sin corte si no hay caja."
       ],
@@ -1515,7 +1520,10 @@
         "corte",
         "fondo",
         "efectivo esperado",
-        "diferencia"
+        "diferencia",
+        "entrega de propinas",
+        "repartir propinas",
+        "dividir propina"
       ],
       "visualSteps": [
         {
@@ -1524,34 +1532,43 @@
           "action": "Captura el efectivo físico real."
         },
         {
-          "label": "Opera",
-          "focus": "Ventas · Gastos · Compras",
-          "action": "Clasifica correctamente cada movimiento."
-        },
-        {
           "label": "Revisa",
-          "focus": "Efectivo · Tarjeta · Propinas",
-          "action": "Valida antes del corte."
+          "focus": "Resumen de caja",
+          "action": "Valida los cobros y los movimientos antes del corte."
         },
         {
-          "label": "Cuenta",
-          "focus": "Efectivo contado",
-          "action": "No fuerces una diferencia cero."
+          "label": "Divide la entrega",
+          "focus": "Entrega de propinas",
+          "action": "Indica cuántas personas reciben el reparto y revisa cada importe."
+        },
+        {
+          "label": "Cuenta antes de repartir",
+          "focus": "Efectivo contado antes de la entrega",
+          "action": "Si el dinero no alcanza, el aviso rojo indica cuánto falta."
+        },
+        {
+          "label": "Elige la alternativa",
+          "focus": "Forma de entrega",
+          "action": "Tarjeta no mueve el efectivo. Dejar pendiente no registra una entrega."
         },
         {
           "label": "Cierra",
           "focus": "Diferencia · Nota · Cerrar caja",
-          "action": "Documenta cualquier desviación."
+          "action": "Confirma el corte después de realizar la entrega."
         }
       ],
       "example": {
         "title": "Calcular esperado y diferencia",
-        "detail": "Con fondo $500, entradas en efectivo $1,000 —incluidas propinas en efectivo— y gastos de caja $200, se esperan $1,300. Si cuentas $1,280, la diferencia es -$20. Las ventas con tarjeta no entran al efectivo esperado."
+        "detail": "Si esperas $1,300 y cuentas $1,280 antes del reparto, entregar $100 en efectivo deja $1,200 esperados y $1,180 contados. La diferencia sigue siendo un faltante de $20. Si entregas por tarjeta, el corte resta $100 solo de la tarjeta neta."
       },
       "troubleshooting": [
         {
           "symptom": "No permite cerrar caja",
           "resolution": "Revisa todas las órdenes abiertas, incluidas Para llevar. Cobra o cancela cada una según lo ocurrido; no cierres cuentas ficticiamente sólo para habilitar el corte."
+        },
+        {
+          "symptom": "El efectivo no alcanza para entregar las propinas",
+          "resolution": "Comprueba que capturaste el efectivo antes del reparto. Si no alcanza, elige Tarjeta y realiza el pago fuera de LibrePOS, o elige Dejar pendiente para cerrar sin registrar la entrega."
         },
         {
           "symptom": "El esperado cambió después del cierre",
@@ -1561,9 +1578,10 @@
       "verification": [
         "No quedan órdenes abiertas.",
         "Compras y gastos no se registraron dos veces.",
-        "El contado refleja el dinero físico, aunque haya diferencia."
+        "El contado del corte refleja el dinero que queda físicamente en el cajón.",
+        "La entrega aparece en el historial por el método elegido."
       ],
-      "reviewedAt": "2026-09-28"
+      "reviewedAt": "2026-11-08"
     },
     {
       "id": "inventory-purchase",

@@ -66,8 +66,9 @@ La caja controla la jornada de cobro.
 1. Abre caja con fondo inicial.
 2. Registra ventas desde los tickets.
 3. Captura gastos operativos cuando correspondan.
-4. Al final del turno, cuenta efectivo y cierra caja.
-5. Revisa diferencia, ventas en efectivo, ventas con tarjeta, propinas y notas del cierre.
+4. En el corte, cuenta el efectivo antes de entregar las propinas. En **Entrega de propinas**, revisa el total del día pendiente y, si lo necesitas, divídelo entre las personas que lo recibirán.
+5. **Efectivo** descuenta la entrega del cajón. Si el dinero contado no alcanza, aparece un aviso en rojo: puedes elegir **Tarjeta** o **Dejar pendiente**. Si eliges tarjeta, haz el pago fuera de LibrePOS; el corte descuenta el importe de tarjeta neta.
+6. Confirma el cierre después de hacer la entrega, si la seleccionaste. El historial muestra la entrega, la tarjeta neta, el efectivo esperado y la diferencia. Las propinas que dejes pendientes se incluyen en un corte posterior del mismo día.
 
 Si una venta tiene pago en efectivo, LibrePOS calcula efectivo a recibir, recibido y cambio.
 

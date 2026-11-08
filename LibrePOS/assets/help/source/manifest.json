@@ -739,53 +739,50 @@
         }
       },
       {
-        "image": "v2-cash-open.jpg",
-        "caption": "Compara Efectivo esperado y Tickets insumos con tu operación",
-        "focus": [
-          448,
-          302,
-          166,
-          170
-        ],
-        "captureVersion": "2.0.0-beta.1",
-        "capturedAt": "2026-09-07",
+        "image": "tip-delivery-split.jpg",
+        "caption": "En Entrega de propinas, indica cuántas personas recibirán el reparto",
+        "focus": [275, 214, 347, 292],
+        "captureVersion": "2.1.0-beta.4",
+        "capturedAt": "2026-11-08",
         "viewport": {
-          "width": 1270,
-          "height": 714
+          "width": 1280,
+          "height": 720
         }
       },
       {
-        "image": "v2-cash-open.jpg",
-        "caption": "Cuenta el dinero y captura Efectivo contado y una nota si aplica",
-        "focus": [
-          272,
-          489,
-          342,
-          148
-        ],
+        "image": "tip-delivery-insufficient.jpg",
+        "caption": "Cuenta el efectivo antes del reparto. El aviso rojo indica cuánto falta",
+        "focus": [275, 160, 347, 400],
         "durationMs": 6500,
-        "captureVersion": "2.0.0-beta.1",
-        "capturedAt": "2026-09-07",
+        "captureVersion": "2.1.0-beta.4",
+        "capturedAt": "2026-11-08",
         "viewport": {
-          "width": 1270,
-          "height": 714
+          "width": 1280,
+          "height": 720
         }
       },
       {
-        "image": "v2-cash-open.jpg",
-        "caption": "Termina las órdenes abiertas y pulsa Cerrar caja y finalizar turno",
-        "focus": [
-          272,
-          649,
-          342,
-          50
-        ],
-        "durationMs": 6500,
-        "captureVersion": "2.0.0-beta.1",
-        "capturedAt": "2026-09-07",
+        "image": "tip-delivery-card.jpg",
+        "caption": "Tarjeta registra el pago en el corte sin descontar efectivo",
+        "focus": [275, 192, 347, 335],
+        "hint": "Haz el pago fuera de LibrePOS antes de confirmar la entrega.",
+        "captureVersion": "2.1.0-beta.4",
+        "capturedAt": "2026-11-08",
         "viewport": {
-          "width": 1270,
-          "height": 714
+          "width": 1280,
+          "height": 720
+        }
+      },
+      {
+        "image": "tip-delivery-close.jpg",
+        "caption": "Después de la entrega, pulsa Cerrar caja y finalizar turno",
+        "focus": [275, 334, 347, 50],
+        "durationMs": 6500,
+        "captureVersion": "2.1.0-beta.4",
+        "capturedAt": "2026-11-08",
+        "viewport": {
+          "width": 1280,
+          "height": 720
         }
       }
     ],

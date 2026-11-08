@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import { isPermissionsAdmin, mayCorrectSalePayment, normalizeUserPermissions, userFunctions } from './src/user-permissions.js';
+import { splitTipAmount } from './src/tip-delivery.js';
 
 function accessProfile(user) {
   return {
@@ -39,6 +40,24 @@ export function protectedStateChangeError(previous, next, actor) {
   }
   if (!admin && previous.cashSessions.some(old => old.status === 'closed' && next.cashSessions.find(session => session.id === old.id)?.status !== 'closed')) {
     return 'No puedes reabrir ni eliminar un corte cerrado.';
+  }
+  const oldSessions = new Map(previous.cashSessions.map(session => [session.id, session]));
+  for (const session of next.cashSessions) {
+    const old = oldSessions.get(session.id);
+    const delivery = session.tipDelivery ?? null;
+    if (old?.tipDelivery && (session.status !== 'closed' || session.closedAt !== old.closedAt || !isDeepStrictEqual(old.tipDelivery, delivery))) {
+      return 'No puedes modificar una entrega de propinas ya registrada.';
+    }
+    if (!delivery || old?.tipDelivery) continue;
+    if (!actor || actor.active === false || !userFunctions(actor).includes('caja')) {
+      return 'Solo Caja o Administración puede registrar una entrega de propinas.';
+    }
+    if (old?.status === 'closed' || session.status !== 'closed' || !session.closedAt
+      || !['cash', 'card'].includes(delivery.method) || !Number.isFinite(delivery.amount)
+      || delivery.amount !== Math.round(delivery.amount * 100) / 100 || !splitTipAmount(delivery.amount, delivery.people).length
+      || delivery.createdBy !== actor.id || session.closedBy !== actor.id || delivery.createdAt !== session.closedAt) {
+      return 'La entrega de propinas debe coincidir con el corte y el usuario que lo registra.';
+    }
   }
   return '';
 }
