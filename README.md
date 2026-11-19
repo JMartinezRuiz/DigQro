@@ -34,7 +34,7 @@ Después abre `http://localhost:8080`.
 
 ### Contacto configurado
 
-- WhatsApp y teléfono: `+52 442 600 0092`
+- WhatsApp y teléfono: `+52 442 710 3877`
 - Correo: `contacto@digitalizacionqueretaro.com`
 
 ### Seguridad

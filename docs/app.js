@@ -3,7 +3,7 @@
 
   document.documentElement.classList.add("js");
 
-  var whatsappNumber = "524426000092";
+  var whatsappNumber = "524427103877";
 
   function init() {
     document.querySelectorAll("[data-wa]").forEach(function (link) {
