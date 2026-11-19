@@ -29,7 +29,7 @@ Detalle:
 - `npm run dev:demo`: abre una demostración en `0.0.0.0:5174`, accesible en el servidor y su red local, con datos de servidor temporales y almacenamiento de navegador separado. Es la opción indicada para revisión visual y pruebas manuales sin tocar `.librepos/`.
 - `npm run build`: genera `dist/`.
 - `npm run preview`: sirve el build con el mismo middleware local.
-- `npm run update`: aplica actualizacion desde GitHub usando `scripts/update.js`.
+- `npm run update`: aplica una actualización firmada usando `scripts/update.js`.
 
 ## Estructura
 
@@ -142,24 +142,9 @@ La fusion es pragmatica, no transaccional. Para flujos de alta concurrencia, val
 
 ## Actualizador
 
-Constantes en `sync-store.js`:
+La versión 2.1.0-beta.4 instalada en el cliente busca la versión anunciada por `DigQro/main/LibrePOS/package.json` y descarga la etiqueta correspondiente. También puede acudir a la rama principal como respaldo. Conserva la copia pública completa del puente hasta verificar la migración en la instalación real.
 
-```text
-UPDATE_REPO_OWNER = "JMartinezRuiz"
-UPDATE_REPO_NAME = "DigQro"
-UPDATE_BRANCH = "main"
-UPDATE_PROJECT_PREFIX = "LibrePOS/"
-```
-
-El actualizador:
-
-1. Consulta el commit mas reciente que toca `LibrePOS/`.
-2. Descarga el arbol de archivos de esa carpeta.
-3. Ignora carpetas y archivos preservados.
-4. Elimina archivos locales obsoletos no preservados.
-5. Escribe archivos descargados.
-6. Ejecuta `npm install`.
-7. Guarda `.librepos/app-version.json`.
+A partir de 2.1.0-beta.5.1, `scripts/release-channel.js` verifica el manifiesto firmado, prepara la nueva versión y actualiza el selector en el directorio de datos. El lanzador original carga la versión seleccionada y conserva el directorio de datos del negocio. El procedimiento de publicación y recuperación se encuentra en `ops/updates/OPERACION.md` del repositorio privado.
 
 ## API local
 
@@ -177,7 +162,7 @@ Antes de publicar una actualizacion:
 4. Ejecuta `npm run build`.
 5. Revisa obligatoriamente el impacto en la ayuda siguiendo [AYUDA.md](AYUDA.md). Actualiza contenido y GIFs o documenta que no requiere cambios.
 6. Arranca `npm start` y valida login, caja, mesa, para llevar, comanda, cocina, cobro, exportacion, soporte y actualizacion visible.
-7. Sube los cambios al repositorio esperado por el actualizador.
+7. Etiqueta el código en el repositorio privado, prueba el paquete firmado en el canal piloto y promueve ese mismo paquete al canal estable.
 
 ## Pruebas
 

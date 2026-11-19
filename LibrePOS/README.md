@@ -2,6 +2,10 @@
 
 LibrePOS es un punto de venta local para restaurante. Incluye venta por mesas y para llevar, comandas digitales, cocina, caja, inventario, catalogo, usuarios, fichaje, exportacion de datos y sincronizacion por red WiFi.
 
+## Versión 2.1.0-beta.5.1 · Canal de actualizaciones
+
+Esta versión conecta la instalación con el servicio de actualizaciones de Digitalización Querétaro en OVH. La caja sigue operando con los datos del negocio en su equipo. Las instrucciones para el primer cambio están en [Administración y mantenimiento](docs/ADMINISTRACION.md#actualizaciones).
+
 ## Versión 2.1.0-beta.4 · Entrega de propinas
 
 En **Caja → Corte de caja**, reparte las propinas pendientes del día entre el personal y registra su entrega en efectivo o por tarjeta. El corte muestra la salida y ajusta el saldo correspondiente. Consulta [las notas de la versión](docs/VERSION_2.1.0-beta.4.md).
@@ -98,7 +102,7 @@ Comandos disponibles:
 npm start      # servidor local Vite en 0.0.0.0:5173
 npm run build  # compilacion de produccion en dist/
 npm run preview
-npm run update # actualizacion desde GitHub
+npm run update # actualización desde el canal firmado
 ```
 
 ## Datos locales
@@ -113,7 +117,7 @@ La carpeta `.librepos/` esta ignorada por Git para no publicar ventas, usuarios,
 
 ## Actualizaciones
 
-Desde la versión 2.1.0-beta.5, el administrador recibe actualizaciones firmadas desde la VPS. Actualiza con la caja cerrada y vuelve a abrir LibrePOS desde el mismo lanzador. La nueva versión se descarga, instala y valida aparte antes de seleccionarse. Ventas, usuarios y configuración siguen en la carpeta de datos original.
+Desde la versión 2.1.0-beta.5.1, el administrador recibe actualizaciones firmadas desde la VPS. Actualiza con la caja cerrada y vuelve a abrir LibrePOS desde el mismo lanzador. La nueva versión se descarga, instala y valida aparte antes de seleccionarse. Ventas, usuarios y configuración siguen en la carpeta de datos original.
 
 Si una actualización posterior al puente no arranca, cierra LibrePOS, abre una terminal en su carpeta original, ejecuta `node scripts/update.js --rollback` y vuelve a abrirlo. Esta operación cambia el programa seleccionado y conserva los datos. El reparador de Windows sigue en la carpeta original.
 

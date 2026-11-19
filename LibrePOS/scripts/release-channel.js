@@ -132,7 +132,7 @@ export async function applyRepositoryUpdate({ repair = false } = {}) {
       await mkdir(source);
       await writeFile(zip, bytes);
       if (process.platform === 'win32') {
-        await run('powershell.exe', ['-NoProfile','-NonInteractive','-Command', "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath $env:LP_ZIP -DestinationPath $env:LP_STAGE"], {
+        await run('powershell.exe', ['-NoProfile','-NonInteractive','-Command', "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory($env:LP_ZIP, $env:LP_STAGE)"], {
           env: { ...process.env, LP_ZIP: zip, LP_STAGE: source }, timeout: 150000 });
       } else {
         await run('unzip', ['-q', zip, '-d', source], { timeout: 150000 });

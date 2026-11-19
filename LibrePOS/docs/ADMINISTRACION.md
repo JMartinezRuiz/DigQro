@@ -108,6 +108,8 @@ Despues se arranca LibrePOS para que normalice el estado. Esta ruta no es ideal 
 
 La versión 2.1.0-beta.4 recibe el puente desde la etiqueta pública original. Desde el puente, LibrePOS consulta el canal HTTPS de OVH, verifica la firma Ed25519 y el contenido del paquete, e instala las dependencias en una carpeta independiente. La selección de versión cambia al terminar la validación. Las ventas y la configuración permanecen en el equipo. Actualiza con la caja cerrada.
 
+Para el primer cambio desde beta.4, termina el corte, cierra LibrePOS y copia la carpeta completa `.librepos/` a otra ubicación. La exportación JSON de Datos también sirve para consultar la operación. Para incluir las credenciales usa la copia de la carpeta con el servidor detenido. Desde la carpeta de instalación ejecuta el siguiente comando y espera a que termine antes de abrir LibrePOS como de costumbre. Si utilizas el botón antiguo, la pantalla puede recargarse antes de confirmar. Comprueba la versión 2.1.0-beta.5.1 tras el reinicio.
+
 Para actualizar desde terminal:
 
 ```bash

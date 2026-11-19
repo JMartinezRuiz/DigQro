@@ -43,7 +43,7 @@ La web no usa formularios, cookies, almacenamiento local, analítica ni recursos
 
 ## LibrePOS
 
-El desarrollo de LibrePOS se realiza en su repositorio privado. La carpeta `LibrePOS/` y la etiqueta `v2.1.0-beta.5` se conservan como una copia completa del puente para las instalaciones antiguas. La web se sigue publicando desde `docs/`. Evita modificar la versión anunciada o publicar nuevas funciones del POS aquí.
+El desarrollo de LibrePOS se realiza en su repositorio privado. La carpeta `LibrePOS/` y la etiqueta `v2.1.0-beta.5.1` se conservan como una copia completa del puente para las instalaciones antiguas. La web se sigue publicando desde `docs/`. Evita modificar la versión anunciada o publicar nuevas funciones del POS aquí.
 
 - Instalación point-and-click para macOS: `LibrePOS/Instalar LibrePOS.command`
 - Arranque point-and-click para macOS: `LibrePOS/Abrir LibrePOS.command`

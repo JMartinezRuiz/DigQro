@@ -1,5 +1,5 @@
 // This entry point stays with the original installation; each release runs in its own directory.
-import { access } from 'node:fs/promises';
+import { access, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { activeRelease, dataDir, installRoot, releasePath } from './release-layout.js';
@@ -18,7 +18,8 @@ for (const id of choices) {
   } catch { continue; }
   process.env.LIBREPOS_INSTALL_ROOT = installRoot;
   process.env.LIBREPOS_DATA_DIR = dataDir;
-  process.chdir(root);
+  // Vite validates its allowed root against the canonical Windows path.
+  process.chdir(await realpath(root));
   process.argv = [process.execPath, entry, '--host', '0.0.0.0', ...process.argv.slice(2)];
   await import(pathToFileURL(entry).href);
   started = true;
