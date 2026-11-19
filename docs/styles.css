@@ -252,26 +252,16 @@ a {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  min-height: 44px;
+  min-width: 0;
   margin-right: auto;
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 1.15;
-  text-decoration: none;
 }
 
-.brand-mark {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  background: var(--navy);
-  color: #fff;
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+.brand img {
+  display: block;
+  width: clamp(9.5rem, 29vw, 13.75rem);
+  max-width: 100%;
+  height: auto;
 }
 
 .head-nav {
@@ -1099,7 +1089,19 @@ a {
 
 .foot-row {
   display: grid;
-  gap: 4px;
+  align-items: center;
+  gap: 12px;
+}
+
+.foot-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.foot-brand img {
+  flex: none;
+  border-radius: 50%;
 }
 
 /* Aparición al hacer scroll: solo se oculta si hay JavaScript */
