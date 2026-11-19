@@ -106,24 +106,7 @@ Despues se arranca LibrePOS para que normalice el estado. Esta ruta no es ideal 
 
 ## Actualizaciones
 
-La app consulta GitHub:
-
-```text
-https://github.com/JMartinezRuiz/DigQro
-```
-
-El actualizador compara la version publica de `package.json` sin consumir la cuota de la API de GitHub. Cuando hay una version nueva descarga el ZIP de su etiqueta (`vX.Y.Z`), toma solo los archivos dentro de `LibrePOS/`, conserva carpetas locales protegidas y ejecuta `npm install`. La API queda disponible como respaldo si no se puede obtener el ZIP.
-
-Se conservan:
-
-- `.git/`
-- `.librepos/`
-- `.vite/`
-- `node_modules/`
-- `dist/`
-- `.DS_Store`
-- `.env`
-- `.env.local`
+La versión 2.1.0-beta.4 recibe el puente desde la etiqueta pública original. Desde el puente, LibrePOS consulta el canal HTTPS de OVH, verifica la firma Ed25519 y el contenido del paquete, e instala las dependencias en una carpeta independiente. La selección de versión cambia al terminar la validación. Las ventas y la configuración permanecen en el equipo. Actualiza con la caja cerrada.
 
 Para actualizar desde terminal:
 
@@ -176,7 +159,7 @@ En ese caso tambien debes usar el nuevo puerto desde telefonos y tablets.
 
 ### No aparece el boton de actualizar
 
-Solo lo ven administradores. Tambien puede ocultarse si GitHub no responde, si no hay internet o si ya estas en la version mas reciente.
+Solo lo ven administradores. Tambien puede ocultarse si el canal no responde, si no hay internet o si ya estas en la version mas reciente.
 
 ### La actualizacion falla
 
@@ -186,15 +169,7 @@ Ejecuta:
 npm run update
 ```
 
-Revisa el mensaje de la consola, confirma que hay internet y vuelve a intentar. Si la app indica que ya escribio archivos nuevos pero fallo `npm install`, cierra LibrePOS y vuelve a abrirlo; el marcador de version se guarda antes de instalar dependencias para evitar que el boton de actualizar quede atorado.
-
-En Windows, si el boton queda en `Actualizando` y no termina, cierra LibrePOS, abre PowerShell dentro de la carpeta `LibrePOS` y ejecuta el reparador publicado en GitHub:
-
-```powershell
-irm https://raw.githubusercontent.com/JMartinezRuiz/DigQro/main/LibrePOS/scripts/repair-update.ps1 | iex
-```
-
-El reparador lee la version publica, descarga el ZIP de su etiqueta sin consumir la cuota de la API, conserva `.librepos/`, escribe el marcador local de version y vuelve a intentar `npm install`.
+Si falla la descarga o la validación, revisa la conexión y reintenta. Para regresar al programa anterior al último cambio de versión firmado, cierra LibrePOS, ejecuta `node scripts/update.js --rollback` en la carpeta original y vuelve a abrirlo. El reparador local de Windows prepara de nuevo la versión firmada. La ruta histórica del reparador público permanece disponible para recuperar la instalación del puente.
 
 ### El login falla despues de una restauracion manual
 

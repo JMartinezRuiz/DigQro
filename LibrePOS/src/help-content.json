@@ -1,6 +1,6 @@
 {
   "contentVersion": "2026.11.05",
-  "interfaceVersion": "2.1.0-beta.4",
+  "interfaceVersion": "2.1.0-beta.5",
   "categories": [
     {
       "id": "all",
@@ -2746,7 +2746,7 @@
       "troubleshooting": [
         {
           "symptom": "No aparece Actualizar",
-          "resolution": "Sólo se ofrece a administradores si hay una versión posterior y GitHub responde. Revisa conexión a Internet y versión instalada; una red local puede funcionar aunque Internet falle."
+          "resolution": "Sólo se ofrece a administradores si hay una versión posterior y responde el canal de actualizaciones. Revisa conexión a Internet y versión instalada; una red local puede funcionar aunque Internet falle."
         },
         {
           "symptom": "La actualización terminó pero sigo viendo lo anterior",

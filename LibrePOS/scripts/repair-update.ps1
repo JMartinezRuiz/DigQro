@@ -108,6 +108,15 @@ function Run-NpmInstall($root) {
 }
 
 $root = Get-RootPath
+# La misma ruta de reparación funciona antes y después de instalar el puente.
+if (Test-Path (Join-Path $root "scripts/start-release.js")) {
+  Push-Location $root
+  try {
+    & node scripts/update.js --repair
+    if ($LASTEXITCODE -ne 0) { throw "Reparación pendiente. Se conserva la versión anterior." }
+  } finally { Pop-Location }
+  return
+}
 Write-Step "Carpeta: $root"
 Write-Step "Cierra la ventana negra de LibrePOS antes de continuar si sigue abierta."
 Read-Host "Pulsa Enter para reparar la actualizacion"

@@ -1,12 +1,13 @@
+import { getUpdateStatus, applyRepositoryUpdate, deviceId } from "./scripts/release-channel.js";
+export { getUpdateStatus, applyRepositoryUpdate, compareAppVersions } from "./scripts/release-channel.js";
 import { protectedStateChangeError } from "./payment-permission-guard.js";
 import { UberService, atomicJson } from "./integrations/uber-service.js";
 import { uberStateChangeError, uberActionAllowed } from "./integrations/uber-guard.js";
 import { demoUberOrder } from "./integrations/uber-demo.js";
 import { isPermissionsAdmin, userFunctions } from "./src/user-permissions.js";
-import { createHash, randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
+import { randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
 import { execFile as execFileCallback } from "node:child_process";
-import https from "node:https";
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { lanAccessUrls } from "./lan-access.js";
 import { isPrivateRequest } from "./private-paths.js";
@@ -25,21 +26,11 @@ const DATA_DIR = process.env.LIBREPOS_DATA_DIR
   : path.join(ROOT_DIR, ".librepos");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
 const TOKEN_FILE = path.join(DATA_DIR, "sync-token");
-const VERSION_FILE = path.join(DATA_DIR, "app-version.json");
 const BODY_LIMIT = 8 * 1024 * 1024;
 const ACCESS_COOKIE = "librepos_sync";
 const PASSWORD_ITERATIONS = 120000;
 const PASSWORD_KEYLEN = 32;
 const PASSWORD_DIGEST = "sha256";
-const UPDATE_REPO_OWNER = "JMartinezRuiz";
-const UPDATE_REPO_NAME = "DigQro";
-const UPDATE_BRANCH = "main";
-const UPDATE_PROJECT_PREFIX = "LibrePOS/";
-const UPDATE_REPO_URL = `https://github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`;
-const PRESERVED_UPDATE_DIRS = new Set([".git", ".librepos", ".vite", "node_modules", "dist"]);
-const PRESERVED_UPDATE_FILES = new Set([".DS_Store", ".env", ".env.local"]);
-const IGNORED_LOCAL_UPDATE_DIRS = new Set(["__pycache__"]);
-const IGNORED_LOCAL_UPDATE_EXTENSIONS = new Set([".pyc", ".pyo"]);
 const RECEIPT_WIDTH = 32;
 const RESTAURANT_ADDRESS = "C. 5 de Mayo 134, Centro Histórico, La Cruz, 76020 Santiago de Querétaro, Qro.";
 const BRAND_IMAGE_FILE = path.join(ROOT_DIR, "assets", "brand.jpg");
@@ -49,16 +40,9 @@ const DEFAULT_TICKET_LOGO_POSITION = "below-title";
 const DEFAULT_IVA_RATE = 0.16;
 const RECEIPT_LOGO_MARKER = "__LIBREPOS_LOGO__";
 const RECEIPT_BRAND_TITLE = "-- LOS TATAS --";
-const GITHUB_API_HEADERS = {
-  Accept: "application/vnd.github+json",
-  "User-Agent": "LibrePOS-Updater",
-  "X-GitHub-Api-Version": "2022-11-28",
-};
-
 let sharedState = null;
 let sharedVersion = 0;
 let accessToken = "";
-let updateInProgress = false;
 const clients = new Map();
 const loginSessions = new Map();
 const loginFailures = new Map();
@@ -353,282 +337,6 @@ function recordLoginFailure(key) {
   entry.count += 1;
   entry.lockedUntil = now + LOGIN_LOCK_MS;
   loginFailures.set(key, entry);
-}
-
-function githubApiUrl(pathname) {
-  return `https://api.github.com/repos/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}${pathname}`;
-}
-
-function githubRawUrl(githubPath, ref = UPDATE_BRANCH) {
-  const encodedRef = String(ref || UPDATE_BRANCH).split("/").map(encodeURIComponent).join("/");
-  const encodedPath = githubPath.split("/").map(encodeURIComponent).join("/");
-  return `https://raw.githubusercontent.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/${encodedRef}/${encodedPath}`;
-}
-
-function githubArchiveUrl(ref, type = "tags") {
-  const encodedRef = String(ref || UPDATE_BRANCH).split("/").map(encodeURIComponent).join("/");
-  const refPath = type === "commit" ? encodedRef : `refs/${type}/${encodedRef}`;
-  return `https://codeload.github.com/${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}/zip/${refPath}`;
-}
-
-function requestUrl(url, { json = true, headers = {}, timeout = 25000 } = {}, redirects = 0) {
-  return new Promise((resolve, reject) => {
-    const target = url instanceof URL ? url : new URL(url);
-    const req = https.request(
-      target,
-      {
-        method: "GET",
-        headers,
-      },
-      (res) => {
-        const status = res.statusCode || 0;
-        if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
-          res.resume();
-          if (redirects >= 5) {
-            reject(new Error("download-redirect-limit"));
-            return;
-          }
-          resolve(requestUrl(new URL(res.headers.location, target), { json, headers, timeout }, redirects + 1));
-          return;
-        }
-
-        const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => {
-          const body = Buffer.concat(chunks);
-          if (status < 200 || status >= 300) {
-            reject(new Error(`download-${status}: ${body.toString("utf8").slice(0, 240)}`));
-            return;
-          }
-          if (!json) {
-            resolve(body);
-            return;
-          }
-          try {
-            resolve(JSON.parse(body.toString("utf8")));
-          } catch {
-            reject(new Error("download-invalid-json"));
-          }
-        });
-      },
-    );
-    req.setTimeout(timeout, () => {
-      req.destroy(new Error("download-timeout"));
-    });
-    req.on("error", reject);
-    req.end();
-  });
-}
-
-function requestGithub(url, { json = true, headers = {} } = {}) {
-  return requestUrl(url, {
-    json,
-    headers: { ...GITHUB_API_HEADERS, ...headers },
-  });
-}
-
-async function readLocalAppVersion() {
-  try {
-    const version = JSON.parse(await readFile(VERSION_FILE, "utf8"));
-    if (version?.commitSha) {
-      return { commitSha: String(version.commitSha), source: "version-file", updatedAt: version.updatedAt || "" };
-    }
-  } catch {
-    // Older installs do not have this file yet.
-  }
-
-  try {
-    const { stdout } = await execFile("git", ["log", "-n", "1", "--format=%H", "--", "."], {
-      cwd: ROOT_DIR,
-      timeout: 5000,
-      maxBuffer: 64 * 1024,
-    });
-    const commitSha = stdout.trim();
-    if (commitSha) return { commitSha, source: "git", updatedAt: "" };
-  } catch {
-    // ZIP installs normally do not have git metadata.
-  }
-
-  return { commitSha: null, source: "unknown", updatedAt: "" };
-}
-
-async function readLocalPackageVersion() {
-  try {
-    const data = JSON.parse(await readFile(path.join(ROOT_DIR, "package.json"), "utf8"));
-    return typeof data.version === "string" ? data.version.trim() : "";
-  } catch {
-    return "";
-  }
-}
-
-async function fetchRemotePackageVersion(ref = UPDATE_BRANCH) {
-  try {
-    const url = new URL(githubRawUrl(`${UPDATE_PROJECT_PREFIX}package.json`, ref));
-    url.searchParams.set("librepos-check", String(Math.floor(Date.now() / 60000)));
-    const buffer = await requestGithub(url, {
-      json: false,
-      headers: { Accept: "application/octet-stream" },
-    });
-    const data = JSON.parse(buffer.toString("utf8"));
-    return typeof data.version === "string" ? data.version.trim() : "";
-  } catch {
-    return "";
-  }
-}
-
-export function compareAppVersions(left, right) {
-  const normalize = (value) => String(value || "").trim().replace(/^v/i, "");
-  const parse = (value) => {
-    const match = normalize(value).match(/^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?$/);
-    if (!match) return null;
-    return {
-      numbers: match[1].split(".").map((part) => Number(part)),
-      prerelease: match[2] || "",
-    };
-  };
-  const a = parse(left);
-  const b = parse(right);
-  if (!a || !b) return normalize(left).localeCompare(normalize(right), "en", { numeric: true });
-  const length = Math.max(a.numbers.length, b.numbers.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = (a.numbers[index] || 0) - (b.numbers[index] || 0);
-    if (difference) return difference < 0 ? -1 : 1;
-  }
-  if (a.prerelease === b.prerelease) return 0;
-  if (!a.prerelease) return 1;
-  if (!b.prerelease) return -1;
-  return a.prerelease.localeCompare(b.prerelease, "en", { numeric: true });
-}
-
-function releaseTagFromVersion(version) {
-  const cleanVersion = String(version || "").trim().replace(/^v/i, "");
-  return /^[0-9]+(?:\.[0-9]+)*(?:-[0-9A-Za-z.-]+)?$/.test(cleanVersion) ? `v${cleanVersion}` : "";
-}
-
-async function writeLocalAppVersion(commitSha) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(
-    VERSION_FILE,
-    JSON.stringify(
-      {
-        commitSha,
-        branch: UPDATE_BRANCH,
-        repo: `${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`,
-        projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
-        updatedAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    ),
-  );
-}
-
-async function fetchLatestRemoteVersion() {
-  const packageVersion = await fetchRemotePackageVersion();
-  const releaseTag = releaseTagFromVersion(packageVersion);
-  if (packageVersion && releaseTag) {
-    return {
-      commitSha: releaseTag,
-      ref: releaseTag,
-      packageVersion,
-      source: "package-version",
-      htmlUrl: `${UPDATE_REPO_URL}/tree/${encodeURIComponent(releaseTag)}`,
-      date: "",
-    };
-  }
-
-  const commitsUrl = new URL(githubApiUrl("/commits"));
-  commitsUrl.searchParams.set("sha", UPDATE_BRANCH);
-  commitsUrl.searchParams.set("path", UPDATE_PROJECT_PREFIX.replace(/\/$/, ""));
-  commitsUrl.searchParams.set("per_page", "1");
-  const commits = await requestGithub(commitsUrl);
-  const latest = Array.isArray(commits) ? commits[0] : null;
-  if (!latest?.sha) return null;
-  return {
-    commitSha: latest.sha,
-    htmlUrl: latest.html_url || `${UPDATE_REPO_URL}/commit/${latest.sha}`,
-    date: latest.commit?.committer?.date || latest.commit?.author?.date || "",
-  };
-}
-
-export async function getUpdateStatus() {
-  const [storedLocal, localPackageVersion, remote] = await Promise.all([
-    readLocalAppVersion(),
-    readLocalPackageVersion(),
-    fetchLatestRemoteVersion(),
-  ]);
-  if (remote?.packageVersion) {
-    const available = !localPackageVersion || compareAppVersions(localPackageVersion, remote.packageVersion) < 0;
-    return {
-      available,
-      repoUrl: UPDATE_REPO_URL,
-      branch: UPDATE_BRANCH,
-      projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
-      localCommit: storedLocal.commitSha,
-      localSource: localPackageVersion ? "package-version" : storedLocal.source,
-      localIncludesRemote: false,
-      localUpdatedAt: storedLocal.updatedAt,
-      localPackageVersion,
-      remotePackageVersion: remote.packageVersion,
-      remoteCommit: remote.commitSha,
-      remoteUrl: remote.htmlUrl || UPDATE_REPO_URL,
-      remoteDate: remote.date || "",
-      checkedAt: new Date().toISOString(),
-    };
-  }
-
-  let local = storedLocal;
-  let localIncludesRemote = false;
-  let fallbackLocalPackageVersion = localPackageVersion;
-  let remotePackageVersion = "";
-  if (remote?.commitSha && storedLocal.source === "git" && !sameCommit(storedLocal.commitSha, remote.commitSha)) {
-    localIncludesRemote = await gitCommitIncludes(remote.commitSha, storedLocal.commitSha);
-  }
-  if (remote?.commitSha && !localIncludesRemote && !sameCommit(storedLocal.commitSha, remote.commitSha)) {
-    try {
-      const remoteFiles = await fetchRemoteProjectFiles(remote.commitSha);
-      local = (await readLocalVersionFromFiles(remoteFiles, remote.commitSha)) || storedLocal;
-    } catch {
-      local = storedLocal;
-    }
-    if (!sameCommit(local.commitSha, remote.commitSha)) {
-      [fallbackLocalPackageVersion, remotePackageVersion] = await Promise.all([readLocalPackageVersion(), fetchRemotePackageVersion(remote.commitSha)]);
-      if (fallbackLocalPackageVersion && remotePackageVersion && fallbackLocalPackageVersion === remotePackageVersion) {
-        local = { commitSha: remote.commitSha, source: "package-version", updatedAt: "", packageVersion: fallbackLocalPackageVersion };
-      }
-    }
-    if (sameCommit(local.commitSha, remote.commitSha) && local.source !== "version-file") {
-      try {
-        await writeLocalAppVersion(remote.commitSha);
-      } catch (error) {
-        updateLog("No se pudo escribir marcador local de version", { error: compactError(error) });
-      }
-    }
-  }
-  const available = Boolean(remote?.commitSha && !localIncludesRemote && (!local.commitSha || !sameCommit(local.commitSha, remote.commitSha)));
-  return {
-    available,
-    repoUrl: UPDATE_REPO_URL,
-    branch: UPDATE_BRANCH,
-    projectPath: UPDATE_PROJECT_PREFIX.replace(/\/$/, ""),
-    localCommit: local.commitSha,
-    localSource: local.source,
-    localIncludesRemote,
-    localUpdatedAt: local.updatedAt,
-    localPackageVersion: fallbackLocalPackageVersion || local.packageVersion || "",
-    remotePackageVersion,
-    remoteCommit: remote?.commitSha || null,
-    remoteUrl: remote?.htmlUrl || UPDATE_REPO_URL,
-    remoteDate: remote?.date || "",
-    checkedAt: new Date().toISOString(),
-  };
-}
-
-function sameCommit(left, right) {
-  if (!left || !right) return false;
-  const a = String(left);
-  const b = String(right);
-  return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
 function compactError(error) {
@@ -1863,328 +1571,6 @@ export async function printTestTicket(printerName) {
   return { ok: true, printerName: cleanName, method: result?.method || "", printedAt: new Date().toISOString() };
 }
 
-function updateLog(message, details = null) {
-  const suffix = details ? ` ${JSON.stringify(details)}` : "";
-  console.log(`[LibrePOS update ${new Date().toISOString()}] ${message}${suffix}`);
-}
-
-async function gitCommitIncludes(ancestorCommit, descendantCommit) {
-  if (!ancestorCommit || !descendantCommit) return false;
-  try {
-    await execFile("git", ["merge-base", "--is-ancestor", ancestorCommit, descendantCommit], {
-      cwd: ROOT_DIR,
-      timeout: 5000,
-      maxBuffer: 64 * 1024,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function gitBlobSha(buffer) {
-  return createHash("sha1")
-    .update(Buffer.from(`blob ${buffer.length}\0`))
-    .update(buffer)
-    .digest("hex");
-}
-
-async function readLocalVersionFromFiles(remoteFiles, remoteCommit) {
-  const localFiles = new Set(await listLocalProjectFiles());
-  if (localFiles.size !== remoteFiles.length) return null;
-  for (const file of remoteFiles) {
-    if (!localFiles.has(file.relativePath)) return null;
-    const targetPath = path.join(ROOT_DIR, ...file.relativePath.split("/"));
-    assertInsideRoot(targetPath);
-    const buffer = await readFile(targetPath);
-    if (gitBlobSha(buffer) !== file.sha) return null;
-  }
-  return { commitSha: remoteCommit, source: "files", updatedAt: "" };
-}
-
-function safeRemoteRelativePath(githubPath) {
-  if (!githubPath.startsWith(UPDATE_PROJECT_PREFIX)) return null;
-  const relativePath = githubPath.slice(UPDATE_PROJECT_PREFIX.length);
-  if (!relativePath || relativePath.includes("\\")) return null;
-  const normalized = path.posix.normalize(relativePath);
-  if (!normalized || normalized === "." || normalized.startsWith("../") || path.isAbsolute(normalized)) return null;
-  const rootName = normalized.split("/")[0];
-  if (PRESERVED_UPDATE_DIRS.has(rootName) || PRESERVED_UPDATE_FILES.has(normalized)) return null;
-  return normalized;
-}
-
-function shouldIgnoreLocalProjectPath(relativePath) {
-  const parts = relativePath.split("/");
-  if (parts.some((part) => IGNORED_LOCAL_UPDATE_DIRS.has(part))) return true;
-  return IGNORED_LOCAL_UPDATE_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
-}
-
-async function fetchRemoteProjectFiles(ref = UPDATE_BRANCH) {
-  const commit = await requestGithub(githubApiUrl(`/commits/${encodeURIComponent(ref)}`));
-  const treeSha = commit?.commit?.tree?.sha;
-  if (!treeSha) throw new Error("github-tree-not-found");
-  const treeUrl = new URL(githubApiUrl(`/git/trees/${treeSha}`));
-  treeUrl.searchParams.set("recursive", "1");
-  const tree = await requestGithub(treeUrl);
-  if (tree.truncated) throw new Error("github-tree-truncated");
-  const files = (Array.isArray(tree.tree) ? tree.tree : [])
-    .filter((entry) => entry.type === "blob")
-    .map((entry) => ({ githubPath: entry.path, relativePath: safeRemoteRelativePath(entry.path), sha: entry.sha }))
-    .filter((entry) => entry.relativePath);
-  if (!files.length) throw new Error("github-project-empty");
-  return files;
-}
-
-function assertInsideRoot(targetPath) {
-  const relativePath = path.relative(ROOT_DIR, targetPath);
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    throw new Error("unsafe-update-path");
-  }
-}
-
-async function downloadRemoteProjectFiles(files, ref = UPDATE_BRANCH) {
-  const downloaded = [];
-  for (const file of files) {
-    const buffer = await requestGithub(githubRawUrl(file.githubPath, ref), {
-      json: false,
-      headers: { Accept: "application/octet-stream" },
-    });
-    if (file.sha && gitBlobSha(buffer) !== file.sha) {
-      throw new Error(`download-sha-mismatch:${file.relativePath}`);
-    }
-    downloaded.push({ ...file, buffer });
-  }
-  return downloaded;
-}
-
-async function extractRepositoryArchive(archivePath, destinationPath) {
-  if (process.platform === "win32") {
-    await runPowerShell(
-      "$ErrorActionPreference = 'Stop'\nExpand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
-      [archivePath, destinationPath],
-      { timeout: 120000, maxBuffer: 1024 * 1024 },
-    );
-    return;
-  }
-
-  try {
-    await execFile("unzip", ["-q", archivePath, "-d", destinationPath], {
-      timeout: 120000,
-      maxBuffer: 1024 * 1024,
-    });
-  } catch (unzipError) {
-    try {
-      await execFile("tar", ["-xf", archivePath, "-C", destinationPath], {
-        timeout: 120000,
-        maxBuffer: 1024 * 1024,
-      });
-    } catch (tarError) {
-      throw new Error(`archive-extract-failed unzip=${compactError(unzipError)} tar=${compactError(tarError)}`);
-    }
-  }
-}
-
-async function readArchiveProjectFiles(baseDir, prefix = "") {
-  const entries = await readdir(baseDir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    const rootName = relativePath.split("/")[0];
-    if (PRESERVED_UPDATE_DIRS.has(rootName) || PRESERVED_UPDATE_FILES.has(relativePath)) continue;
-    if (shouldIgnoreLocalProjectPath(relativePath)) continue;
-    const absolutePath = path.join(baseDir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...await readArchiveProjectFiles(absolutePath, relativePath));
-      continue;
-    }
-    if (entry.isFile()) {
-      files.push({
-        githubPath: `${UPDATE_PROJECT_PREFIX}${relativePath}`,
-        relativePath,
-        buffer: await readFile(absolutePath),
-      });
-    }
-  }
-  return files;
-}
-
-async function downloadRemoteProjectArchive(ref, type, expectedVersion = "") {
-  const tempDir = await mkdtemp(path.join(tmpdir(), "librepos-update-"));
-  const archivePath = path.join(tempDir, "repository.zip");
-  const extractPath = path.join(tempDir, "extract");
-  try {
-    const archive = await requestUrl(githubArchiveUrl(ref, type), {
-      json: false,
-      headers: GITHUB_API_HEADERS,
-      timeout: 120000,
-    });
-    await writeFile(archivePath, archive);
-    await mkdir(extractPath, { recursive: true });
-    await extractRepositoryArchive(archivePath, extractPath);
-
-    const roots = (await readdir(extractPath, { withFileTypes: true })).filter((entry) => entry.isDirectory());
-    for (const root of roots) {
-      const projectRoot = path.join(extractPath, root.name, UPDATE_PROJECT_PREFIX.replace(/\/$/, ""));
-      try {
-        await access(projectRoot);
-      } catch {
-        continue;
-      }
-      const files = (await readArchiveProjectFiles(projectRoot)).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-      const packageFile = files.find((file) => file.relativePath === "package.json");
-      const archiveVersion = packageFile ? JSON.parse(packageFile.buffer.toString("utf8")).version : "";
-      if (expectedVersion && archiveVersion !== expectedVersion) {
-        throw new Error(`archive-version-mismatch expected=${expectedVersion} received=${archiveVersion || "missing"}`);
-      }
-      if (!files.length) throw new Error("github-project-empty");
-      return files;
-    }
-    throw new Error("archive-project-not-found");
-  } finally {
-    await rm(tempDir, { recursive: true, force: true });
-  }
-}
-
-async function downloadRemoteProjectRelease(status) {
-  const remoteRef = String(status.remoteCommit || "").trim();
-  const candidates = [];
-  if (/^v\d/i.test(remoteRef)) candidates.push({ ref: remoteRef, type: "tags" });
-  else if (/^[0-9a-f]{7,40}$/i.test(remoteRef)) candidates.push({ ref: remoteRef, type: "commit" });
-  candidates.push({ ref: UPDATE_BRANCH, type: "heads" });
-
-  const archiveErrors = [];
-  for (const candidate of candidates.filter((item, index, list) => list.findIndex((other) => other.ref === item.ref && other.type === item.type) === index)) {
-    try {
-      updateLog("Descargando paquete de actualizacion", candidate);
-      return await downloadRemoteProjectArchive(candidate.ref, candidate.type, status.remotePackageVersion || "");
-    } catch (error) {
-      archiveErrors.push(`${candidate.type}/${candidate.ref}: ${compactError(error)}`);
-    }
-  }
-
-  try {
-    const remoteFiles = await fetchRemoteProjectFiles(remoteRef || UPDATE_BRANCH);
-    return await downloadRemoteProjectFiles(remoteFiles, remoteRef || UPDATE_BRANCH);
-  } catch (apiError) {
-    throw new Error(`update-download-failed archive=${archiveErrors.join(" | ")} api=${compactError(apiError)}`);
-  }
-}
-
-async function listLocalProjectFiles(baseDir = ROOT_DIR, prefix = "") {
-  const entries = await readdir(baseDir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    const rootName = relativePath.split("/")[0];
-    if (PRESERVED_UPDATE_DIRS.has(rootName) || PRESERVED_UPDATE_FILES.has(relativePath)) continue;
-    if (shouldIgnoreLocalProjectPath(relativePath)) continue;
-    const absolutePath = path.join(baseDir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...await listLocalProjectFiles(absolutePath, relativePath));
-      continue;
-    }
-    if (entry.isFile() || entry.isSymbolicLink()) {
-      files.push(relativePath);
-    }
-  }
-  return files;
-}
-
-async function removeStaleProjectFiles(remoteFiles) {
-  const localFiles = await listLocalProjectFiles();
-  await Promise.all(
-    localFiles
-      .filter((relativePath) => !remoteFiles.has(relativePath))
-      .map(async (relativePath) => {
-        const targetPath = path.join(ROOT_DIR, ...relativePath.split("/"));
-        assertInsideRoot(targetPath);
-        await rm(targetPath, { force: true });
-      }),
-  );
-}
-
-async function writeDownloadedProjectFiles(files) {
-  for (const file of files) {
-    const targetPath = path.join(ROOT_DIR, ...file.relativePath.split("/"));
-    assertInsideRoot(targetPath);
-    await mkdir(path.dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, file.buffer);
-  }
-}
-
-async function installDependencies() {
-  const command = process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : "npm";
-  const args = process.platform === "win32" ? ["/d", "/s", "/c", "npm install"] : ["install"];
-  updateLog("Ejecutando npm install");
-  const { stdout, stderr } = await execFile(command, args, {
-    cwd: ROOT_DIR,
-    timeout: 180000,
-    maxBuffer: 2 * 1024 * 1024,
-  });
-  return { stdout: stdout.slice(-4000), stderr: stderr.slice(-4000) };
-}
-
-export async function applyRepositoryUpdate() {
-  if (updateInProgress) throw new Error("update-in-progress");
-  updateInProgress = true;
-  try {
-    updateLog("Buscando actualizacion en GitHub", { repo: `${UPDATE_REPO_OWNER}/${UPDATE_REPO_NAME}`, branch: UPDATE_BRANCH });
-    const status = await getUpdateStatus();
-    if (!status.remoteCommit) throw new Error("remote-version-not-found");
-    if (!status.available) {
-      updateLog("LibrePOS ya esta actualizado", {
-        localCommit: status.localCommit,
-        remoteCommit: status.remoteCommit,
-      });
-      return { ...status, updated: false, filesUpdated: 0, installRan: false, restartRequired: false };
-    }
-
-    return await applyGithubRepositoryUpdate(status);
-  } catch (error) {
-    updateLog("Error al actualizar LibrePOS", { error: compactError(error) });
-    throw error;
-  } finally {
-    updateInProgress = false;
-  }
-}
-
-async function applyGithubRepositoryUpdate(status) {
-  updateLog("Actualizacion iniciada", {
-    localCommit: status.localCommit,
-    remoteCommit: status.remoteCommit,
-    remoteUrl: status.remoteUrl,
-  });
-  const downloadedFiles = await downloadRemoteProjectRelease(status);
-  updateLog("Paquete de archivos recibido desde GitHub", { files: downloadedFiles.length });
-  const remoteFileSet = new Set(downloadedFiles.map((file) => file.relativePath));
-  await removeStaleProjectFiles(remoteFileSet);
-  updateLog("Archivos obsoletos removidos");
-  await writeDownloadedProjectFiles(downloadedFiles);
-  updateLog("Archivos nuevos escritos");
-  await writeLocalAppVersion(status.remoteCommit);
-  let installResult = { stdout: "", stderr: "" };
-  let installError = "";
-  try {
-    installResult = await installDependencies();
-  } catch (error) {
-    installError = compactError(error);
-    updateLog("npm install fallo despues de escribir archivos", { error: installError });
-  }
-  updateLog("Actualizacion completada. Cierra y abre LibrePOS para cargar la nueva version.", {
-    remoteCommit: status.remoteCommit,
-  });
-  return {
-    ...status,
-    updated: true,
-    filesUpdated: downloadedFiles.length,
-    installRan: true,
-    installError,
-    installLog: installResult.stderr || installResult.stdout,
-    restartRequired: true,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 export function createSyncMiddleware() {
   uberService.start();
   const middleware = async function syncMiddleware(req, res, next) {
@@ -2436,7 +1822,9 @@ export function createSyncMiddleware() {
           sendJson(res, 401, { error: "login-required" });
           return;
         }
-        sendJson(res, 200, await getUpdateStatus());
+        const status = await getUpdateStatus();
+        if (serverUserIsAdmin(loggedInUser(req))) status.deviceId = await deviceId();
+        sendJson(res, 200, status);
         return;
       }
 
@@ -2451,11 +1839,12 @@ export function createSyncMiddleware() {
           sendJson(res, 403, { error: "admin-required" });
           return;
         }
-        if (updateInProgress) {
-          sendJson(res, 409, { error: "update-in-progress" });
-          return;
+        try {
+          sendJson(res, 200, await applyRepositoryUpdate());
+        } catch (error) {
+          const busy = ["cash-register-open", "update-in-progress"].includes(error.message);
+          sendJson(res, busy ? 409 : 503, { error: busy ? error.message : "update-failed" });
         }
-        sendJson(res, 200, await applyRepositoryUpdate());
         return;
       }
 

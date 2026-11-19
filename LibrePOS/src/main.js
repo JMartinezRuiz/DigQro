@@ -1513,13 +1513,13 @@ async function checkForUpdates() {
     const info = await response.json();
     const previous = state.updateInfo || {};
     const changed =
-      previous.available !== info.available ||
+      previous.available !== info.available || previous.deviceId !== info.deviceId ||
       previous.remoteCommit !== info.remoteCommit ||
       previous.localCommit !== info.localCommit;
     state.updateInfo = info;
     if (changed && currentUser()) render();
   } catch {
-    // The update button stays hidden when GitHub or the local server is unavailable.
+    // The update button stays hidden when the update channel or the local server is unavailable.
   }
 }
 
@@ -1528,7 +1528,7 @@ async function applyUpdate() {
   state.updateBusy = true;
   render();
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 360000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 900000);
   try {
     const response = await fetch("/api/update/apply", { method: "POST", headers: sessionHeaders(), signal: controller.signal });
     const payload = await response.json().catch(() => ({}));
@@ -1543,19 +1543,21 @@ async function applyUpdate() {
       payload.installError
         ? "LibrePOS actualizado. Cierra y abre; si no arranca, ejecuta Instalar LibrePOS."
         : payload.updated
-        ? "LibrePOS actualizado desde GitHub. Cierra y abre LibrePOS."
+        ? "Actualización lista. Cierra y abre LibrePOS para usarla."
         : "LibrePOS ya estaba actualizado.",
     );
   } catch (error) {
     const message = String(error?.message || "");
     if (error?.name === "AbortError") {
       showToast("La actualizacion tardo demasiado. Cierra y abre LibrePOS antes de reintentar.");
+    } else if (message.includes("cash-register-open")) {
+      showToast("Cierra la caja antes de actualizar LibrePOS.");
     } else if (message.includes("update-in-progress")) {
       showToast("Ya hay una actualizacion en curso.");
     } else if (message.includes("login-required") || message.includes("admin-required")) {
       showToast("Inicia sesión como administrador para actualizar.");
     } else if (message.includes("github") || message.includes("download")) {
-      showToast("No se pudo conectar a GitHub. Revisa la conexion.");
+      showToast("No se pudo descargar la actualización. Revisa la conexión.");
     } else {
       showToast("No se pudo actualizar LibrePOS.");
     }
@@ -9231,6 +9233,7 @@ function renderAdminAccessQr() {
         ${url ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a>` : `<span>${accessInfo.localOnly ? "El servidor sólo acepta conexiones de este equipo. Reinicia LibrePOS para habilitar el acceso por red." : "No se pudo obtener una dirección de red. Comprueba el WiFi del servidor y actualiza las direcciones."}</span>`}
         <p>Conecta el teléfono a la misma red. Mantén LibrePOS abierto en el servidor. Si no conecta, revisa el firewall y que el WiFi permita comunicación entre dispositivos.</p>
         ${accessInfo.urls.length > 1 ? `<label>Dirección para el teléfono<select data-access-url>${accessInfo.urls.map((item) => `<option value="${escapeAttr(item)}" ${item === url ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>` : ""}
+        ${state.updateInfo?.deviceId ? `<details><summary>Identificador de instalación para soporte</summary><code style="overflow-wrap:anywhere">${escapeHtml(state.updateInfo.deviceId)}</code></details>` : ""}
         <button class="secondary-button compact" type="button" data-refresh-access>Actualizar direcciones</button>
       </div>
     </section>

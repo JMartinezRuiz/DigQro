@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { createSyncMiddleware } from "./sync-store.js";
 
 export default defineConfig({
+  envDir: process.env.LIBREPOS_INSTALL_ROOT || undefined,
   server: {
     host: "0.0.0.0",
     port: 5173,

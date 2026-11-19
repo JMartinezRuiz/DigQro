@@ -225,16 +225,11 @@ Respuesta:
 ```json
 {
   "available": true,
-  "repoUrl": "https://github.com/JMartinezRuiz/DigQro",
-  "branch": "main",
-  "projectPath": "LibrePOS",
-  "localCommit": "abc123",
-  "localSource": "git",
-  "localIncludesRemote": false,
-  "localUpdatedAt": "",
-  "remoteCommit": "def456",
-  "remoteUrl": "https://github.com/JMartinezRuiz/DigQro/commit/def456",
-  "remoteDate": "2026-01-01T00:00:00Z",
+  "localPackageVersion": "2.1.0-beta.5",
+  "remotePackageVersion": "2.1.0-beta.6",
+  "localCommit": "v2.1.0-beta.5",
+  "remoteCommit": "v2.1.0-beta.6",
+  "restartRequired": false,
   "checkedAt": "2026-01-01T00:00:00.000Z"
 }
 ```
@@ -246,9 +241,7 @@ Respuesta cuando actualiza:
 ```json
 {
   "updated": true,
-  "filesUpdated": 25,
-  "installRan": true,
-  "installError": "",
+  "remoteCommit": "v2.1.0-beta.6",
   "restartRequired": true
 }
 ```
