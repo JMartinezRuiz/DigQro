@@ -1104,6 +1104,62 @@ a {
   border-radius: 50%;
 }
 
+.foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+}
+
+.foot-links a {
+  padding-block: 4px;
+  text-underline-offset: 0.2em;
+}
+
+.foot-links a:hover {
+  color: #fff;
+}
+
+.foot-links a:focus-visible {
+  outline-color: #fff;
+}
+
+/* Información legal */
+
+.legal-content {
+  width: min(100%, 780px);
+  overflow-wrap: anywhere;
+}
+
+.legal-index {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-block: 16px 40px;
+}
+
+.legal-content section + section {
+  margin-top: 36px;
+  padding-top: 36px;
+  border-top: 1px solid var(--line);
+}
+
+.legal-content h2 {
+  margin-bottom: 12px;
+  font-size: clamp(1.875rem, 1.5rem + 1.7vw, 2.5rem);
+}
+
+.legal-content h3 {
+  margin-block: 22px 6px;
+}
+
+.legal-content p + p {
+  margin-top: 12px;
+}
+
+.legal-content a {
+  text-underline-offset: 0.2em;
+}
+
 /* Aparición al hacer scroll: solo se oculta si hay JavaScript */
 
 h2[data-reveal],
